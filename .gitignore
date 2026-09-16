@@ -12,6 +12,11 @@ __pycache__/
 # Environments
 .venv/
 
+# Scratch files. A commit-message file is plumbing, never content: including it in
+# .gitignore stops `git add -A` from sweeping it into the commit that consumed it.
+.commit-msg
+.git-commit-msg.tmp
+
 # Probe output dumps (the scripts themselves are retained; their output is scratch)
 _probe_results*.json
 _greenhouse_form_probe.json
