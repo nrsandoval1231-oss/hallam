@@ -12,7 +12,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-
 from sabra_domain.db import Database
 from sabra_domain.settings import Settings
 

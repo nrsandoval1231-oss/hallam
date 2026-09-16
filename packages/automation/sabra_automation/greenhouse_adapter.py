@@ -29,11 +29,11 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from sabra_documents.answers import classify_question
 from sabra_domain.enums import SafetyStopKind, SourceKind, SubmissionMethod
 from sabra_domain.errors import SafetyStop
 from sabra_domain.identity import sha256_text
 from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
-from sabra_documents.answers import classify_question
 
 from .base import (
     ApplicationAdapter,

@@ -5,9 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import inspect
-from sqlalchemy.exc import IntegrityError
-
 from sabra_domain import models
 from sabra_domain.db import Database
 from sabra_domain.enums import JobStatus, TruthLevel
@@ -29,6 +26,8 @@ from sabra_domain.schemas import (
 )
 from sabra_domain.state import JOB_TRANSITIONS, assert_job_transition, can_transition_job
 from sabra_domain.truth import Evidence, TruthLedger
+from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError
 
 REQUIRED_TABLES = {
     "candidates",
@@ -216,18 +215,17 @@ def test_job_source_id_is_unique_but_multiple_sources_coexist(db: Database) -> N
         assert other.id != first.id
         assert other.canonical_key == first.canonical_key
 
-    with pytest.raises(IntegrityError):
-        with db.session() as session:
-            session.add(
-                models.Job(
-                    source="GREENHOUSE",
-                    source_job_id="12345",
-                    source_url="https://example.test/dupe",
-                    company="Revance",
-                    title="Territory Manager",
-                    canonical_key="k",
-                )
+    with pytest.raises(IntegrityError), db.session() as session:
+        session.add(
+            models.Job(
+                source="GREENHOUSE",
+                source_job_id="12345",
+                source_url="https://example.test/dupe",
+                company="Revance",
+                title="Territory Manager",
+                canonical_key="k",
             )
+        )
 
 
 def test_events_are_append_only_and_ordered(db: Database) -> None:
@@ -272,9 +270,8 @@ def test_duplicate_applications_are_impossible(db: Database) -> None:
         session.add(models.ApplicationRow(**payload))
         session.flush()
 
-    with pytest.raises(IntegrityError):
-        with db.session() as session:
-            session.add(models.ApplicationRow(**payload))
+    with pytest.raises(IntegrityError), db.session() as session:
+        session.add(models.ApplicationRow(**payload))
 
 
 def test_profile_versions_accumulate_rather_than_mutate(db: Database) -> None:
@@ -299,8 +296,7 @@ def test_sqlite_enforces_foreign_keys(db: Database) -> None:
     """A dangling FK would let the ledger rot silently."""
 
     assert db.dialect == "sqlite"
-    with pytest.raises(IntegrityError):
-        with db.session() as session:
-            session.add(
-                models.Resume(candidate_id="cand_missing", content_text="x", content_hash="h")
-            )
+    with pytest.raises(IntegrityError), db.session() as session:
+        session.add(
+            models.Resume(candidate_id="cand_missing", content_text="x", content_hash="h")
+        )

@@ -407,9 +407,10 @@ def parse_employment_type(
         if key in _COMMITMENT_MAP:
             return _COMMITMENT_MAP[key], warnings
     lowered = (text or "").lower()
-    if re.search(r"\b1099\b", lowered) or re.search(r"\bcontract(?:or)?\b", lowered):
-        if re.search(r"\b(?:this|the) (?:is a )?(?:1099|contract)\b", lowered):
-            return EmploymentType.CONTRACT, warnings
+    # Only an explicit "this is a 1099 / contract role" is treated as a contract
+    # posting. A bare mention of "contract" describes the employer's other staff.
+    if re.search(r"\b(?:this|the) (?:is a |is an )?(?:1099|contract)\b", lowered):
+        return EmploymentType.CONTRACT, warnings
     if re.search(r"\bfull[- ]time\b", lowered):
         return EmploymentType.FULL_TIME, warnings
     if re.search(r"\bpart[- ]time\b", lowered):

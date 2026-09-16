@@ -14,15 +14,14 @@ from __future__ import annotations
 
 import json
 import random
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 import pytest
-
 from sabra_domain.enums import EmploymentType, RemoteStatus, SourceKind
 from sabra_domain.errors import ConfigurationError
 from sabra_domain.schemas import CanonicalJob
-from sabra_providers.base import ProviderRef, RawJob
+from sabra_providers.base import RawJob
 from sabra_providers.dedupe import (
     Deduplicator,
     JobKey,

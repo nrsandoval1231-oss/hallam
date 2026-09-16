@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from sabra_domain.enums import SafetyStopKind, SourceKind, SubmissionMethod
+from sabra_domain.enums import SafetyStopKind, SubmissionMethod
 from sabra_domain.errors import ApprovalRequired, ApprovalScopeMismatch, SafetyStop
 from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
 

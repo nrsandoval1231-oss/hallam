@@ -11,7 +11,6 @@ from __future__ import annotations
 import time
 
 import httpx
-
 from sabra_domain.errors import ModelError
 from sabra_domain.settings import Settings
 

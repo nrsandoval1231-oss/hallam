@@ -15,9 +15,7 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.table import Table
-
 from sabra_domain.errors import SabraError
-from sabra_domain.settings import get_settings
 
 from .candidate_intake import (
     SEED_SEARCH_PROFILE_ID,

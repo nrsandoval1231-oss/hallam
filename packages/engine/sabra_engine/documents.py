@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sabra_documents.master_resume import parse_master_resume
+from sabra_documents.package import BuiltPackage, PackageFactory
 from sabra_domain.enums import EntityType, EventType, JobStatus, PackageStatus
 from sabra_domain.errors import NotFound, ValidationFailure
 from sabra_domain.identity import content_hash
 from sabra_domain.schemas import CandidateProfile, FitAssessmentSchema
-from sabra_documents.master_resume import parse_master_resume
-from sabra_documents.package import BuiltPackage, PackageFactory
 
 from .context import EngineContext, Repos
 

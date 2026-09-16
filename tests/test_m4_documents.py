@@ -14,21 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
-from sabra_domain.enums import PackageStatus, TruthLevel
-from sabra_domain.identity import content_hash
-from sabra_domain.schemas import (
-    AnswerRecord,
-    ApplicationPackageSchema,
-    CandidateProfile,
-    CanonicalJob,
-    CompensationPreference,
-    ContactInfo,
-    EducationEntry,
-    EmploymentEntry,
-    FitAssessmentSchema,
-    SkillEntry,
-)
 from sabra_documents.answers import (
     AnswerResolver,
     auto_fillable_answers,
@@ -49,8 +34,19 @@ from sabra_documents.tailor import (
     relevance,
     verify_tailored_truth,
 )
-from sabra_domain.schemas import Geography
-from sabra_domain.truth import Evidence, TruthLedger
+from sabra_domain.enums import PackageStatus, TruthLevel
+from sabra_domain.identity import content_hash
+from sabra_domain.schemas import (
+    AnswerRecord,
+    ApplicationPackageSchema,
+    CandidateProfile,
+    CanonicalJob,
+    CompensationPreference,
+    EmploymentEntry,
+    FitAssessmentSchema,
+    Geography,
+)
+from sabra_domain.truth import TruthLedger
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

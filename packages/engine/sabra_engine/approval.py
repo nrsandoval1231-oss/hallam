@@ -33,7 +33,7 @@ from sabra_domain.errors import (
 )
 from sabra_domain.schemas import ApplicationPackageSchema, ApprovalRecord
 
-from .context import EngineContext, Repos
+from .context import EngineContext
 
 
 @dataclass(slots=True)

@@ -11,8 +11,9 @@ stored on the assessment so a learned ranker can replace this later.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from sabra_domain.schemas import FitAssessmentSchema
 

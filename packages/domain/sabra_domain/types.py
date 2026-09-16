@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, JSON, TypeDecorator
+from sqlalchemy import JSON, DateTime, TypeDecorator
 
 
 def utcnow() -> datetime:

@@ -26,7 +26,7 @@ from sabra_scoring.features import (
 )
 from sabra_scoring.fit import HeuristicFitEngine
 from sabra_scoring.hard_filter import HardFilter
-from sabra_scoring.ranking import Ranker, RankedOpportunity
+from sabra_scoring.ranking import Ranker
 
 from .context import EngineContext, Repos
 

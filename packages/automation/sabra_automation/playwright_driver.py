@@ -9,11 +9,12 @@ any one adapter, and because the detection must fire before any interaction.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Protocol
 
-from sabra_domain.errors import SafetyStop
 from sabra_domain.enums import SafetyStopKind
+from sabra_domain.errors import SafetyStop
 
 # Signals that a page is a bot-protection interstitial rather than the form.
 BOT_WALL_SIGNALS: tuple[str, ...] = (
@@ -130,10 +131,8 @@ class PlaywrightPage:
             return None
 
     def close(self) -> None:
-        try:
+        with suppress(Exception):
             self._page.close()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 class BrowserSession:
@@ -169,15 +168,13 @@ class BrowserSession:
         return PlaywrightPage(context.new_page(), timeout_ms=self.timeout_ms)
 
     def close(self) -> None:
-        try:
+        # Teardown must never mask the real error, so both handles are released
+        # best-effort rather than propagating a close-time failure.
+        with suppress(Exception):
             if self._browser is not None:
                 self._browser.close()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
+        with suppress(Exception):
             if self._playwright is not None:
                 self._playwright.stop()
-        except Exception:  # noqa: BLE001
-            pass
         self._browser = None
         self._playwright = None

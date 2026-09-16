@@ -15,17 +15,14 @@ serves.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import select
-
+from conftest_app import build_job
 from sabra_automation.base import (
     ApplicationForm,
     PreparedSubmission,
     SourceNotSupported,
-    SubmissionReceipt,
 )
 from sabra_automation.greenhouse_adapter import (
     ENUMERATE_FIELDS_JS,
@@ -49,9 +46,6 @@ from sabra_domain.errors import (
 from sabra_engine.approval import ApprovalService
 from sabra_engine.execution import AdapterRegistry, ExecutionService
 from sabra_engine.ledger import LedgerService
-
-from conftest_app import build_job
-
 
 # ---------------------------------------------------------------------------
 # Test double for the browser
@@ -590,7 +584,6 @@ def test_application_path_derives_the_legal_route_from_the_graph() -> None:
 
     # An unreachable target is refused rather than silently produced.
     import pytest as _pytest
-
     from sabra_domain.errors import InvalidTransition
 
     with _pytest.raises(InvalidTransition):
@@ -639,16 +632,15 @@ def test_duplicate_application_is_structurally_impossible(prepared) -> None:
 
     from sqlalchemy.exc import IntegrityError
 
-    with pytest.raises(IntegrityError):
-        with prepared.ctx.repos() as repos:
-            repos.session.add(
-                models.ApplicationRow(
-                    opportunity_id=prepared.opportunity_id,
-                    package_id=prepared.package_id,
-                    job_id=prepared.job_id,
-                    candidate_id=prepared.candidate_id,
-                )
+    with pytest.raises(IntegrityError), prepared.ctx.repos() as repos:
+        repos.session.add(
+            models.ApplicationRow(
+                opportunity_id=prepared.opportunity_id,
+                package_id=prepared.package_id,
+                job_id=prepared.job_id,
+                candidate_id=prepared.candidate_id,
             )
+        )
 
 
 # ---------------------------------------------------------------------------

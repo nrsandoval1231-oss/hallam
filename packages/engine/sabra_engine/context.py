@@ -13,12 +13,11 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
-from sqlalchemy.orm import Session
-
-from sabra_domain.db import Database, database_from_settings
+from sabra_domain.db import Database
 from sabra_domain.settings import Settings, get_settings
 from sabra_llm.base import LLMProvider, get_provider
 from sabra_providers.registry import SourceRegistry, load_registry
+from sqlalchemy.orm import Session
 
 
 @dataclass

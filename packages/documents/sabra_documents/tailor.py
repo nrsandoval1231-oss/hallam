@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sabra_domain.enums import TruthLevel
-from sabra_domain.identity import normalize_text, normalize_title
+from sabra_domain.identity import normalize_text
 from sabra_domain.schemas import CandidateProfile, CanonicalJob, FitAssessmentSchema
 from sabra_domain.truth import Evidence, TruthLedger
 
@@ -38,8 +38,7 @@ _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 _STOPWORDS = frozenset(
     {
         "a", "an", "and", "the", "of", "for", "to", "in", "on", "at", "with", "as", "is",
-        "are", "be", "or", "you", "your", "we", "our", "this", "that", "will", "with",
-        "from", "by", "it", "its", "their", "they", "has", "have", "had", "was", "were",
+        "are", "be", "or", "you", "your", "we", "our", "this", "that", "will", "from", "by", "it", "its", "their", "they", "has", "have", "had", "was", "were",
         "role", "job", "position", "team", "company", "work", "working", "including",
         "years", "year", "experience", "strong", "ability", "must", "other", "more",
     }
@@ -137,7 +136,7 @@ def _recency_sort_key(index: int, start_date: str | None) -> str:
     month = 0
     month_match = re.search(r"^([a-zA-Z]{3})", text)
     if month_match:
-        months = "jan feb mar apr may jun jul aug sep oct nov dec".split()
+        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
         abbr = month_match.group(1).lower()
         if abbr in months:
             month = months.index(abbr) + 1

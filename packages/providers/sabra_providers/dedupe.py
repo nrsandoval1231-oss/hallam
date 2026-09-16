@@ -15,9 +15,10 @@ the same output.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Any, Iterable
+from typing import Any
 
 from sabra_domain.identity import (
     canonical_key,

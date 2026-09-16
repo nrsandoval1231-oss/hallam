@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 from sabra_domain.enums import SourceKind
 from sabra_domain.errors import ConfigurationError
 from sabra_domain.schemas import SourceRegistryEntry

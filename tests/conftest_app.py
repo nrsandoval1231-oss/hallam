@@ -12,8 +12,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
-from sabra_domain.db import Database
 from sabra_domain.enums import JobStatus
 from sabra_domain.schemas import (
     AnswerRecord,
@@ -30,7 +28,6 @@ from sabra_domain.settings import Settings
 from sabra_engine.candidate_intake import ensure_search_profile
 from sabra_engine.context import EngineContext
 from sabra_engine.documents import DocumentService
-from sabra_domain.repositories import CandidateRepository, JobRepository, OpportunityRepository
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

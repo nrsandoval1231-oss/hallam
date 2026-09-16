@@ -11,11 +11,9 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
-
 from sabra_domain import models
 from sabra_domain.db import Database
-from sabra_domain.enums import EmploymentType, JobStatus, RejectionReason, RemoteStatus
+from sabra_domain.enums import JobStatus, RejectionReason
 from sabra_domain.repositories import (
     CandidateRepository,
     EventRepository,
@@ -29,13 +27,13 @@ from sabra_domain.schemas import (
     CertificationEntry,
     CompensationPreference,
     EmploymentEntry,
-    Geography,
     LocationIntent,
     SearchProfile,
     SkillEntry,
-    TravelTolerance,
 )
 from sabra_domain.settings import Settings
+from sabra_engine.context import EngineContext
+from sabra_engine.intelligence import IntelligenceService
 from sabra_scoring.features import (
     extract_candidate_features,
     extract_intent_features,
@@ -44,8 +42,7 @@ from sabra_scoring.features import (
 from sabra_scoring.fit import FitWeights, HeuristicFitEngine
 from sabra_scoring.hard_filter import HardFilter
 from sabra_scoring.ranking import Ranker, desirability_score, outcome_probability
-from sabra_engine.context import EngineContext
-from sabra_engine.intelligence import IntelligenceService
+from sqlalchemy import select
 
 TODAY = date(2026, 9, 16)
 

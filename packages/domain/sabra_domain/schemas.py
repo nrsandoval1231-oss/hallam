@@ -281,10 +281,9 @@ class CandidateProfile(BaseModel):
     def is_empty(self, field_path: str) -> bool:
         value: Any = self
         for part in field_path.split("."):
-            if isinstance(value, dict):
-                value = value.get(part)
-            else:
-                value = getattr(value, part, None)
+            value = (
+                value.get(part) if isinstance(value, dict) else getattr(value, part, None)
+            )
             if value is None:
                 return True
         if isinstance(value, (list, dict, str)):

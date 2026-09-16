@@ -21,18 +21,15 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-from sabra_domain.enums import EmploymentType, EventType, EntityType, SourceKind, TruthLevel
+from sabra_domain.enums import EmploymentType, EntityType, EventType, SourceKind, TruthLevel
 from sabra_domain.errors import ConfigurationError, NotFound
 from sabra_domain.identity import new_id
 from sabra_domain.schemas import (
     AnswerRecord,
     CandidateProfile,
     CompensationPreference,
-    Geography,
     LocationIntent,
     SearchProfile,
-    TravelTolerance,
 )
 
 from .context import EngineContext

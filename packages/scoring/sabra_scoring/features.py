@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any
 
 from sabra_domain.identity import normalize_location, normalize_text, normalize_title
-from sabra_domain.schemas import CandidateProfile, CanonicalJob, SearchProfile
+from sabra_domain.schemas import CandidateProfile, SearchProfile
 
 # Unicode-aware so evidence matching works for postings in any script.
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)

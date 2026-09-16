@@ -378,9 +378,7 @@ def _salary_from_base_salary(base_salary: Any) -> tuple[float, float, str, str] 
         period = "HOUR"
     elif "MONTH" in unit_text:
         period = "MONTH"
-    elif "YEAR" in unit_text or "ANNUAL" in unit_text:
-        period = "YEAR"
-    elif low >= 1000:
+    elif "YEAR" in unit_text or "ANNUAL" in unit_text or low >= 1000:
         period = "YEAR"
     if high < low:
         low, high = high, low

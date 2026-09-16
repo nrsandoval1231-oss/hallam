@@ -16,8 +16,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
-
 from sabra_domain.enums import (
     DiscoveryRunStatus,
     EntityType,
@@ -31,6 +29,7 @@ from sabra_providers.base import Provider
 from sabra_providers.dedupe import JobKey, group_records
 from sabra_providers.http import HttpClient
 from sabra_providers.registry import SourceDefinition
+from sqlalchemy import select
 
 from .context import EngineContext, Repos
 
@@ -100,6 +99,7 @@ class DiscoveryRunResult:
     jobs_unchanged: int = 0
     postings_ingested: int = 0
     canonical_opportunities: int = 0
+    opportunities_regrouped: int = 0
     duplicates_removed: int = 0
     multi_source_opportunities: int = 0
     cross_source_pairs: int = 0
@@ -129,6 +129,7 @@ class DiscoveryRunResult:
             "jobs_unchanged": self.jobs_unchanged,
             "postings_ingested": self.postings_ingested,
             "canonical_opportunities": self.canonical_opportunities,
+            "opportunities_regrouped": self.opportunities_regrouped,
             "duplicates_removed": self.duplicates_removed,
             "multi_source_opportunities": self.multi_source_opportunities,
             "cross_source_pairs": self.cross_source_pairs,
@@ -171,7 +172,9 @@ class DiscoveryService:
             )
             run_id = run.id
 
-        search_profile = self._load_search_profile(candidate_id, profile_id)
+        # No search profile is loaded here: providers return every posting they
+        # publish, and intent is applied deterministically downstream by the hard
+        # filter. Filtering at discovery time would hide postings from the audit trail.
         outcomes: list[SourceOutcome] = []
         owns_http = http is None
         client = http or HttpClient(
@@ -421,7 +424,6 @@ class DiscoveryService:
 
             keys = [JobKey.from_row(row) for row in rows]
             rows_by_identity = {(row.source, row.source_job_id): row for row in rows}
-            keys_by_identity = {(k.source, k.source_job_id): k for k in keys}
 
             groups = group_records(keys)
             for group in groups:
@@ -482,7 +484,17 @@ class DiscoveryService:
             total_postings = sum(g.source_count for g in groups)
             multi = [g for g in groups if g.source_count > 1]
             result.postings_ingested = total_postings
-            result.canonical_opportunities = len(groups)
+            # Two different numbers, deliberately. `opportunities_regrouped` is what
+            # this pass touched; `canonical_opportunities` is what the candidate
+            # actually holds. Reporting only the former made a discovery run that
+            # followed a ranking pass claim 25 opportunities while the database held
+            # 1,094 — the ranking pass had moved the rest to REJECTED, which is
+            # correctly excluded from re-grouping but is still an opportunity on
+            # record. Requirement 49's pilot report reads this number.
+            result.opportunities_regrouped = len(groups)
+            result.canonical_opportunities = sum(
+                repos.opportunities.count_by_status(candidate_id).values()
+            )
             result.duplicates_removed = total_postings - len(groups)
             result.multi_source_opportunities = len(multi)
             result.cross_source_pairs = sum(

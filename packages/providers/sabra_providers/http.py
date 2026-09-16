@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-
 from sabra_domain.errors import ProviderError
 from sabra_domain.identity import sha256_bytes
 
