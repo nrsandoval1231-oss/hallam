@@ -1,0 +1,5 @@
+# Captured payloads are evidence: they must be byte-identical on every clone.
+# Without `-text`, a clone with a different EOL configuration would rewrite the line
+# endings, and a fixture whose shape the provider tests assert against would differ
+# from the one that was actually captured.
+tests/fixtures/** -text

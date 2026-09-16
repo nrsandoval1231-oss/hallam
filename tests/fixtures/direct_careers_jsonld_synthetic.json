@@ -1,0 +1,42 @@
+[
+ {
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "identifier": {
+   "@type": "PropertyValue",
+   "name": "Example Aesthetics",
+   "value": "EX-4471"
+  },
+  "title": "Territory Manager - Medical Aesthetics",
+  "datePosted": "2026-08-02",
+  "validThrough": "2026-11-30T23:59",
+  "employmentType": ["FULL_TIME"],
+  "hiringOrganization": {
+   "@type": "Organization",
+   "name": "Example Aesthetics",
+   "sameAs": "https://example-aesthetics.test"
+  },
+  "jobLocationType": "TELECOMMUTE",
+  "jobLocation": {
+   "@type": "Place",
+   "address": {
+    "@type": "PostalAddress",
+    "addressLocality": "Dallas",
+    "addressRegion": "TX",
+    "addressCountry": { "@type": "Country", "name": "US" }
+   }
+  },
+  "baseSalary": {
+   "@type": "MonetaryAmount",
+   "currency": "USD",
+   "value": {
+    "@type": "QuantitativeValue",
+    "minValue": 90000,
+    "maxValue": 120000,
+    "unitText": "YEAR"
+   }
+  },
+  "description": "<p>We are hiring a Territory Manager for the Dallas metro.</p><h3>Responsibilities</h3><ul><li>Own the Dallas territory plan</li><li>Train clinic staff on new devices</li></ul><h3>Requirements</h3><ul><li>3+ years of medical device or aesthetics sales</li><li>Willingness to travel up to 40%</li></ul><h3>Preferred Qualifications</h3><ul><li>Experience with injectables</li></ul>",
+  "industry": "Medical Aesthetics"
+ }
+]

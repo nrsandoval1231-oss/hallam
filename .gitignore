@@ -1,0 +1,26 @@
+# Local runtime state. Never committed: it holds the pilot database, generated
+# artifacts and automation evidence.
+var/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Environments
+.venv/
+
+# Probe output dumps (the scripts themselves are retained; their output is scratch)
+_probe_results*.json
+_greenhouse_form_probe.json
+
+# Local overrides
+.env
+.env.local
+
+# Node (web app)
+node_modules/
+.next/
+out/

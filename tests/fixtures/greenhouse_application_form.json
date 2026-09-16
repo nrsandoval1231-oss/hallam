@@ -1,0 +1,872 @@
+{
+ "captured_from": "https://job-boards.greenhouse.io/natera/jobs/6179619004",
+ "captured_at": "2026-09-16",
+ "title": "Job Application for Clinical Field Specialist at Natera",
+ "iframes": 3,
+ "captcha": true,
+ "fields": [
+  {
+   "tag": "input",
+   "id": "first_name",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "First Name",
+   "placeholder": null,
+   "autocomplete": "given-name",
+   "label": "First Name*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "last_name",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Last Name",
+   "placeholder": null,
+   "autocomplete": "family-name",
+   "label": "Last Name*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "preferred_name",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": "Preferred First Name",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Preferred First Name",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "email",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Email",
+   "placeholder": null,
+   "autocomplete": "email",
+   "label": "Email*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "country",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Country*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "iti-0__search-input",
+   "name": null,
+   "type": "search",
+   "required": false,
+   "ariaLabel": "Search",
+   "placeholder": "Search",
+   "autocomplete": "off",
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "phone",
+   "name": null,
+   "type": "tel",
+   "required": true,
+   "ariaLabel": "Phone",
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Phone*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "resume",
+   "name": null,
+   "type": "file",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Attach",
+   "value": null,
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "cover_letter",
+   "name": null,
+   "type": "file",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Attach",
+   "value": null,
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "company-name-0",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Company name",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Company name*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "title-0",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Title",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Title*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "start-date-month-0",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Start date month*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "start-date-year-0",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Start date year",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Start date year*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "end-date-month-0",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "End date month*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "end-date-year-0",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "End date year",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "End date year*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "current-role-0_1",
+   "name": "current-role-0",
+   "type": "checkbox",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Current role",
+   "value": "1",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "school--0",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "School",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "degree--0",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Degree",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "discipline--0",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Discipline",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "start-month--0",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Start date month",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "start-year--0",
+   "name": null,
+   "type": "number",
+   "required": false,
+   "ariaLabel": "Start date year",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Start date year",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "end-month--0",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "End date month",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "end-year--0",
+   "name": null,
+   "type": "number",
+   "required": false,
+   "ariaLabel": "End date year",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "End date year",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843171004",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": "LinkedIn Profile",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "LinkedIn Profile",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843172004",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": "Website",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Website",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843173004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Are you 18 or older?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843174004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Have you previously worked at Natera?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "textarea",
+   "id": "question_19843175004",
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": "Do you have any family members or relatives currently employed by Natera?\n\nIf yes, please provide the following information: Name of the family member, Relationship to you, and Department or role (if known)",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Do you have any family members or relatives currently employed by Natera? If yes, please provide the following information: Name of the family member, Relationship to you, and Department or role (if known)*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843176004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Are you legally authorized to work in the United States?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843177004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Do you now or will you in the future require sponsorship?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843178004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Have you signed a non-compete with your current employer?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843179004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Please  provide your current permanent residence street address?\n\n\n \n\n\n ",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Please provide your current permanent residence street address? *",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843180004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "What city do you currently live in?",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "What city do you currently live in?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843181004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "What state do you currently live in?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": null,
+   "name": null,
+   "type": null,
+   "required": true,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843182004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Postal Code",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Postal Code*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843183004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "What are your salary expectations?",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "What are your salary expectations?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "question_19843184004",
+   "name": null,
+   "type": "text",
+   "required": true,
+   "ariaLabel": "Who is your most recent/current employer?",
+   "placeholder": null,
+   "autocomplete": null,
+   "label": "Who is your most recent/current employer?*",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "gender",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Gender",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "hispanic_ethnicity",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Are you Hispanic/Latino?",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "veteran_status",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Veteran Status",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "input",
+   "id": "disability_status",
+   "name": null,
+   "type": "text",
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": "off",
+   "label": "Disability Status",
+   "value": "",
+   "options": null
+  },
+  {
+   "tag": "textarea",
+   "id": "g-recaptcha-response-100000",
+   "name": "g-recaptcha-response",
+   "type": null,
+   "required": false,
+   "ariaLabel": null,
+   "placeholder": null,
+   "autocomplete": null,
+   "label": null,
+   "value": "",
+   "options": null
+  }
+ ],
+ "buttons": [
+  {
+   "text": "Apply",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Autofill my application",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Attach",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Dropbox",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Google Drive",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Enter manually",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Attach",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Dropbox",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Google Drive",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Enter manually",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Add another",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Add another",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "",
+   "id": null,
+   "type": "button",
+   "name": null
+  },
+  {
+   "text": "Submit application",
+   "id": null,
+   "type": "submit",
+   "name": null
+  }
+ ]
+}

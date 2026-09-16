@@ -1,0 +1,281 @@
+# Sabra Job Engine — discovery source registry (requirement 7)
+#
+# Every entry below was verified live against the source's public API before it
+# was added; `verified_jobs` is the posting count observed on `verified_at`.
+# A board that stops publishing shows up as a stale verification rather than as
+# an unexplained drop in results.
+#
+# `domain` is the employer's own site. It is optional: it is only recorded here
+# when the domain was confirmed to resolve.
+#
+# Tier 1 (requirement 7) is Greenhouse + Lever + directly accessible company
+# career pages. See `docs/operations/source-registry-findings.md` for why no
+# DIRECT_CAREERS entry is enabled: every seed-vertical employer's careers page
+# routes to one of the ATS boards below, and none publishes capturable
+# schema.org JobPosting JSON-LD, so a DIRECT_CAREERS entry would contribute
+# nothing. The provider is implemented and covered by tests in case that changes.
+
+version: 1
+notes: >
+  Seed vertical: medical aesthetics, skincare, beauty technology and medical
+  device / diagnostics commercial roles, DFW and remote markets.
+
+sources:
+  # -- Medical aesthetics / injectables -------------------------------------
+  - id: greenhouse-revance
+    kind: GREENHOUSE
+    token: revance
+    display_name: Revance Therapeutics
+    industry: Medical aesthetics
+    domain: revance.com
+    enabled: true
+    verified_jobs: 36
+    verified_at: 2026-09-16
+    notes: Neuromodulator and dermal filler manufacturer; carries field sales roles.
+
+  # -- Skincare / beauty technology -----------------------------------------
+  - id: greenhouse-glossier
+    kind: GREENHOUSE
+    token: glossier
+    display_name: Glossier
+    industry: Beauty
+    domain: glossier.com
+    enabled: true
+    verified_jobs: 25
+    verified_at: 2026-09-16
+
+  - id: greenhouse-soldejaneiro
+    kind: GREENHOUSE
+    token: soldejaneiro
+    display_name: Sol de Janeiro
+    industry: Beauty
+    domain: soldejaneiro.com
+    enabled: true
+    verified_jobs: 21
+    verified_at: 2026-09-16
+
+  - id: greenhouse-ilia
+    kind: GREENHOUSE
+    token: ilia
+    display_name: ILIA Beauty
+    industry: Beauty
+    domain: ilia.com
+    enabled: true
+    verified_jobs: 15
+    verified_at: 2026-09-16
+
+  - id: greenhouse-tatcha
+    kind: GREENHOUSE
+    token: tatcha
+    display_name: Tatcha
+    industry: Skincare
+    domain: tatcha.com
+    enabled: true
+    verified_jobs: 10
+    verified_at: 2026-09-16
+
+  - id: greenhouse-nutrafol
+    kind: GREENHOUSE
+    token: nutrafol
+    display_name: Nutrafol
+    industry: Skincare and wellness
+    domain: nutrafol.com
+    enabled: true
+    verified_jobs: 9
+    verified_at: 2026-09-16
+
+  - id: greenhouse-supergoop
+    kind: GREENHOUSE
+    token: supergoop
+    display_name: Supergoop!
+    industry: Skincare
+    domain: supergoop.com
+    enabled: true
+    verified_jobs: 9
+    verified_at: 2026-09-16
+
+  - id: greenhouse-grovecollaborative
+    kind: GREENHOUSE
+    token: grovecollaborative
+    display_name: Grove Collaborative
+    industry: Consumer goods
+    domain: grove.co
+    enabled: true
+    verified_jobs: 7
+    verified_at: 2026-09-16
+
+  - id: lever-elfbeauty
+    kind: LEVER
+    token: elfbeauty
+    display_name: e.l.f. Beauty
+    industry: Beauty
+    domain: elfbeauty.com
+    enabled: true
+    verified_jobs: 80
+    verified_at: 2026-09-16
+    notes: Largest single board in the registry; carries field and retail sales roles.
+
+  # -- Medical device / diagnostics (commercial field roles) ----------------
+  - id: greenhouse-natera
+    kind: GREENHOUSE
+    token: natera
+    display_name: Natera
+    industry: Diagnostics
+    domain: natera.com
+    enabled: true
+    verified_jobs: 219
+    verified_at: 2026-09-16
+
+  - id: greenhouse-skinlaundry
+    kind: GREENHOUSE
+    token: skinlaundry
+    display_name: Skin Laundry
+    industry: Medical aesthetics
+    domain: skinlaundry.com
+    enabled: true
+    verified_jobs: 46
+    verified_at: 2026-09-16
+    notes: Laser and aesthetic clinic group; clinic and regional roles.
+
+  - id: greenhouse-ceribell
+    kind: GREENHOUSE
+    token: ceribell
+    display_name: Ceribell
+    industry: Medical devices
+    domain: ceribell.com
+    enabled: true
+    verified_jobs: 44
+    verified_at: 2026-09-16
+
+  - id: greenhouse-flatironhealth
+    kind: GREENHOUSE
+    token: flatironhealth
+    display_name: Flatiron Health
+    industry: Healthcare technology
+    domain: flatironhealth.com
+    enabled: true
+    verified_jobs: 28
+    verified_at: 2026-09-16
+
+  - id: greenhouse-butterflynetwork
+    kind: GREENHOUSE
+    token: butterflynetwork
+    display_name: Butterfly Network
+    industry: Medical devices
+    domain: butterflynetwork.com
+    enabled: true
+    verified_jobs: 23
+    verified_at: 2026-09-16
+
+  - id: greenhouse-surgerypartners
+    kind: GREENHOUSE
+    token: surgerypartners
+    display_name: Surgery Partners
+    industry: Healthcare services
+    domain: surgerypartners.com
+    enabled: true
+    verified_jobs: 5
+    verified_at: 2026-09-16
+
+  # -- Consumer wellness (commercial roles) ---------------------------------
+  - id: greenhouse-ritual
+    kind: GREENHOUSE
+    token: ritual
+    display_name: Ritual
+    industry: Wellness
+    domain: ritual.com
+    enabled: true
+    verified_jobs: 15
+    verified_at: 2026-09-16
+
+  - id: greenhouse-ag1
+    kind: GREENHOUSE
+    token: ag1
+    display_name: AG1
+    industry: Wellness
+    domain: drinkag1.com
+    enabled: true
+    verified_jobs: 9
+    verified_at: 2026-09-16
+
+  - id: greenhouse-beam
+    kind: GREENHOUSE
+    token: beam
+    display_name: Beam Dental
+    industry: Insurance and dental
+    domain: beam.dental
+    enabled: true
+    verified_jobs: 5
+    verified_at: 2026-09-16
+
+  # -- Medical aesthetics / medical device field sales (round 2) ------------
+  - id: greenhouse-sonobello
+    kind: GREENHOUSE
+    token: sonobello
+    display_name: Sono Bello
+    industry: Medical aesthetics
+    domain: sonobello.com
+    enabled: true
+    verified_jobs: 76
+    verified_at: 2026-09-16
+    notes: Body contouring clinic group; carries consultative sales roles.
+
+  - id: greenhouse-heartflowinc
+    kind: GREENHOUSE
+    token: heartflowinc
+    display_name: HeartFlow
+    industry: Medical devices
+    domain: heartflow.com
+    enabled: true
+    verified_jobs: 96
+    verified_at: 2026-09-16
+    notes: Cardiac diagnostics; carries field commercial roles.
+
+  - id: greenhouse-tactilemedical
+    kind: GREENHOUSE
+    token: tactilemedical
+    display_name: Tactile Medical
+    industry: Medical devices
+    domain: tactilemedical.com
+    enabled: true
+    verified_jobs: 44
+    verified_at: 2026-09-16
+    notes: At-home therapy devices sold through a field sales organisation.
+
+  - id: greenhouse-collegiumpharma
+    kind: GREENHOUSE
+    token: collegiumpharma
+    display_name: Collegium Pharmaceutical
+    industry: Pharmaceuticals
+    domain: collegiumpharma.com
+    enabled: true
+    verified_jobs: 14
+    verified_at: 2026-09-16
+
+  - id: greenhouse-lush
+    kind: GREENHOUSE
+    token: lush
+    display_name: Lush Cosmetics
+    industry: Beauty
+    domain: lush.com
+    enabled: true
+    verified_jobs: 289
+    verified_at: 2026-09-16
+    notes: >
+      Large retail board; most postings are in-store roles that the title screen
+      rejects. Kept because it also advertises area and field management roles.
+
+  # -- Not enabled: no capturable postings at verification time -------------
+  - id: direct-ashby-example
+    kind: DIRECT_CAREERS
+    token: direct-example
+    display_name: (unused) Direct careers page probe
+    enabled: false
+    careers_url: https://jobs.ashbyhq.com/ramp
+    verified_jobs: 0
+    verified_at: 2026-09-16
+    notes: >
+      Kept disabled as a record. The page served a 91 KB JavaScript shell with no
+      application/ld+json block, so a DIRECT_CAREERS source yields nothing
+      capturable. Every seed-vertical employer's own careers page likewise routes
+      to a Greenhouse or Lever board already listed above.

@@ -1,0 +1,70 @@
+[project]
+name = "sabra-job-engine"
+version = "0.1.0"
+description = "Sabra Job Engine V1 — outcome-driven job search operator with human control at the submission boundary"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "sqlalchemy>=2.0.35",
+    "httpx>=0.27",
+    "typer>=0.12",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+]
+automation = [
+    "playwright>=1.47",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+]
+
+[project.scripts]
+sabra = "sabra_engine.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/domain/sabra_domain",
+    "packages/llm/sabra_llm",
+    "packages/providers/sabra_providers",
+    "packages/scoring/sabra_scoring",
+    "packages/documents/sabra_documents",
+    "packages/automation/sabra_automation",
+    "packages/engine/sabra_engine",
+    "apps/api/sabra_api",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:sabra_.*"]
+pythonpath = [
+    "packages/domain",
+    "packages/llm",
+    "packages/providers",
+    "packages/scoring",
+    "packages/documents",
+    "packages/automation",
+    "packages/engine",
+    "apps/api",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]

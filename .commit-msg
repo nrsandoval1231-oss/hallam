@@ -1,0 +1,59 @@
+Build Sabra Job Engine V1 core: M1-M7 with live-verified discovery and ranking
+
+Implements the canonical build contract in SABRA_JOB_ENGINE_V1_BUILD.md from
+scaffolding to a working loop, verified against real data.
+
+What works, with evidence
+- M2 Discovery: 23 real ATS boards (22 Greenhouse, 1 Lever) read through their public
+  JSON APIs -> 1,126 postings normalized into 1,098 canonical opportunities. A repeat
+  run is fully idempotent (0 new, 1,126 unchanged).
+- M3 Intelligence: 1,094 opportunities screened -> 25 qualified -> 10 shortlisted,
+  led by genuine medical-device field-sales roles. Rejections are recorded with
+  reasons and remain in history.
+- M4 Application factory: truth-bound tailoring that selects and reorders
+  candidate-authored content, never paraphrasing it. Every generated line is
+  traceable, and verify_tailored_truth is tested to fail on a fabricated bullet.
+- M5 Approval: approval carries the content hash of the package a human read; the
+  execution path recomputes it and refuses on any difference.
+- M6 Execution: a Playwright adapter written against a real captured Greenhouse form
+  (51 fields). The live form is CAPTCHA-protected, so the adapter detects and stops
+  rather than working around it, per requirement 21.
+- M7 Ledger: append-only events, the requirement-22 ledger projection, outcomes and
+  the requirement-25 learning records.
+
+Layering
+packages/domain (models, schema, state machines, repositories, event log),
+packages/llm (provider abstraction, null by default), packages/providers
+(Greenhouse, Lever, direct careers; normalization; deduplication),
+packages/scoring (features, hard filter, fit, ranking), packages/documents
+(master resume, tailoring, answers, packages), packages/automation (adapter
+contract, Greenhouse adapter), packages/engine (services and CLI).
+
+172 tests passing. The deterministic path needs no model configured; every reasoning
+feature has a fallback and SABRA_LLM_PROVIDER defaults to none.
+
+Defects found by real data, not by the suite
+- ASCII-only title normalization collapsed every CJK title to "", merging unrelated
+  postings into one opportunity.
+- Deduplication merged on title+location alone, collapsing two roles that described
+  different territories into one opening.
+- Geography compared raw tokens, so a posting reading "Texas" never matched a profile
+  reading "TX".
+- Candidate skills were extracted but never merged into the evidence the scorers read,
+  so a skills-heavy profile scored zero qualification coverage.
+- Function-word n-grams let "Director of Bioinformatics" match "Director of Sales".
+- Hand-quoted CSS selectors produced a JavaScript syntax error, caught only by driving
+  a real browser.
+- The submission path moved APPROVED to APPLIED directly, which the state machine
+  forbids: a successful submission would have raised after the employer received it.
+  State moves now derive their route from the transition graph.
+
+Not built / not verified
+- No FastAPI app and no web UI yet.
+- The PostgreSQL path is documented and dialect-agnostic but has NOT been executed;
+  Docker is unavailable on this machine, so the pilot runs on SQLite.
+- M8 is blocked on owner input: package generation correctly refuses to invent
+  candidate facts, so with no resume loaded it produces INCOMPLETE packages naming
+  every open question.
+
+Assumptions and the full defect register: docs/architecture/assumptions.md.
