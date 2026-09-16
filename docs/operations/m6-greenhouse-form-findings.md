@@ -56,6 +56,27 @@ so the ledger says what happened.
 This is the intended V1 behaviour, not an unfinished feature: the employer put a
 control there deliberately, and defeating it is not this product's call to make.
 
+## Second live finding: an interstitial can look like a form
+
+A later live run against the same Revance posting served neither the form nor the
+bot wall but a **cookie-consent overlay** — a page whose only input was the consent
+widget (`ckyCCPAOptOut`). The adapter accepted it as the application form.
+
+The consequence was worse than a wasted click. A consent page has **no required
+fields**, so `validate` returned `ok=True`, `detect_stops` found no CAPTCHA, and the
+service proceeded to prepare against a page that was not the application — and with
+real submission enabled, to click a button on it.
+
+`looks_like_application_form` now requires two independent signals before the adapter
+will touch a page: a submit control, and *either* a page title naming it an
+application *or* at least two known identity inputs. Anything else is a
+`SafetyStop(MATERIAL_AMBIGUITY)` naming the title and the fields it did find.
+
+The same live run also showed that the interstitial is **not stable** — the first
+inspection found a bot wall, a later one found a consent overlay. Detection cannot
+be a one-off check of a known wall; it has to be a confirmation that the page is what
+it claims to be.
+
 ## Known limits, stated rather than hidden
 
 - The employment and education blocks are **recognized and mapped but not filled**.

@@ -63,6 +63,18 @@ IDENTITY_SELECTORS: dict[str, tuple[str, ...]] = {
     "cover_letter": ("#cover_letter", 'input[type="file"][id*="cover" i]'),
 }
 
+IDENTITY_FIELD_NAMES: tuple[str, ...] = (
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "country",
+)
+
+# Page titles Greenhouse uses for a real application form, e.g.
+# "Job Application for Clinical Field Specialist at Natera".
+APPLICATION_TITLE_SIGNALS: tuple[str, ...] = ("job application", "apply for", "application for")
+
 SUBMIT_SELECTORS: tuple[str, ...] = (
     'button[type="submit"]',
     'input[type="submit"]',
@@ -123,6 +135,33 @@ ENUMERATE_FIELDS_JS = """
   return out;
 }
 """
+
+
+def looks_like_application_form(
+    title: str, fields: list[FormField], submit_selector: str | None
+) -> bool:
+    """Whether an inspected page can be trusted to be the application form.
+
+    Two independent signals are required, so a consent or interstitial page cannot
+    pass by accident:
+
+    1. a submit control exists; and
+    2. either the page title names it as an application, or at least two of the known
+       identity inputs are present.
+
+    Measured live: a board served a cookie-consent overlay whose only field was the
+    consent widget. Without this check the adapter treated it as a form, and because
+    a consent page has no required fields, validation returned `ok=True`.
+    """
+
+    if not submit_selector:
+        return False
+    lowered_title = (title or "").lower()
+    if any(signal in lowered_title for signal in APPLICATION_TITLE_SIGNALS):
+        return True
+    names = {field.name.lower() for field in fields}
+    present = sum(1 for name in IDENTITY_FIELD_NAMES if name in names)
+    return present >= 2
 
 
 class GreenhouseApplicationAdapter(ApplicationAdapter):
@@ -216,6 +255,29 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
             ]
             submit_selector = self._find_submit_selector(page, fields)
+
+            # Confirm we are actually looking at an application form before doing
+            # anything with it. Measured live: a board served a cookie-consent overlay
+            # whose only field was the consent widget, and the adapter accepted it as
+            # the form. A consent page has no required fields, so validation would
+            # have returned ok=True and the service would have proceeded to "prepare"
+            # — and with a real submission enabled, to click — something that is not
+            # the application form.
+            if not looks_like_application_form(title, fields, submit_selector):
+                raise SafetyStop(
+                    SafetyStopKind.MATERIAL_AMBIGUITY,
+                    "the page could not be confirmed as an application form "
+                    f"(title {title!r}, {len(fields)} field(s), "
+                    f"submit control {'found' if submit_selector else 'not found'}); "
+                    "a human must open this posting and complete it. The page is "
+                    "usually a consent or bot interstitial in front of the form",
+                    {
+                        "url": page.current_url() or url,
+                        "title": title,
+                        "field_names": [f.name for f in fields][:10],
+                    },
+                )
+
             self._last_page = page
             return ApplicationForm(
                 url=page.current_url() or url,

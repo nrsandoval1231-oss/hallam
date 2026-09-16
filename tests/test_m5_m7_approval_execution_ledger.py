@@ -452,15 +452,31 @@ def test_approval_does_not_survive_a_package_change(prepared) -> None:
         approval.assert_submission_authorised(prepared.application_id)
 
 
-def test_approved_application_reaches_dry_run_and_does_not_claim_submission(prepared) -> None:
+def test_approved_application_reaches_dry_run_and_does_not_claim_submission(
+    prepared, greenhouse_form_capture: dict
+) -> None:
+    """The dry-run path, exercised offline against the captured real form.
+
+    This test previously used a live adapter against a fixture job URL that does not
+    exist. It passed for the wrong reason: the 404 page enumerated zero fields, a form
+    with no required fields validated as ok, and the run reported DRY_RUN without ever
+    having been on a real form. A stub page over the real captured inventory makes the
+    test both offline and meaningful.
+    """
+
     ApprovalService(prepared.ctx).approve(
         prepared.package_id, approved_by="test", acknowledge_unresolved=True
     )
-    registry = AdapterRegistry([GreenhouseApplicationAdapter(dry_run=True)])
-    result = ExecutionService(prepared.ctx, registry=registry).submit(
+    adapter = GreenhouseApplicationAdapter(
+        dry_run=True,
+        page_factory=lambda _url: FakeFormPage(
+            answerable_capture(greenhouse_form_capture), captcha=False
+        ),
+    )
+    result = ExecutionService(prepared.ctx, registry=AdapterRegistry([adapter])).submit(
         prepared.application_id, allow_real_submission=False
     )
-    assert result.outcome == "DRY_RUN"
+    assert result.outcome == "DRY_RUN", f"{result.outcome}: {result.detail} {result.stops}"
     assert result.receipt is None
 
     with prepared.ctx.read_repos() as repos:
@@ -552,6 +568,54 @@ def test_real_submission_on_a_captcha_form_is_blocked_not_bypassed(prepared) -> 
         events = [e.event_type for e in repos.events.for_entity("application", prepared.application_id)]
         assert "APPLICATION_SUBMITTED" not in events
         assert "APPLICATION_BLOCKED" in events
+
+
+def test_a_consent_overlay_is_not_mistaken_for_an_application_form() -> None:
+    """Measured live: a board served a cookie-consent overlay whose only field was the
+    consent widget. A consent page has no required fields, so treating it as the form
+    made validation return ok=True and let the service proceed toward submission."""
+
+    consent_only = {
+        "title": "Job Search | Revance",
+        "captcha": False,
+        "fields": [
+            {
+                "id": "ckyCCPAOptOut",
+                "tag": "input",
+                "type": "checkbox",
+                "required": False,
+                "label": "Do not sell my personal information",
+                "placeholder": None,
+                "value": None,
+                "options": [],
+            }
+        ],
+    }
+    adapter, _pages, _ = make_adapter(consent_only)
+    with pytest.raises(SafetyStop) as excinfo:
+        adapter.inspect(build_job())
+    assert excinfo.value.kind is SafetyStopKind.MATERIAL_AMBIGUITY
+    assert "consent" in excinfo.value.message
+
+
+def test_form_confirmation_requires_two_signals() -> None:
+    from sabra_automation.base import FormField
+    from sabra_automation.greenhouse_adapter import looks_like_application_form
+
+    identity = [
+        FormField(name="first_name"),
+        FormField(name="email"),
+    ]
+    # No submit control: not a form, whatever is on the page.
+    assert not looks_like_application_form("Job Application for X at Y", identity, None)
+    # Title signal alone is enough.
+    assert looks_like_application_form("Job Application for X at Y", [], 'button[type="submit"]')
+    # Or two identity inputs.
+    assert looks_like_application_form("Natera", identity, 'button[type="submit"]')
+    # One identity input and no title signal is not enough.
+    assert not looks_like_application_form(
+        "Careers", [FormField(name="first_name")], 'button[type="submit"]'
+    )
 
 
 def test_application_path_derives_the_legal_route_from_the_graph() -> None:
