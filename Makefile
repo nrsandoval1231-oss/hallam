@@ -14,8 +14,10 @@ VENV := .venv
 sync:
 	uv sync --all-extras --reinstall-package sabra-job-engine
 
+# `addopts` in pyproject already sets -q; passing it again made pytest quiet enough
+# to omit its own verdict line, so the gate gave an exit code and nothing else.
 test:
-	uv run pytest tests/ -q
+	uv run pytest tests/
 
 # Tests that reach the network. Excluded from the default suite because they
 # depend on third-party availability, not on this repository's correctness.
