@@ -118,8 +118,10 @@ class CandidateRepository:
         return self.session.execute(stmt).scalars().first()
 
     def primary(self) -> models.Candidate | None:
-        stmt = select(models.Candidate).where(models.Candidate.is_primary.is_(True)).order_by(
-            models.Candidate.created_at
+        stmt = (
+            select(models.Candidate)
+            .where(models.Candidate.is_primary.is_(True))
+            .order_by(models.Candidate.created_at)
         )
         return self.session.execute(stmt).scalars().first()
 
@@ -168,12 +170,16 @@ class CandidateRepository:
         return self.session.execute(stmt).scalars().first()
 
     def active_profile(self, candidate_id: str) -> CandidateProfile:
-        row = self.session.execute(
-            select(models.CandidateProfileRow).where(
-                models.CandidateProfileRow.candidate_id == candidate_id,
-                models.CandidateProfileRow.is_active.is_(True),
+        row = (
+            self.session.execute(
+                select(models.CandidateProfileRow).where(
+                    models.CandidateProfileRow.candidate_id == candidate_id,
+                    models.CandidateProfileRow.is_active.is_(True),
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if row is None:
             raise NotFound("candidate_profile", candidate_id)
         return CandidateProfile.model_validate(row.payload)
@@ -205,7 +211,9 @@ class ResumeRepository:
             ).scalars():
                 existing.is_master = False
         max_version = self.session.execute(
-            select(func.max(models.Resume.version)).where(models.Resume.candidate_id == candidate_id)
+            select(func.max(models.Resume.version)).where(
+                models.Resume.candidate_id == candidate_id
+            )
         ).scalar()
         row = models.Resume(
             candidate_id=candidate_id,
@@ -294,7 +302,9 @@ class SearchProfileRepository:
             )
             .order_by(models.SearchProfileRow.created_at)
         )
-        return [SearchProfile.model_validate(r.payload) for r in self.session.execute(stmt).scalars()]
+        return [
+            SearchProfile.model_validate(r.payload) for r in self.session.execute(stmt).scalars()
+        ]
 
     def list_for_candidate(self, candidate_id: str) -> list[models.SearchProfileRow]:
         stmt = select(models.SearchProfileRow).where(
@@ -309,9 +319,13 @@ class CompanyRepository:
 
     def upsert(self, name: str, **fields: Any) -> models.Company:
         normalized = normalize_company(name)
-        row = self.session.execute(
-            select(models.Company).where(models.Company.normalized_name == normalized)
-        ).scalars().first()
+        row = (
+            self.session.execute(
+                select(models.Company).where(models.Company.normalized_name == normalized)
+            )
+            .scalars()
+            .first()
+        )
         if row is None:
             row = models.Company(name=name, normalized_name=normalized, **fields)
             self.session.add(row)
@@ -414,8 +428,10 @@ class JobRepository:
         return existing, False, changed
 
     def by_canonical_key(self, canonical_key: str) -> list[models.Job]:
-        stmt = select(models.Job).where(models.Job.canonical_key == canonical_key).order_by(
-            models.Job.created_at
+        stmt = (
+            select(models.Job)
+            .where(models.Job.canonical_key == canonical_key)
+            .order_by(models.Job.created_at)
         )
         return list(self.session.execute(stmt).scalars())
 
@@ -507,6 +523,11 @@ class OpportunityRepository:
         self, opportunity_id: str, target: JobStatus, *, rejection: dict[str, Any] | None = None
     ) -> models.Opportunity:
         row = self.get(opportunity_id)
+        if JobStatus(row.status) == target:
+            if rejection is not None:
+                row.rejection = rejection
+            self.session.flush()
+            return row
         assert_job_transition(JobStatus(row.status), target)
         row.status = str(target)
         if rejection is not None:
@@ -528,7 +549,9 @@ class OpportunityRepository:
         row.rank_position = position
         self.session.flush()
 
-    def set_shortlist(self, opportunity_id: str, shortlisted: bool, reason: str | None = None) -> None:
+    def set_shortlist(
+        self, opportunity_id: str, shortlisted: bool, reason: str | None = None
+    ) -> None:
         row = self.get(opportunity_id)
         row.shortlisted = shortlisted
         row.shortlist_reason = reason
@@ -579,12 +602,18 @@ class FitAssessmentRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def upsert(self, opportunity_id: str, candidate_id: str, payload: dict[str, Any]) -> models.FitAssessmentRow:
-        row = self.session.execute(
-            select(models.FitAssessmentRow).where(
-                models.FitAssessmentRow.opportunity_id == opportunity_id
+    def upsert(
+        self, opportunity_id: str, candidate_id: str, payload: dict[str, Any]
+    ) -> models.FitAssessmentRow:
+        row = (
+            self.session.execute(
+                select(models.FitAssessmentRow).where(
+                    models.FitAssessmentRow.opportunity_id == opportunity_id
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if row is None:
             row = models.FitAssessmentRow(opportunity_id=opportunity_id, candidate_id=candidate_id)
             self.session.add(row)
@@ -594,23 +623,33 @@ class FitAssessmentRepository:
         return row
 
     def for_opportunity(self, opportunity_id: str) -> models.FitAssessmentRow | None:
-        return self.session.execute(
-            select(models.FitAssessmentRow).where(
-                models.FitAssessmentRow.opportunity_id == opportunity_id
+        return (
+            self.session.execute(
+                select(models.FitAssessmentRow).where(
+                    models.FitAssessmentRow.opportunity_id == opportunity_id
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
 
 
 class ResearchRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def upsert(self, opportunity_id: str, payload: dict[str, Any], engine: str) -> models.ResearchPacketRow:
-        row = self.session.execute(
-            select(models.ResearchPacketRow).where(
-                models.ResearchPacketRow.opportunity_id == opportunity_id
+    def upsert(
+        self, opportunity_id: str, payload: dict[str, Any], engine: str
+    ) -> models.ResearchPacketRow:
+        row = (
+            self.session.execute(
+                select(models.ResearchPacketRow).where(
+                    models.ResearchPacketRow.opportunity_id == opportunity_id
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if row is None:
             row = models.ResearchPacketRow(opportunity_id=opportunity_id)
             self.session.add(row)
@@ -620,11 +659,15 @@ class ResearchRepository:
         return row
 
     def for_opportunity(self, opportunity_id: str) -> models.ResearchPacketRow | None:
-        return self.session.execute(
-            select(models.ResearchPacketRow).where(
-                models.ResearchPacketRow.opportunity_id == opportunity_id
+        return (
+            self.session.execute(
+                select(models.ResearchPacketRow).where(
+                    models.ResearchPacketRow.opportunity_id == opportunity_id
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
 
 
 class PackageRepository:
@@ -684,7 +727,9 @@ class PackageRepository:
     def schema(self, row: models.ApplicationPackageRow) -> ApplicationPackageSchema:
         return ApplicationPackageSchema.model_validate(row.payload)
 
-    def list_pending_approval(self, candidate_id: str | None = None) -> list[models.ApplicationPackageRow]:
+    def list_pending_approval(
+        self, candidate_id: str | None = None
+    ) -> list[models.ApplicationPackageRow]:
         stmt = select(models.ApplicationPackageRow).where(
             models.ApplicationPackageRow.status == str(PackageStatus.AWAITING_APPROVAL)
         )
@@ -831,15 +876,24 @@ class ProviderRepository:
         enabled: bool = True,
         notes: str | None = None,
     ) -> models.ProviderRow:
-        row = self.session.execute(
-            select(models.ProviderRow).where(
-                models.ProviderRow.kind == kind, models.ProviderRow.token == token
+        row = (
+            self.session.execute(
+                select(models.ProviderRow).where(
+                    models.ProviderRow.kind == kind, models.ProviderRow.token == token
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if row is None:
             row = models.ProviderRow(
-                kind=kind, token=token, display_name=display_name, industry=industry,
-                locator=locator, enabled=enabled, notes=notes,
+                kind=kind,
+                token=token,
+                display_name=display_name,
+                industry=industry,
+                locator=locator,
+                enabled=enabled,
+                notes=notes,
             )
             self.session.add(row)
         else:
@@ -879,7 +933,9 @@ class ProviderRepository:
         return row
 
     def list_all(self, *, enabled_only: bool = False) -> list[models.ProviderRow]:
-        stmt = select(models.ProviderRow).order_by(models.ProviderRow.kind, models.ProviderRow.token)
+        stmt = select(models.ProviderRow).order_by(
+            models.ProviderRow.kind, models.ProviderRow.token
+        )
         if enabled_only:
             stmt = stmt.where(models.ProviderRow.enabled.is_(True))
         return list(self.session.execute(stmt).scalars())

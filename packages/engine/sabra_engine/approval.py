@@ -225,18 +225,14 @@ class ApprovalService:
             repos.session.flush()
 
             if application.status == ApplicationStatus.DRAFT.value:
-                repos.applications.set_status(
-                    application.id, ApplicationStatus.AWAITING_APPROVAL
-                )
+                repos.applications.set_status(application.id, ApplicationStatus.AWAITING_APPROVAL)
             if application.status != ApplicationStatus.APPROVED.value:
                 repos.applications.set_status(application.id, ApplicationStatus.APPROVED)
 
             repos.packages.set_status(package_row.id, PackageStatus.APPROVED)
             opportunity = repos.opportunities.get(package_row.opportunity_id)
             if JobStatus(opportunity.status) is JobStatus.AWAITING_APPROVAL:
-                repos.opportunities.set_status(
-                    package_row.opportunity_id, JobStatus.APPROVED
-                )
+                repos.opportunities.set_status(package_row.opportunity_id, JobStatus.APPROVED)
 
             payload = record.model_dump(mode="json")
             repos.events.append(
@@ -278,7 +274,10 @@ class ApprovalService:
             repos.opportunities.set_status(
                 opportunity.id,
                 JobStatus.REJECTED,
-                rejection={"reasons": ["DECLINED_BY_CANDIDATE"], "detail": {"reason": reason or ""}},
+                rejection={
+                    "reasons": ["DECLINED_BY_CANDIDATE"],
+                    "detail": {"reason": reason or ""},
+                },
             )
 
             application = repos.applications.for_opportunity(package_row.opportunity_id)
@@ -320,7 +319,9 @@ class ApprovalService:
 
     # -- authorisation check used by the execution path ------------------
 
-    def assert_submission_authorised(self, application_id: str) -> tuple[Any, ApplicationPackageSchema]:
+    def assert_submission_authorised(
+        self, application_id: str
+    ) -> tuple[Any, ApplicationPackageSchema]:
         """Verify a bound approval for the current package content.
 
         Called immediately before any external submission. Raises rather than
@@ -364,7 +365,9 @@ class ApprovalService:
                 application = repos.applications.get(application_id)
             except NotFound:
                 return {"application_id": application_id, "found": False}
-            package_row = repos.packages.get(application.package_id) if application.package_id else None
+            package_row = (
+                repos.packages.get(application.package_id) if application.package_id else None
+            )
             return {
                 "application_id": application.id,
                 "found": True,

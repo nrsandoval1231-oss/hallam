@@ -195,7 +195,10 @@ def seed_search_profile(candidate_id: str) -> SearchProfile:
             allow_relocation=False,
         ),
         compensation=CompensationPreference(
-            minimum=75000.0, target=100000.0, currency="USD", period="YEAR",
+            minimum=75000.0,
+            target=100000.0,
+            currency="USD",
+            period="YEAR",
             accepts_commission=True,
         ),
         travel_max_percent=40,

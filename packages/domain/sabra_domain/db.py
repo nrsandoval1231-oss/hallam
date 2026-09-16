@@ -46,9 +46,7 @@ class Database:
     def __init__(self, database_url: str | None = None, *, echo: bool = False) -> None:
         self.url = database_url or get_settings().database_url
         self.engine = build_engine(self.url, echo=echo)
-        self._session_factory = sessionmaker(
-            bind=self.engine, expire_on_commit=False, future=True
-        )
+        self._session_factory = sessionmaker(bind=self.engine, expire_on_commit=False, future=True)
 
     @property
     def dialect(self) -> str:

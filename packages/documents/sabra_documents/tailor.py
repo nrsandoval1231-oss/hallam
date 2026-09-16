@@ -37,10 +37,56 @@ from .master_resume import ResumeDocument
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 _STOPWORDS = frozenset(
     {
-        "a", "an", "and", "the", "of", "for", "to", "in", "on", "at", "with", "as", "is",
-        "are", "be", "or", "you", "your", "we", "our", "this", "that", "will", "from", "by", "it", "its", "their", "they", "has", "have", "had", "was", "were",
-        "role", "job", "position", "team", "company", "work", "working", "including",
-        "years", "year", "experience", "strong", "ability", "must", "other", "more",
+        "a",
+        "an",
+        "and",
+        "the",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "at",
+        "with",
+        "as",
+        "is",
+        "are",
+        "be",
+        "or",
+        "you",
+        "your",
+        "we",
+        "our",
+        "this",
+        "that",
+        "will",
+        "from",
+        "by",
+        "it",
+        "its",
+        "their",
+        "they",
+        "has",
+        "have",
+        "had",
+        "was",
+        "were",
+        "role",
+        "job",
+        "position",
+        "team",
+        "company",
+        "work",
+        "working",
+        "including",
+        "years",
+        "year",
+        "experience",
+        "strong",
+        "ability",
+        "must",
+        "other",
+        "more",
     }
 )
 
@@ -136,7 +182,20 @@ def _recency_sort_key(index: int, start_date: str | None) -> str:
     month = 0
     month_match = re.search(r"^([a-zA-Z]{3})", text)
     if month_match:
-        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        months = [
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+        ]
         abbr = month_match.group(1).lower()
         if abbr in months:
             month = months.index(abbr) + 1
@@ -177,14 +236,22 @@ class ResumeTailor:
         # the output is deterministic for identical inputs.
         ordered_roles = sorted(
             zip(profile.employment, scored_roles, strict=True),
-            key=lambda pair: (-pair[1][0], _recency_sort_key(pair[1][1], pair[0].start_date), pair[1][1]),
+            key=lambda pair: (
+                -pair[1][0],
+                _recency_sort_key(pair[1][1], pair[0].start_date),
+                pair[1][1],
+            ),
         )
 
         lines: list[str] = []
         role_order: list[str] = []
         selected_bullets: list[str] = []
 
-        contact = profile.identity if profile.identity.full_name else (master.contact if master else profile.identity)
+        contact = (
+            profile.identity
+            if profile.identity.full_name
+            else (master.contact if master else profile.identity)
+        )
         if contact.full_name:
             lines.append(f"# {contact.full_name}")
         headline = profile.headline or (master.headline if master else None)
@@ -197,7 +264,9 @@ class ResumeTailor:
                 artifact="tailored_resume",
             )
         else:
-            ledger.unresolved_question("No headline or target title available for the résumé header")
+            ledger.unresolved_question(
+                "No headline or target title available for the résumé header"
+            )
 
         contact_bits = [
             part
@@ -241,9 +310,7 @@ class ResumeTailor:
 
         emphasis = self._emphasis_terms(profile, focus)
         if emphasis:
-            sentence = (
-                f"Directly relevant experience: {', '.join(emphasis[:8])}."
-            )
+            sentence = f"Directly relevant experience: {', '.join(emphasis[:8])}."
             lines.append(sentence)
             ledger.record(
                 f"alignment sentence: {sentence}",
@@ -277,9 +344,7 @@ class ResumeTailor:
                 key=lambda triple: (-triple[0], triple[1]),
             )
             chosen = [
-                item
-                for score, _position, item in ranked
-                if score >= self.min_bullet_relevance
+                item for score, _position, item in ranked if score >= self.min_bullet_relevance
             ][: self.max_bullets_per_role]
             # Never leave a role empty: one bullet carries the role's substance.
             if not chosen and entry.accomplishments:
@@ -308,7 +373,9 @@ class ResumeTailor:
             lines.append("")
             lines.append("## Education")
             for item in education:
-                line = " — ".join(p for p in (normalize_text(item.degree), normalize_text(item.institution)) if p)
+                line = " — ".join(
+                    p for p in (normalize_text(item.degree), normalize_text(item.institution)) if p
+                )
                 dates = " - ".join(p for p in (item.start_date, item.end_date) if p)
                 lines.append(f"- {line}" + (f" ({dates})" if dates else ""))
                 ledger.record(
@@ -323,7 +390,9 @@ class ResumeTailor:
             lines.append("")
             lines.append("## Certifications")
             for item in certifications:
-                line = " — ".join(p for p in (normalize_text(item.name), normalize_text(item.issuer)) if p)
+                line = " — ".join(
+                    p for p in (normalize_text(item.name), normalize_text(item.issuer)) if p
+                )
                 lines.append(f"- {line}")
                 ledger.record(
                     f"certification: {line}",

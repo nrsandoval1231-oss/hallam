@@ -37,7 +37,9 @@ class LLMProvider(ABC):
         return False
 
     @abstractmethod
-    def complete(self, prompt: str, *, system: str | None = None, purpose: str = "generic") -> LLMResponse:
+    def complete(
+        self, prompt: str, *, system: str | None = None, purpose: str = "generic"
+    ) -> LLMResponse:
         """Return a completion or raise `ModelError`."""
 
 
@@ -51,7 +53,9 @@ class NullProvider(LLMProvider):
 
     name = "none"
 
-    def complete(self, prompt: str, *, system: str | None = None, purpose: str = "generic") -> LLMResponse:
+    def complete(
+        self, prompt: str, *, system: str | None = None, purpose: str = "generic"
+    ) -> LLMResponse:
         raise ModelError(
             "no language model is configured; set SABRA_LLM_PROVIDER and SABRA_LLM_MODEL to enable "
             f"model-assisted {purpose}"

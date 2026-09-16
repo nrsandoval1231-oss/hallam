@@ -162,8 +162,11 @@ class DiscoveryService:
                 EntityType.SYSTEM,
                 "discovery",
                 EventType.DISCOVERY_RUN_STARTED,
-                {"candidate_id": candidate_id, "search_profile_id": profile_id,
-                 "sources": [d.id for d in definitions]},
+                {
+                    "candidate_id": candidate_id,
+                    "search_profile_id": profile_id,
+                    "sources": [d.id for d in definitions],
+                },
             )
             run = repos.runs.start(
                 candidate_id=candidate_id,
@@ -302,7 +305,10 @@ class DiscoveryService:
                     )
                     rows.append((row, created, changed))
                 self._materialize(
-                    repos, rows, normalized_source=definition, candidate_id=candidate_id,
+                    repos,
+                    rows,
+                    normalized_source=definition,
+                    candidate_id=candidate_id,
                     outcome=outcome,
                 )
             outcome.ok = True
@@ -372,7 +378,9 @@ class DiscoveryService:
             repos.events.append(
                 EntityType.SYSTEM,
                 definition.id,
-                EventType.DISCOVERY_SOURCE_COMPLETED if outcome.ok else EventType.DISCOVERY_SOURCE_FAILED,
+                EventType.DISCOVERY_SOURCE_COMPLETED
+                if outcome.ok
+                else EventType.DISCOVERY_SOURCE_FAILED,
                 outcome.as_dict(),
             )
 
@@ -430,7 +438,9 @@ class DiscoveryService:
                 primary_key = group.primary
                 primary_row = rows_by_identity[(primary_key.source, primary_key.source_job_id)]
 
-                opportunity = repos.opportunities.find(candidate_id, profile_id, group.canonical_key)
+                opportunity = repos.opportunities.find(
+                    candidate_id, profile_id, group.canonical_key
+                )
                 created = opportunity is None
                 if created:
                     opportunity = repos.opportunities.create(

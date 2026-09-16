@@ -34,9 +34,34 @@ DEFAULT_DESCRIPTION_THRESHOLD = 0.75
 
 _STOPWORDS = frozenset(
     {
-        "a", "an", "and", "the", "of", "for", "to", "in", "on", "at", "with", "as",
-        "is", "are", "be", "you", "your", "we", "our", "this", "that", "will", "role",
-        "job", "position", "opportunity", "team", "company",
+        "a",
+        "an",
+        "and",
+        "the",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "at",
+        "with",
+        "as",
+        "is",
+        "are",
+        "be",
+        "you",
+        "your",
+        "we",
+        "our",
+        "this",
+        "that",
+        "will",
+        "role",
+        "job",
+        "position",
+        "opportunity",
+        "team",
+        "company",
     }
 )
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -203,7 +228,9 @@ def company_compatible(left: str, right: str) -> bool:
         return False
     tokens_left, tokens_right = left.split(), right.split()
     shorter, longer = (
-        (tokens_left, tokens_right) if len(tokens_left) <= len(tokens_right) else (tokens_right, tokens_left)
+        (tokens_left, tokens_right)
+        if len(tokens_left) <= len(tokens_right)
+        else (tokens_right, tokens_left)
     )
     if len(shorter) > len(longer):
         return False
@@ -304,7 +331,9 @@ class Deduplicator:
         return MergeDecision(False, "distinct_locations" if not locations_ok else "distinct_titles")
 
 
-def group_records(records: Iterable[JobKey], dedup: Deduplicator | None = None) -> list[OpportunityGroup]:
+def group_records(
+    records: Iterable[JobKey], dedup: Deduplicator | None = None
+) -> list[OpportunityGroup]:
     """Group postings into canonical opportunities deterministically.
 
     Ordering is by normalized company, title, location then source id, so the
@@ -333,9 +362,7 @@ def group_records(records: Iterable[JobKey], dedup: Deduplicator | None = None) 
                 target.add(record, decision.reason)
                 break
         if target is None:
-            groups.append(
-                OpportunityGroup(canonical_key=record.group_key(), members=[record])
-            )
+            groups.append(OpportunityGroup(canonical_key=record.group_key(), members=[record]))
     return groups
 
 
@@ -350,11 +377,7 @@ def duplicate_report(groups: Iterable[OpportunityGroup]) -> dict[str, Any]:
         "postings_ingested": total_postings,
         "duplicates_removed": total_postings - len(groups),
         "multi_source_opportunities": len(multi),
-        "cross_source_pairs": sum(
-            1
-            for g in multi
-            if len({m.source for m in g.members}) > 1
-        ),
+        "cross_source_pairs": sum(1 for g in multi if len({m.source for m in g.members}) > 1),
     }
 
 

@@ -47,7 +47,9 @@ def _context() -> EngineContext:
 
 @app.command("init")
 def init_command(
-    candidate_name: str | None = typer.Option(None, "--candidate-name", help="Candidate display name"),
+    candidate_name: str | None = typer.Option(
+        None, "--candidate-name", help="Candidate display name"
+    ),
     profile: Path | None = typer.Option(
         None, "--profile", help="Owner-supplied candidate profile (YAML or JSON)"
     ),
@@ -215,9 +217,7 @@ def status_command(as_json: bool = typer.Option(False, "--json")) -> None:
                     for row in repos.providers.list_all()
                 ],
                 "shortlisted": sum(
-                    1
-                    for o in repos.opportunities.list_for_candidate(candidate.id)
-                    if o.shortlisted
+                    1 for o in repos.opportunities.list_for_candidate(candidate.id) if o.shortlisted
                 )
                 if candidate
                 else 0,

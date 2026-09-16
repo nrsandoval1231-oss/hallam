@@ -49,9 +49,7 @@ class GreenhouseProvider(Provider):
         result = self.http.get(url, params={"content": "true"})
         payload = result.json()
         if not isinstance(payload, dict) or "jobs" not in payload:
-            raise ProviderError(
-                self.token, f"unexpected board payload from {url}", retryable=False
-            )
+            raise ProviderError(self.token, f"unexpected board payload from {url}", retryable=False)
 
         ref = ProviderRef(
             kind=self.kind,
@@ -209,9 +207,8 @@ class GreenhouseProvider(Provider):
             travel=travel,
             department=departments[0] if departments else None,
             seniority=parse_seniority(title),
-            date_posted=parse_date(payload.get("first_published")) or parse_date(
-                payload.get("updated_at")
-            ),
+            date_posted=parse_date(payload.get("first_published"))
+            or parse_date(payload.get("updated_at")),
             date_discovered=raw_job.fetched_at,
             status=str(JobStatus.DISCOVERED),
             raw_source_hash=raw_job.source_hash(),

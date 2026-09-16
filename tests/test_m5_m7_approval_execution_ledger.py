@@ -110,7 +110,9 @@ class FakeFormPage:
             selector = script.split("querySelectorAll(")[-1].split(")")[0].strip().strip("'\"")
             return self._count(selector)
         if "querySelectorAll" in script:
-            return self._count(script.split("querySelectorAll(")[-1].split(")")[0].strip().strip("'\""))
+            return self._count(
+                script.split("querySelectorAll(")[-1].split(")")[0].strip().strip("'\"")
+            )
         return None
 
     def _count(self, selector: str) -> int:
@@ -122,7 +124,7 @@ class FakeFormPage:
         if selector.startswith("#"):
             identifier = selector[1:]
             return sum(1 for f in self.capture["fields"] if f.get("id") == identifier)
-        if 'type=' in normalized and "file" in normalized:
+        if "type=" in normalized and "file" in normalized:
             return sum(1 for f in self.capture["fields"] if f.get("type") == "file")
         if "recaptcha" in selector or "captcha" in selector or "sitekey" in selector:
             return 1 if self._captcha else 0
@@ -160,7 +162,9 @@ class FakeFormPage:
         self.closed = True
 
 
-def make_adapter(capture: dict, **page_kwargs: Any) -> tuple[GreenhouseApplicationAdapter, FakeFormPage, list]:
+def make_adapter(
+    capture: dict, **page_kwargs: Any
+) -> tuple[GreenhouseApplicationAdapter, FakeFormPage, list]:
     """Adapter whose page factory yields one scripted fake page per call."""
 
     pages: list[FakeFormPage] = []
@@ -184,7 +188,9 @@ def test_bot_wall_detection_matches_the_real_interstitial() -> None:
 
     assert looks_like_bot_wall("Vercel Security Checkpoint", "")
     assert looks_like_bot_wall("Just a moment...", "")
-    assert not looks_like_bot_wall("Job Application for Clinical Field Specialist at Natera", "Apply")
+    assert not looks_like_bot_wall(
+        "Job Application for Clinical Field Specialist at Natera", "Apply"
+    )
 
 
 def test_login_wall_detection() -> None:
@@ -197,7 +203,9 @@ def test_supports_greenhouse_postings_only() -> None:
     assert adapter.supports(build_job())
     # A Lever posting is not this adapter's workflow, even if a wrong board_token
     # happens to be attached.
-    assert not adapter.supports(build_job(source="LEVER", source_url="https://jobs.lever.co/acme/1"))
+    assert not adapter.supports(
+        build_job(source="LEVER", source_url="https://jobs.lever.co/acme/1")
+    )
     assert not adapter.supports(
         build_job(source="LEVER", source_url="https://jobs.lever.co/acme/1", board_token=None)
     )
@@ -432,9 +440,7 @@ def test_approval_does_not_survive_a_package_change(prepared) -> None:
     """The core property of the irreversible boundary."""
 
     approval = ApprovalService(prepared.ctx)
-    approval.approve(
-        prepared.package_id, approved_by="test", acknowledge_unresolved=True
-    )
+    approval.approve(prepared.package_id, approved_by="test", acknowledge_unresolved=True)
     # The package content changes after approval (e.g. it was regenerated).
     with prepared.ctx.repos() as repos:
         package_row = repos.packages.get(prepared.package_id)
@@ -565,7 +571,9 @@ def test_real_submission_on_a_captcha_form_is_blocked_not_bypassed(prepared) -> 
         assert application.status == ApplicationStatus.BLOCKED.value
         assert application.submission_time is None
         assert application.external_confirmation == {}
-        events = [e.event_type for e in repos.events.for_entity("application", prepared.application_id)]
+        events = [
+            e.event_type for e in repos.events.for_entity("application", prepared.application_id)
+        ]
         assert "APPLICATION_SUBMITTED" not in events
         assert "APPLICATION_BLOCKED" in events
 
@@ -629,9 +637,9 @@ def test_application_path_derives_the_legal_route_from_the_graph() -> None:
         ApplicationStatus.APPLIED,
     ]
     assert application_path(ApplicationStatus.APPLIED, ApplicationStatus.APPLIED) == []
-    assert application_path(
-        ApplicationStatus.AWAITING_APPROVAL, ApplicationStatus.APPROVED
-    ) == [ApplicationStatus.APPROVED]
+    assert application_path(ApplicationStatus.AWAITING_APPROVAL, ApplicationStatus.APPROVED) == [
+        ApplicationStatus.APPROVED
+    ]
 
     # Every derived path must itself be a chain of legal edges.
     for start in ApplicationStatus:
@@ -642,7 +650,9 @@ def test_application_path_derives_the_legal_route_from_the_graph() -> None:
                 continue
             node = start
             for step in path:
-                assert step in APPLICATION_TRANSITIONS[node], f"{node} -> {step} is not a legal edge"
+                assert step in APPLICATION_TRANSITIONS[node], (
+                    f"{node} -> {step} is not a legal edge"
+                )
                 node = step
             assert node is target
 
@@ -716,8 +726,16 @@ def test_ledger_contains_every_field_requirement_22_names(prepared) -> None:
     ledger = LedgerService(prepared.ctx).application_ledger(prepared.application_id)
     payload = ledger.model_dump()
     for field in (
-        "job", "candidate", "application_package", "resume_version", "answers",
-        "submission_time", "submission_method", "status", "external_confirmation", "events",
+        "job",
+        "candidate",
+        "application_package",
+        "resume_version",
+        "answers",
+        "submission_time",
+        "submission_method",
+        "status",
+        "external_confirmation",
+        "events",
     ):
         assert field in payload, f"ledger is missing {field}"
     assert ledger.job["title"]

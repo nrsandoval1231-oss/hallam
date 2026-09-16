@@ -126,9 +126,7 @@ class PackageFactory:
                 f"{len(violations)} generated line(s) could not be traced to candidate data"
             )
         if missing:
-            warnings.append(
-                "candidate profile is missing required fields: " + ", ".join(missing)
-            )
+            warnings.append("candidate profile is missing required fields: " + ", ".join(missing))
 
         schema = ApplicationPackageSchema(
             opportunity_id=opportunity_id,
@@ -225,9 +223,7 @@ class PackageFactory:
 
         if tailored.emphasis_terms:
             lines.append("")
-            lines.append(
-                "My background covers " + ", ".join(tailored.emphasis_terms[:6]) + "."
-            )
+            lines.append("My background covers " + ", ".join(tailored.emphasis_terms[:6]) + ".")
             ledger.record(
                 "cover letter alignment sentence",
                 TruthLevel.INFERRED,
@@ -254,7 +250,9 @@ class PackageFactory:
         parts: list[str] = []
         if profile.headline:
             parts.append(normalize_text(profile.headline))
-        roles = [f"{e.title} at {e.employer}" for e in profile.employment[:3] if e.title and e.employer]
+        roles = [
+            f"{e.title} at {e.employer}" for e in profile.employment[:3] if e.title and e.employer
+        ]
         if roles:
             parts.append("Recent roles: " + "; ".join(roles) + ".")
         if tailored.emphasis_terms:
@@ -288,7 +286,11 @@ class PackageFactory:
         return (
             f"Hello, I'm {name}. I've applied for the {title} role at {company} and wanted to "
             "introduce myself directly. My background includes "
-            + (", ".join(tailored.emphasis_terms[:5]) if tailored.emphasis_terms else "the experience summarised in my application")
+            + (
+                ", ".join(tailored.emphasis_terms[:5])
+                if tailored.emphasis_terms
+                else "the experience summarised in my application"
+            )
             + ". I'd be glad to answer any questions."
         )
 

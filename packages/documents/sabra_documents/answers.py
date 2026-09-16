@@ -41,22 +41,65 @@ SENSITIVE_KEYS = frozenset(
 # Canonical question keys with the phrases that identify them. Kept as data so a
 # new pattern is a one-line addition rather than new logic.
 QUESTION_CATALOGUE: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("work_authorization", ("authorized to work", "work authorization", "legally authorized",
-                            "right to work", "eligible to work", "work permit")),
+    (
+        "work_authorization",
+        (
+            "authorized to work",
+            "work authorization",
+            "legally authorized",
+            "right to work",
+            "eligible to work",
+            "work permit",
+        ),
+    ),
     ("sponsorship", ("sponsorship", "require sponsorship", "visa sponsorship", "need a visa")),
     ("relocation", ("willing to relocate", "relocation", "open to relocating")),
-    ("travel", ("willing to travel", "travel required", "ability to travel", "travel up to",
-                "comfortable travelling", "comfortable traveling")),
-    ("salary_expectations", ("salary expectation", "desired compensation", "compensation expectation",
-                             "salary requirement", "expected salary", "desired salary")),
-    ("start_date", ("start date", "when can you start", "availability to start", "notice period",
-                    "earliest start")),
+    (
+        "travel",
+        (
+            "willing to travel",
+            "travel required",
+            "ability to travel",
+            "travel up to",
+            "comfortable travelling",
+            "comfortable traveling",
+        ),
+    ),
+    (
+        "salary_expectations",
+        (
+            "salary expectation",
+            "desired compensation",
+            "compensation expectation",
+            "salary requirement",
+            "expected salary",
+            "desired salary",
+        ),
+    ),
+    (
+        "start_date",
+        (
+            "start date",
+            "when can you start",
+            "availability to start",
+            "notice period",
+            "earliest start",
+        ),
+    ),
     ("veteran_status", ("veteran status", "protected veteran")),
     ("disability_status", ("disability", "accommodation")),
     ("gender", ("gender", "sex ")),
     ("race", ("race", "ethnicity", "hispanic")),
-    ("commute", ("willing to commute", "reliable transportation", "commute", "driver's license",
-                 "drivers license")),
+    (
+        "commute",
+        (
+            "willing to commute",
+            "reliable transportation",
+            "commute",
+            "driver's license",
+            "drivers license",
+        ),
+    ),
     ("background_check", ("background check", "drug screen", "drug test")),
     ("how_did_you_hear", ("how did you hear", "how you heard", "where did you hear")),
     ("education_level", ("highest level of education", "degree", "education level")),
@@ -89,7 +132,9 @@ class Resolution:
         return self.answer.answer not in (None, "")
 
 
-def _record_to_answer(key: str, question: str, record: AnswerRecord | None) -> ApplicationAnswerSchema:
+def _record_to_answer(
+    key: str, question: str, record: AnswerRecord | None
+) -> ApplicationAnswerSchema:
     if record is None or record.value in (None, ""):
         return ApplicationAnswerSchema(
             question_key=key,
@@ -157,7 +202,9 @@ class AnswerResolver:
             # catalogue, because the candidate supplied it for this wording.
             record = profile.answer_memory.get(key or "") or self._exact_match(text, profile)
             resolutions.append(
-                Resolution(answer=_record_to_answer(key or text.lower(), text, record), matched_key=key)
+                Resolution(
+                    answer=_record_to_answer(key or text.lower(), text, record), matched_key=key
+                )
             )
         return resolutions
 

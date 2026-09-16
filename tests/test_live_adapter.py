@@ -77,7 +77,9 @@ def test_playwright_driver_can_open_a_real_page_and_read_it() -> None:
 
 
 @pytest.mark.parametrize(("expectation", "job"), LIVE_BOARDS, ids=[b[0] for b in LIVE_BOARDS])
-def test_adapter_inspects_a_live_greenhouse_page_safely(expectation: str, job: CanonicalJob) -> None:
+def test_adapter_inspects_a_live_greenhouse_page_safely(
+    expectation: str, job: CanonicalJob
+) -> None:
     """The adapter's real path: navigate, detect, enumerate — or refuse cleanly."""
 
     adapter = GreenhouseApplicationAdapter(dry_run=True)

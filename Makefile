@@ -43,7 +43,7 @@ status:
 	uv run sabra status
 
 run-api:
-	uv run uvicorn sabra_api.main:app --host 127.0.0.1 --port 8787
+	uv run uvicorn --app-dir apps/api sabra_api.main:app --host 127.0.0.1 --port 8787
 
 # Deletes the local pilot database. Only ever points at var/.
 reset:

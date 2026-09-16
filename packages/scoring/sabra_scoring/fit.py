@@ -29,10 +29,45 @@ from .features import (
 
 _STOPWORDS = frozenset(
     {
-        "a", "an", "and", "the", "of", "for", "to", "in", "on", "at", "with", "as", "is",
-        "are", "be", "or", "you", "your", "we", "our", "this", "that", "will", "must",
-        "have", "has", "2", "3", "4", "5", "years", "year", "experience", "ability",
-        "strong", "excellent", "including", "etc", "plus",
+        "a",
+        "an",
+        "and",
+        "the",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "at",
+        "with",
+        "as",
+        "is",
+        "are",
+        "be",
+        "or",
+        "you",
+        "your",
+        "we",
+        "our",
+        "this",
+        "that",
+        "will",
+        "must",
+        "have",
+        "has",
+        "2",
+        "3",
+        "4",
+        "5",
+        "years",
+        "year",
+        "experience",
+        "ability",
+        "strong",
+        "excellent",
+        "including",
+        "etc",
+        "plus",
     }
 )
 
@@ -89,9 +124,7 @@ class HeuristicFitEngine:
 
     # -- components -----------------------------------------------------
 
-    def _qualification(
-        self, job: JobFeatures, candidate: CandidateFeatures
-    ) -> Component:
+    def _qualification(self, job: JobFeatures, candidate: CandidateFeatures) -> Component:
         items = job.requirement_items or job.preferred_items
         source = "requirements" if job.requirement_items else "preferred qualifications"
         if not items:
@@ -182,9 +215,7 @@ class HeuristicFitEngine:
             {"target_match": bool(exact), "matched_ngrams": sorted(matched) if not exact else []},
         )
 
-    def _compensation(
-        self, job: JobFeatures, search: SearchProfile
-    ) -> Component:
+    def _compensation(self, job: JobFeatures, search: SearchProfile) -> Component:
         low, high = annualized_salary(job)
         floor = search.compensation.minimum
         target = search.compensation.target
@@ -194,7 +225,9 @@ class HeuristicFitEngine:
                 if job.salary_period == "HOUR"
                 else "no compensation is posted"
             )
-            return Component("compensation_score", 0.0, False, posted, {"posted": bool(job.salary_min)})
+            return Component(
+                "compensation_score", 0.0, False, posted, {"posted": bool(job.salary_min)}
+            )
         if floor is None and target is None:
             return Component(
                 "compensation_score",
@@ -219,7 +252,12 @@ class HeuristicFitEngine:
             round(score, 4),
             True,
             note,
-            {"posted_low": low, "posted_high": high, "reference": reference, "period": job.salary_period},
+            {
+                "posted_low": low,
+                "posted_high": high,
+                "reference": reference,
+                "period": job.salary_period,
+            },
         )
 
     def _location(self, job: JobFeatures, search: SearchProfile) -> Component:
@@ -280,12 +318,16 @@ class HeuristicFitEngine:
                 note,
                 {"remote_status": job.remote_status, "tier": tier},
             )
-        return Component("location_score", round(score, 4), True, note, {"remote_status": job.remote_status})
+        return Component(
+            "location_score", round(score, 4), True, note, {"remote_status": job.remote_status}
+        )
 
     def _industry(self, job: JobFeatures, intent: IntentFeatures) -> Component:
         if not intent.industry_tokens:
             return Component("industry_score", 0.0, False, "no preferred industries set", {})
-        job_tokens = set(job.description_tokens) | set(job.title_tokens) | _content_tokens(job.department)
+        job_tokens = (
+            set(job.description_tokens) | set(job.title_tokens) | _content_tokens(job.department)
+        )
         hits = intent.industry_tokens & job_tokens
         score = len(hits) / len(intent.industry_tokens)
         return Component(
@@ -453,10 +495,7 @@ def _why_this_job(
     gaps: list[str],
     fit: float,
 ) -> str:
-    lead = (
-        f"{job.title} at {job.company}"
-        + (f" ({job.location})" if job.location else "")
-    )
+    lead = f"{job.title} at {job.company}" + (f" ({job.location})" if job.location else "")
     top = sorted(
         (c for c in by_name.values() if c.available),
         key=lambda c: -c.score,
@@ -474,6 +513,4 @@ def assess_profile_ready(profile: CandidateProfile | None) -> bool:
 
     if profile is None:
         return False
-    return bool(
-        profile.employment or profile.skills or profile.summary or profile.headline
-    )
+    return bool(profile.employment or profile.skills or profile.summary or profile.headline)

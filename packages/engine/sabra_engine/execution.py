@@ -149,11 +149,15 @@ class ExecutionService:
         try:
             application, package = self.approval.assert_submission_authorised(application_id)
         except (ApprovalRequired, ApprovalScopeMismatch, TruthBoundaryViolation) as exc:
-            self._record(application_id, EventType.APPLICATION_BLOCKED, {
-                "stage": "authorisation",
-                "reason": type(exc).__name__,
-                "message": str(exc),
-            })
+            self._record(
+                application_id,
+                EventType.APPLICATION_BLOCKED,
+                {
+                    "stage": "authorisation",
+                    "reason": type(exc).__name__,
+                    "message": str(exc),
+                },
+            )
             return ExecutionResult(
                 application_id=application_id,
                 opportunity_id="",
@@ -219,9 +223,7 @@ class ExecutionService:
                     "form": form.as_dict(),
                 },
             )
-            self._set_application_blocked(
-                application_id, str(stops[0].kind), stops[0].message
-            )
+            self._set_application_blocked(application_id, str(stops[0].kind), stops[0].message)
             return ExecutionResult(
                 application_id=application_id,
                 opportunity_id=opportunity_id,
@@ -260,9 +262,10 @@ class ExecutionService:
         if not report.ok:
             self._set_application_blocked(
                 application_id,
-                str(report.stops[0].kind) if report.stops else str(SafetyStopKind.MATERIAL_AMBIGUITY),
-                "; ".join(s.message for s in report.stops)
-                or "validation failed before submission",
+                str(report.stops[0].kind)
+                if report.stops
+                else str(SafetyStopKind.MATERIAL_AMBIGUITY),
+                "; ".join(s.message for s in report.stops) or "validation failed before submission",
             )
             return ExecutionResult(
                 application_id=application_id,

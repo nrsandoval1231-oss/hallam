@@ -111,9 +111,7 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
     ApplicationStatus.BLOCKED: frozenset(
         {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN, ApplicationStatus.FAILED}
     ),
-    ApplicationStatus.FAILED: frozenset(
-        {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN}
-    ),
+    ApplicationStatus.FAILED: frozenset({ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN}),
     ApplicationStatus.APPLIED: frozenset({ApplicationStatus.WITHDRAWN}),
     ApplicationStatus.WITHDRAWN: frozenset(),
 }

@@ -135,7 +135,9 @@ class Ranker:
             explanation=explanation,
         )
 
-    def rank(self, assessments: Iterable[tuple[str, FitAssessmentSchema]]) -> list[RankedOpportunity]:
+    def rank(
+        self, assessments: Iterable[tuple[str, FitAssessmentSchema]]
+    ) -> list[RankedOpportunity]:
         return sorted(
             (self.score(opportunity_id, assessment) for opportunity_id, assessment in assessments),
             key=lambda r: (-r.rank_score, r.opportunity_id),

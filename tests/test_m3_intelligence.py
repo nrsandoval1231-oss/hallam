@@ -162,7 +162,9 @@ def test_texas_spelled_out_matches_a_tx_profile() -> None:
 
 
 def test_excluded_title_matches_on_word_boundaries() -> None:
-    assert RejectionReason.EXCLUDED_TITLE.value in evaluate(make_job(title="Machine Operator")).reasons
+    assert (
+        RejectionReason.EXCLUDED_TITLE.value in evaluate(make_job(title="Machine Operator")).reasons
+    )
     # "Intern" must not reject "Internal Sales Manager".
     decision = evaluate(make_job(title="Internal Sales Manager"))
     assert RejectionReason.EXCLUDED_TITLE.value not in decision.reasons
@@ -178,7 +180,10 @@ def test_commission_only_is_rejected_unless_the_profile_accepts_it() -> None:
 
 
 def test_excessive_travel_is_rejected() -> None:
-    assert RejectionReason.EXCESSIVE_TRAVEL.value in evaluate(make_job(travel="up to 75% travel")).reasons
+    assert (
+        RejectionReason.EXCESSIVE_TRAVEL.value
+        in evaluate(make_job(travel="up to 75% travel")).reasons
+    )
     assert "travel" not in evaluate(make_job(travel=None)).reasons
 
 
@@ -191,29 +196,33 @@ def test_role_family_plus_level_is_required_together() -> None:
     """A family word alone is not a role, and a level word alone is not either."""
 
     assert evaluate(make_job(title="Regional Account Director")).passed
-    assert RejectionReason.OUTSIDE_SEARCH_INTENT.value in evaluate(
-        make_job(title="Sales Operations Analyst")
-    ).reasons  # family but no declared level term
-    assert RejectionReason.OUTSIDE_SEARCH_INTENT.value in evaluate(
-        make_job(title="Senior Software Engineer")
-    ).reasons
+    assert (
+        RejectionReason.OUTSIDE_SEARCH_INTENT.value
+        in evaluate(make_job(title="Sales Operations Analyst")).reasons
+    )  # family but no declared level term
+    assert (
+        RejectionReason.OUTSIDE_SEARCH_INTENT.value
+        in evaluate(make_job(title="Senior Software Engineer")).reasons
+    )
 
 
 def test_multi_word_role_family_matches_as_a_phrase_only() -> None:
     """Splitting "business development" into tokens admitted an HR role."""
 
     assert evaluate(make_job(title="Business Development Manager")).passed
-    assert RejectionReason.OUTSIDE_SEARCH_INTENT.value in evaluate(
-        make_job(title="Director, People Business Partner")
-    ).reasons
+    assert (
+        RejectionReason.OUTSIDE_SEARCH_INTENT.value
+        in evaluate(make_job(title="Director, People Business Partner")).reasons
+    )
 
 
 def test_mandatory_qualification_only_rejects_with_candidate_evidence() -> None:
     search = make_search(minimum_qualifications=["valid driver's license"])
     # No candidate evidence at all: silence is not a failure.
-    assert RejectionReason.MISSING_MANDATORY_QUALIFICATION.value not in evaluate(
-        make_job(), search
-    ).reasons
+    assert (
+        RejectionReason.MISSING_MANDATORY_QUALIFICATION.value
+        not in evaluate(make_job(), search).reasons
+    )
 
     candidate = CandidateProfile(
         candidate_id="cand_test",
@@ -228,9 +237,10 @@ def test_mandatory_qualification_only_rejects_with_candidate_evidence() -> None:
         employment=[EmploymentEntry(employer="Acme", title="Territory Manager")],
         skills=[SkillEntry(name="Driver's license")],
     )
-    assert RejectionReason.MISSING_MANDATORY_QUALIFICATION.value not in evaluate(
-        make_job(), search, qualified
-    ).reasons
+    assert (
+        RejectionReason.MISSING_MANDATORY_QUALIFICATION.value
+        not in evaluate(make_job(), search, qualified).reasons
+    )
 
 
 def test_every_check_is_reported_exactly_once_as_run_or_skipped() -> None:
@@ -262,13 +272,22 @@ def assess(job: models.Job, search: SearchProfile | None = None, candidate=None)
 def test_fit_scores_are_bounded_and_every_component_is_explained() -> None:
     assessment = assess(make_job())
     for field in (
-        "fit_score", "career_score", "qualification_score", "compensation_score",
-        "location_score", "industry_score", "trajectory_score",
+        "fit_score",
+        "career_score",
+        "qualification_score",
+        "compensation_score",
+        "location_score",
+        "industry_score",
+        "trajectory_score",
     ):
         assert 0.0 <= getattr(assessment, field) <= 1.0
     assert set(assessment.component_rationale) == {
-        "qualification_score", "career_score", "compensation_score",
-        "location_score", "industry_score", "trajectory_score",
+        "qualification_score",
+        "career_score",
+        "compensation_score",
+        "location_score",
+        "industry_score",
+        "trajectory_score",
     }
     assert all(rationale for rationale in assessment.component_rationale.values())
     assert assessment.why_this_job and "scores" in assessment.why_this_job
@@ -360,8 +379,12 @@ def test_location_score_prefers_the_candidates_own_metro() -> None:
 def test_weights_are_honoured() -> None:
     location_only = HeuristicFitEngine(
         FitWeights(
-            qualification=0.0, career=0.0, compensation=0.0, location=1.0,
-            industry=0.0, trajectory=0.0,
+            qualification=0.0,
+            career=0.0,
+            compensation=0.0,
+            location=1.0,
+            industry=0.0,
+            trajectory=0.0,
         )
     ).assess(
         extract_job_features(make_job(), today=TODAY),
@@ -411,7 +434,10 @@ def test_desirability_and_outcome_probability_are_bounded() -> None:
 def test_shortlist_selection_respects_the_limit_and_eligibility() -> None:
     ranker = Ranker()
     ranked = ranker.rank(
-        [(f"opp_{i}", assess(make_job(source_job_id=str(i), salary_min=90000 + i * 1000))) for i in range(20)]
+        [
+            (f"opp_{i}", assess(make_job(source_job_id=str(i), salary_min=90000 + i * 1000)))
+            for i in range(20)
+        ]
     )
     selected = ranker.select_shortlist(ranked, limit=10)
     assert len(selected) == 10
@@ -483,7 +509,11 @@ def _seed(engine_db: Database, jobs: list[models.Job], *, with_candidate: bool =
                 location=row.location,
                 primary_job_id=row.id,
                 source_ids=[
-                    {"source": row.source, "source_job_id": row.source_job_id, "url": row.source_url}
+                    {
+                        "source": row.source,
+                        "source_job_id": row.source_job_id,
+                        "url": row.source_url,
+                    }
                 ],
             )
             row.opportunity_id = opp.id
@@ -509,7 +539,10 @@ def test_intelligence_service_filters_ranks_and_shortlists(
     ]
     candidate_id, search_id = _seed(engine_db, jobs)
     ctx = EngineContext.create(
-        settings=settings, database_url=settings.database_url, registry_path=None, create_schema=False
+        settings=settings,
+        database_url=settings.database_url,
+        registry_path=None,
+        create_schema=False,
     )
     try:
         result = IntelligenceService(ctx).run(
@@ -528,17 +561,20 @@ def test_intelligence_service_filters_ranks_and_shortlists(
 
     with engine_db.read_session() as session:
         statuses = {
-            o.title: o.status
-            for o in session.execute(select(models.Opportunity)).scalars()
+            o.title: o.status for o in session.execute(select(models.Opportunity)).scalars()
         }
         assert statuses["Senior Software Engineer"] == "REJECTED"
         assert statuses["Territory Manager"] == "SHORTLISTED"
         assert statuses["Regional Sales Manager"] == "SHORTLISTED"
         assert statuses["Business Development Manager"] == "REJECTED"
 
-        rejected = session.execute(
-            select(models.Opportunity).where(models.Opportunity.status == "REJECTED")
-        ).scalars().first()
+        rejected = (
+            session.execute(
+                select(models.Opportunity).where(models.Opportunity.status == "REJECTED")
+            )
+            .scalars()
+            .first()
+        )
         assert rejected.rejection and rejected.rejection["reasons"]
 
 
@@ -551,12 +587,19 @@ def test_intelligence_service_is_idempotent(engine_db: Database, settings: Setti
     ]
     candidate_id, search_id = _seed(engine_db, jobs)
     ctx = EngineContext.create(
-        settings=settings, database_url=settings.database_url, registry_path=None, create_schema=False
+        settings=settings,
+        database_url=settings.database_url,
+        registry_path=None,
+        create_schema=False,
     )
     try:
         service = IntelligenceService(ctx)
-        first = service.run(candidate_id=candidate_id, search_profile_id=search_id, shortlist_limit=10)
-        second = service.run(candidate_id=candidate_id, search_profile_id=search_id, shortlist_limit=10)
+        first = service.run(
+            candidate_id=candidate_id, search_profile_id=search_id, shortlist_limit=10
+        )
+        second = service.run(
+            candidate_id=candidate_id, search_profile_id=search_id, shortlist_limit=10
+        )
     finally:
         ctx.close()
 
@@ -576,7 +619,10 @@ def test_rejection_is_audited_with_reasons(engine_db: Database, settings: Settin
     jobs = [make_job(source_job_id="1", title="Senior Software Engineer")]
     candidate_id, search_id = _seed(engine_db, jobs)
     ctx = EngineContext.create(
-        settings=settings, database_url=settings.database_url, registry_path=None, create_schema=False
+        settings=settings,
+        database_url=settings.database_url,
+        registry_path=None,
+        create_schema=False,
     )
     try:
         IntelligenceService(ctx).run(candidate_id=candidate_id, search_profile_id=search_id)
@@ -584,7 +630,9 @@ def test_rejection_is_audited_with_reasons(engine_db: Database, settings: Settin
         ctx.close()
 
     with engine_db.read_session() as session:
-        events = [e for e in EventRepository(session).recent(limit=100) if e.event_type == "JOB_REJECTED"]
+        events = [
+            e for e in EventRepository(session).recent(limit=100) if e.event_type == "JOB_REJECTED"
+        ]
         assert len(events) == 1
         payload = events[0].payload
         assert payload["reasons"]

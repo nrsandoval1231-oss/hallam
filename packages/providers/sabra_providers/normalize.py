@@ -292,7 +292,9 @@ def extract_salary(text: str | None) -> tuple[float, float, str, str] | None:
     return low, high, "USD", inferred_period
 
 
-def salary_from_metadata(pairs: list[tuple[str, str]] | None) -> tuple[float, float, str, str] | None:
+def salary_from_metadata(
+    pairs: list[tuple[str, str]] | None,
+) -> tuple[float, float, str, str] | None:
     """Read a pay range from structured metadata fields when a board provides one."""
 
     if not pairs:
@@ -422,7 +424,9 @@ def parse_employment_type(
     return EmploymentType.UNKNOWN, warnings
 
 
-_REMOTE_MARKERS = re.compile(r"\b(remote|work from home|wfh|virtual|telecommut\w*)\b", re.IGNORECASE)
+_REMOTE_MARKERS = re.compile(
+    r"\b(remote|work from home|wfh|virtual|telecommut\w*)\b", re.IGNORECASE
+)
 _HYBRID_MARKERS = re.compile(r"\bhybrid\b", re.IGNORECASE)
 
 

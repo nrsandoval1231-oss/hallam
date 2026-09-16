@@ -145,7 +145,11 @@ class DocumentService:
             if value in (None, "", [], {}):
                 return
             current = getattr(profile, attr)
-            if replace_empty_only and current not in (None, "", [], {}):
+            current_provenance = profile.provenance.get(attr)
+            inferred_value = (
+                current_provenance is not None and current_provenance.level is TruthLevel.INFERRED
+            )
+            if replace_empty_only and current not in (None, "", [], {}) and not inferred_value:
                 return
             setattr(profile, attr, value)
             profile.provenance[attr] = inferred
@@ -166,9 +170,12 @@ class DocumentService:
             ("linkedin_url", document.contact.linkedin_url),
             ("website_url", document.contact.website_url),
         ):
-            if value and not getattr(profile.identity, attr):
-                setattr(profile.identity, attr, value)
-                profile.provenance[f"identity.{attr}"] = inferred
+            if value:
+                provenance = profile.provenance.get(f"identity.{attr}")
+                inferred_value = provenance is not None and provenance.level is TruthLevel.INFERRED
+                if not getattr(profile.identity, attr) or inferred_value:
+                    setattr(profile.identity, attr, value)
+                    profile.provenance[f"identity.{attr}"] = inferred
 
         repos.candidates.save_profile(candidate_id, profile, source="master_resume")
 
@@ -311,9 +318,7 @@ class DocumentService:
                 ]
             targets = [o.id for o in shortlist[: max(0, limit)]]
         for opportunity_id in targets:
-            results.append(
-                self.prepare_package(opportunity_id, questions=questions)
-            )
+            results.append(self.prepare_package(opportunity_id, questions=questions))
         return results
 
     # -- helpers --------------------------------------------------------

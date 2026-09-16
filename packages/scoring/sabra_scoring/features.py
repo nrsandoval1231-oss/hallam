@@ -331,8 +331,23 @@ class IntentFeatures:
 # unrelated role reached the shortlist by that route.
 ROLE_STOPWORDS = frozenset(
     {
-        "of", "and", "the", "for", "a", "an", "in", "to", "with", "or", "on", "at",
-        "our", "your", "i", "ii", "iii",
+        "of",
+        "and",
+        "the",
+        "for",
+        "a",
+        "an",
+        "in",
+        "to",
+        "with",
+        "or",
+        "on",
+        "at",
+        "our",
+        "your",
+        "i",
+        "ii",
+        "iii",
     }
 )
 
@@ -340,7 +355,11 @@ ROLE_STOPWORDS = frozenset(
 def role_ngrams(words: list[str], min_size: int = 2, max_size: int = 3) -> set[str]:
     """Title n-grams with function words removed from consideration."""
 
-    return {gram for gram in ngrams(words, min_size, max_size) if not (set(gram.split()) & ROLE_STOPWORDS)}
+    return {
+        gram
+        for gram in ngrams(words, min_size, max_size)
+        if not (set(gram.split()) & ROLE_STOPWORDS)
+    }
 
 
 def extract_intent_features(profile: SearchProfile) -> IntentFeatures:
@@ -375,16 +394,14 @@ def extract_intent_features(profile: SearchProfile) -> IntentFeatures:
         },
         role_level_tokens=token_set(" ".join(profile.role_level_terms)),
         location_tokens=token_set(
-            " ".join(profile.locations.cities + profile.locations.states + profile.locations.metro_areas)
+            " ".join(
+                profile.locations.cities + profile.locations.states + profile.locations.metro_areas
+            )
         ),
         # Normalized so a posting that says "Texas" matches a profile that says
         # "TX"; comparing raw tokens silently failed that match.
-        city_tokens=token_set(
-            " ".join(normalize_location(c) for c in profile.locations.cities)
-        ),
-        state_tokens=token_set(
-            " ".join(normalize_location(s) for s in profile.locations.states)
-        ),
+        city_tokens=token_set(" ".join(normalize_location(c) for c in profile.locations.cities)),
+        state_tokens=token_set(" ".join(normalize_location(s) for s in profile.locations.states)),
     )
 
 

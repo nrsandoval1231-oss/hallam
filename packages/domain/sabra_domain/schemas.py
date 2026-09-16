@@ -257,7 +257,9 @@ class CandidateProfile(BaseModel):
     )
     travel_tolerance: TravelTolerance = Field(default_factory=TravelTolerance)
     seniority_preference: list[str] = Field(default_factory=list)
-    employment_types: list[EmploymentType] = Field(default_factory=lambda: [EmploymentType.FULL_TIME])
+    employment_types: list[EmploymentType] = Field(
+        default_factory=lambda: [EmploymentType.FULL_TIME]
+    )
     work_authorization: WorkAuthorization = Field(default_factory=WorkAuthorization)
     hard_constraints: list[HardConstraint] = Field(default_factory=list)
     soft_preferences: list[SoftPreference] = Field(default_factory=list)
@@ -281,9 +283,7 @@ class CandidateProfile(BaseModel):
     def is_empty(self, field_path: str) -> bool:
         value: Any = self
         for part in field_path.split("."):
-            value = (
-                value.get(part) if isinstance(value, dict) else getattr(value, part, None)
-            )
+            value = value.get(part) if isinstance(value, dict) else getattr(value, part, None)
             if value is None:
                 return True
         if isinstance(value, (list, dict, str)):
@@ -502,8 +502,14 @@ class FitAssessmentSchema(BaseModel):
     rank_score: float | None = None
 
     @field_validator(
-        "fit_score", "career_score", "qualification_score", "compensation_score",
-        "location_score", "industry_score", "trajectory_score", "confidence",
+        "fit_score",
+        "career_score",
+        "qualification_score",
+        "compensation_score",
+        "location_score",
+        "industry_score",
+        "trajectory_score",
+        "confidence",
     )
     @classmethod
     def _unit_range(cls, value: float) -> float:

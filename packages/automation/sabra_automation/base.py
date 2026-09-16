@@ -106,7 +106,8 @@ class ValidationReport:
         return {
             "ok": self.ok,
             "stops": [
-                {"kind": str(s.kind), "message": s.message, "details": s.details} for s in self.stops
+                {"kind": str(s.kind), "message": s.message, "details": s.details}
+                for s in self.stops
             ],
             "unknown_required_fields": self.unknown_required_fields,
             "unanswered_questions": self.unanswered_questions,
@@ -183,7 +184,9 @@ class ApplicationAdapter(ABC):
         """Read the application form without filling anything."""
 
     @abstractmethod
-    def prepare(self, package: ApplicationPackageSchema, form: ApplicationForm) -> PreparedSubmission:
+    def prepare(
+        self, package: ApplicationPackageSchema, form: ApplicationForm
+    ) -> PreparedSubmission:
         """Fill the form. Must not submit."""
 
     @abstractmethod
@@ -196,7 +199,9 @@ class ApplicationAdapter(ABC):
 
     # -- shared safety --------------------------------------------------
 
-    def detect_stops(self, form: ApplicationForm, package: ApplicationPackageSchema) -> list[SafetyStop]:
+    def detect_stops(
+        self, form: ApplicationForm, package: ApplicationPackageSchema
+    ) -> list[SafetyStop]:
         """Conditions that require a human (requirement 21).
 
         The default set is conservative and adapter-agnostic; adapters add their own.

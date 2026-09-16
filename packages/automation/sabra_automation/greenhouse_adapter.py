@@ -78,7 +78,7 @@ APPLICATION_TITLE_SIGNALS: tuple[str, ...] = ("job application", "apply for", "a
 SUBMIT_SELECTORS: tuple[str, ...] = (
     'button[type="submit"]',
     'input[type="submit"]',
-    '#submit_app',
+    "#submit_app",
     'button:has-text("Submit application")',
 )
 
@@ -251,8 +251,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             attestations = [
                 f.label or ""
                 for f in fields
-                if f.label
-                and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
+                if f.label and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
             ]
             submit_selector = self._find_submit_selector(page, fields)
 

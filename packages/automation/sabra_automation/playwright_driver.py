@@ -78,7 +78,9 @@ def looks_like_login_wall(body_text: str) -> bool:
 class PlaywrightPage:
     """Concrete `FormPage` over a Playwright page."""
 
-    def __init__(self, page: Any, *, timeout_ms: int = 30_000, wait_after_load_ms: int = 2500) -> None:
+    def __init__(
+        self, page: Any, *, timeout_ms: int = 30_000, wait_after_load_ms: int = 2500
+    ) -> None:
         self._page = page
         self.timeout_ms = timeout_ms
         self.wait_after_load_ms = wait_after_load_ms
@@ -138,7 +140,9 @@ class PlaywrightPage:
 class BrowserSession:
     """Owns one Chromium instance for a bounded operation."""
 
-    def __init__(self, *, headless: bool = True, timeout_ms: int = 30_000, user_agent: str | None = None):
+    def __init__(
+        self, *, headless: bool = True, timeout_ms: int = 30_000, user_agent: str | None = None
+    ):
         self.headless = headless
         self.timeout_ms = timeout_ms
         self.user_agent = user_agent

@@ -62,9 +62,24 @@ def test_job_lifecycle_covers_every_contract_state() -> None:
 
     declared = {s.value for s in JobStatus}
     expected = {
-        "DISCOVERED", "NORMALIZED", "REJECTED", "QUALIFIED", "SHORTLISTED", "RESEARCHED",
-        "PREPARED", "AWAITING_APPROVAL", "APPROVED", "APPLYING", "APPLIED", "FAILED",
-        "RESPONSE", "SCREEN", "INTERVIEW", "OFFER", "REJECTED_BY_EMPLOYER", "WITHDRAWN",
+        "DISCOVERED",
+        "NORMALIZED",
+        "REJECTED",
+        "QUALIFIED",
+        "SHORTLISTED",
+        "RESEARCHED",
+        "PREPARED",
+        "AWAITING_APPROVAL",
+        "APPROVED",
+        "APPLYING",
+        "APPLIED",
+        "FAILED",
+        "RESPONSE",
+        "SCREEN",
+        "INTERVIEW",
+        "OFFER",
+        "REJECTED_BY_EMPLOYER",
+        "WITHDRAWN",
         "EXPIRED",
     }
     assert declared == expected
@@ -90,7 +105,9 @@ def test_terminal_states_are_terminal() -> None:
 
 
 def test_normalization_functions_are_conservative() -> None:
-    assert normalize_company("Revance Therapeutics, Inc.") == normalize_company("REVANCE THERAPEUTICS")
+    assert normalize_company("Revance Therapeutics, Inc.") == normalize_company(
+        "REVANCE THERAPEUTICS"
+    )
     assert normalize_company("Acme & Co.") == "acme and"
     # Seniority must survive normalization: two titles differing there are two roles.
     assert "senior" in normalize_title("Senior Territory Manager")
@@ -297,6 +314,4 @@ def test_sqlite_enforces_foreign_keys(db: Database) -> None:
 
     assert db.dialect == "sqlite"
     with pytest.raises(IntegrityError), db.session() as session:
-        session.add(
-            models.Resume(candidate_id="cand_missing", content_text="x", content_hash="h")
-        )
+        session.add(models.Resume(candidate_id="cand_missing", content_text="x", content_hash="h"))

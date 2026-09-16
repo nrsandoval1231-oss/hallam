@@ -198,7 +198,9 @@ class Opportunity(Base, TimestampMixin):
     # Empty string, never NULL: SQLite (and the SQL standard) treat NULLs as
     # distinct in a UNIQUE constraint, so a nullable column here would silently
     # allow two opportunities for the same posting when no search profile is set.
-    search_profile_id: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
+    search_profile_id: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False, index=True
+    )
     canonical_key: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     company: Mapped[str] = mapped_column(String(256), nullable=False)

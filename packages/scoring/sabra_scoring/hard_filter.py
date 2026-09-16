@@ -316,7 +316,15 @@ def _missing_mandatory_qualifications(
         if not phrase or not _phrase_in(requirement_text, phrase):
             continue
         qualification_tokens = token_set(phrase) - {
-            "required", "must", "have", "with", "and", "the", "a", "an", "of",
+            "required",
+            "must",
+            "have",
+            "with",
+            "and",
+            "the",
+            "a",
+            "an",
+            "of",
         }
         if not qualification_tokens:
             continue

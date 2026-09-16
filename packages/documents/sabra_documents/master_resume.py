@@ -28,21 +28,45 @@ from sabra_domain.schemas import (
 # Canonical section names, in the order a résumé normally presents them.
 SECTION_ALIASES: dict[str, tuple[str, ...]] = {
     "summary": (
-        "summary", "professional summary", "profile", "objective", "about",
-        "executive summary", "career summary", "professional profile",
+        "summary",
+        "professional summary",
+        "profile",
+        "objective",
+        "about",
+        "executive summary",
+        "career summary",
+        "professional profile",
     ),
     "experience": (
-        "experience", "professional experience", "work experience", "employment",
-        "employment history", "work history", "career history", "relevant experience",
+        "experience",
+        "professional experience",
+        "work experience",
+        "employment",
+        "employment history",
+        "work history",
+        "career history",
+        "relevant experience",
     ),
     "education": ("education", "academic background", "academics", "education and training"),
     "skills": (
-        "skills", "core skills", "key skills", "technical skills", "core competencies",
-        "competencies", "areas of expertise", "skills and expertise", "expertise",
+        "skills",
+        "core skills",
+        "key skills",
+        "technical skills",
+        "core competencies",
+        "competencies",
+        "areas of expertise",
+        "skills and expertise",
+        "expertise",
     ),
     "certifications": (
-        "certifications", "certificates", "licenses", "licenses and certifications",
-        "certifications and licenses", "credentials", "training and certifications",
+        "certifications",
+        "certificates",
+        "licenses",
+        "licenses and certifications",
+        "certifications and licenses",
+        "credentials",
+        "training and certifications",
     ),
     "projects": ("projects", "selected projects", "portfolio", "key projects"),
     "awards": ("awards", "honors", "honours", "awards and honors", "recognition"),
@@ -159,9 +183,7 @@ def _looks_like_heading(line: str) -> bool:
     # ALL-CAPS headings with no lowercase letters are the other common style.
     letters = [c for c in plain if c.isalpha()]
     if len(letters) >= 3 and all(c.isupper() for c in letters) and len(plain.split()) <= 5:
-        return candidate in _ALIAS_LOOKUP or candidate.title() in {
-            a.title() for a in _ALIAS_LOOKUP
-        }
+        return candidate in _ALIAS_LOOKUP or candidate.title() in {a.title() for a in _ALIAS_LOOKUP}
     return False
 
 
@@ -213,14 +235,14 @@ def parse_contact(preamble: list[str], full_text: str) -> tuple[ContactInfo, str
     masked = _PHONE.sub(" ", masked)
     location: str | None = None
     for candidate_line in masked.split("\n"):
-        match = re.search(r"\b([A-Z][a-zA-Z .'-]{2,30},\s*(?:[A-Z]{2}|[A-Z][a-z]{3,}))\b", candidate_line)
+        match = re.search(
+            r"\b([A-Z][a-zA-Z .'-]{2,30},\s*(?:[A-Z]{2}|[A-Z][a-z]{3,}))\b", candidate_line
+        )
         if match:
             location = match.group(1).strip()
             break
     if location is None:
-        match = re.search(
-            r"\b([A-Z][a-zA-Z .'-]{2,30},\s*(?:[A-Z]{2}|[A-Z][a-z]{3,}))\b", masked
-        )
+        match = re.search(r"\b([A-Z][a-zA-Z .'-]{2,30},\s*(?:[A-Z]{2}|[A-Z][a-z]{3,}))\b", masked)
         if match:
             location = match.group(1).strip()
 
@@ -422,7 +444,9 @@ def parse_master_resume(text: str, *, parsed: dict[str, Any] | None = None) -> R
         document.employment = [
             EmploymentEntry.model_validate(e) for e in parsed.get("employment") or []
         ]
-        document.education = [EducationEntry.model_validate(e) for e in parsed.get("education") or []]
+        document.education = [
+            EducationEntry.model_validate(e) for e in parsed.get("education") or []
+        ]
         document.certifications = [
             CertificationEntry.model_validate(c) for c in parsed.get("certifications") or []
         ]

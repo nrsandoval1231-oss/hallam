@@ -221,9 +221,12 @@ def test_lever_structured_range_is_authoritative() -> None:
     assert _salary_from_range(
         {"interval": "per-year-salary", "currency": "USD", "min": 66000, "max": 75000}
     ) == (66000.0, 75000.0, "USD", "YEAR")
-    assert _salary_from_range({"interval": "per-hour-wage", "currency": "USD", "min": 25, "max": 32})[
-        3
-    ] == "HOUR"
+    assert (
+        _salary_from_range({"interval": "per-hour-wage", "currency": "USD", "min": 25, "max": 32})[
+            3
+        ]
+        == "HOUR"
+    )
     # A single bound fills both ends rather than leaving a half-range.
     assert _salary_from_range({"interval": "per-year-salary", "min": 100000}) == (
         100000.0,
@@ -285,7 +288,9 @@ def test_employment_type_prefers_structured_then_prose() -> None:
     assert parse_employment_type("Full Time")[0] is EmploymentType.FULL_TIME
     assert parse_employment_type("Part-time")[0] is EmploymentType.PART_TIME
     assert parse_employment_type("Contractor")[0] is EmploymentType.CONTRACT
-    assert parse_employment_type(None, "This is a full-time position")[0] is EmploymentType.FULL_TIME
+    assert (
+        parse_employment_type(None, "This is a full-time position")[0] is EmploymentType.FULL_TIME
+    )
     kind, warnings = parse_employment_type("Freelance", "")
     assert kind is EmploymentType.UNKNOWN
     assert warnings, "an unrecognized commitment must be reported, not silently dropped"
@@ -460,23 +465,47 @@ def test_providers_agree_on_the_canonical_shape(
     """Requirement 8: both providers fill the same minimum field set."""
 
     minimum = {
-        "source", "source_job_id", "source_url", "company", "company_domain", "title",
-        "location", "remote_status", "employment_type", "salary_min", "salary_max",
-        "salary_currency", "description", "requirements", "preferred_qualifications",
-        "responsibilities", "travel", "department", "date_posted", "date_discovered",
-        "last_verified", "status", "raw_source_hash",
+        "source",
+        "source_job_id",
+        "source_url",
+        "company",
+        "company_domain",
+        "title",
+        "location",
+        "remote_status",
+        "employment_type",
+        "salary_min",
+        "salary_max",
+        "salary_currency",
+        "description",
+        "requirements",
+        "preferred_qualifications",
+        "responsibilities",
+        "travel",
+        "department",
+        "date_posted",
+        "date_discovered",
+        "last_verified",
+        "status",
+        "raw_source_hash",
     }
     gh = GreenhouseProvider(
         "revance", display_name="Revance", http=StubHttp({"boards-api": greenhouse_payload})
-    ).normalize(GreenhouseProvider(
-        "revance", display_name="Revance", http=StubHttp({"boards-api": greenhouse_payload})
-    ).discover().raw_jobs[0])
+    ).normalize(
+        GreenhouseProvider(
+            "revance", display_name="Revance", http=StubHttp({"boards-api": greenhouse_payload})
+        )
+        .discover()
+        .raw_jobs[0]
+    )
     lv = LeverProvider(
         "elfbeauty", display_name="e.l.f.", http=StubHttp({"api.lever.co": lever_payload})
     ).normalize(
         LeverProvider(
             "elfbeauty", display_name="e.l.f.", http=StubHttp({"api.lever.co": lever_payload})
-        ).discover().raw_jobs[0]
+        )
+        .discover()
+        .raw_jobs[0]
     )
     for result in (gh, lv):
         present = set(result.job.model_dump().keys())

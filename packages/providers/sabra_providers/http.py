@@ -92,7 +92,10 @@ class HttpClient:
         self._client = client or httpx.Client(
             timeout=timeout,
             follow_redirects=True,
-            headers={"User-Agent": user_agent, "Accept": "application/json, text/html;q=0.9,*/*;q=0.8"},
+            headers={
+                "User-Agent": user_agent,
+                "Accept": "application/json, text/html;q=0.9,*/*;q=0.8",
+            },
         )
         self.calls: list[FetchRecord] = []
 
@@ -118,7 +121,9 @@ class HttpClient:
                     continue
                 record = self._record(url, 0, b"", started, attempt, last_error)
                 self.calls.append(record)
-                raise ProviderError("http", f"GET {url} failed: {last_error}", retryable=True) from exc
+                raise ProviderError(
+                    "http", f"GET {url} failed: {last_error}", retryable=True
+                ) from exc
 
             body = response.content
             if response.status_code in self.RETRY_STATUSES and attempt < self.max_attempts:

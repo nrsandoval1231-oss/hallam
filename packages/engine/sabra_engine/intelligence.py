@@ -258,7 +258,8 @@ class IntelligenceService:
                 },
             )
         else:
-            repos.opportunities.set_status(opportunity.id, JobStatus.QUALIFIED)
+            if JobStatus(opportunity.status) != JobStatus.SHORTLISTED:
+                repos.opportunities.set_status(opportunity.id, JobStatus.QUALIFIED)
             repos.events.append(
                 EntityType.OPPORTUNITY,
                 opportunity.id,

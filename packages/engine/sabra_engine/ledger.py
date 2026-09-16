@@ -128,7 +128,9 @@ class LedgerService:
                     "unresolved_questions": schema.unresolved_questions,
                     "tailored_resume_id": package_row.tailored_resume_id,
                 },
-                resume_version=f"v{master.version} ({master.content_hash[:12]})" if master else None,
+                resume_version=f"v{master.version} ({master.content_hash[:12]})"
+                if master
+                else None,
                 answers=list(application.answers or []),
                 submission_time=application.submission_time,
                 submission_method=application.submission_method,
@@ -156,7 +158,9 @@ class LedgerService:
                 ],
             )
 
-    def event_stream(self, *, limit: int = 100, application_id: str | None = None) -> list[dict[str, Any]]:
+    def event_stream(
+        self, *, limit: int = 100, application_id: str | None = None
+    ) -> list[dict[str, Any]]:
         with self.ctx.read_repos() as repos:
             if application_id:
                 rows = repos.events.for_entity(EntityType.APPLICATION, application_id)
@@ -274,7 +278,9 @@ class LedgerService:
                     "applications": len(applications),
                     "outcomes": len(outcomes),
                     "awaiting_approval": sum(
-                        1 for r in applications if r.status == ApplicationStatus.AWAITING_APPROVAL.value
+                        1
+                        for r in applications
+                        if r.status == ApplicationStatus.AWAITING_APPROVAL.value
                     ),
                     "approved": sum(
                         1 for r in applications if r.status == ApplicationStatus.APPROVED.value

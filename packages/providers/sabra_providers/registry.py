@@ -127,9 +127,7 @@ class SourceRegistry:
             if only and source.id not in only:
                 continue
             providers.append(
-                self.build_provider(
-                    source.id, http=http, settings=settings, max_items=max_items
-                )
+                self.build_provider(source.id, http=http, settings=settings, max_items=max_items)
             )
         return providers
 

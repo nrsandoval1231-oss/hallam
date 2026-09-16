@@ -77,9 +77,7 @@ def profile(document) -> CandidateProfile:
         projects=document.projects,
         industries=["Medical aesthetics", "Medical devices"],
         preferred_titles=["Regional Sales Manager"],
-        geography=Geography(
-            cities=["Dallas"], states=["TX"], metro_areas=["Dallas-Fort Worth"]
-        ),
+        geography=Geography(cities=["Dallas"], states=["TX"], metro_areas=["Dallas-Fort Worth"]),
         desired_compensation=CompensationPreference(minimum=75000.0, target=120000.0),
     )
 
@@ -209,7 +207,9 @@ def test_parsed_payload_can_be_supplied_directly() -> None:
         "ignored",
         parsed={
             "contact": {"full_name": "Provided Name", "email": "p@example.test"},
-            "employment": [{"employer": "Acme", "title": "Manager", "accomplishments": ["Did things"]}],
+            "employment": [
+                {"employer": "Acme", "title": "Manager", "accomplishments": ["Did things"]}
+            ],
             "skills": [{"name": "Negotiation"}],
         },
     )
@@ -228,9 +228,9 @@ def test_tailoring_keeps_candidate_wording_verbatim(profile, document, job) -> N
     sources = [item for _e, _t, item in profile.all_accomplishments()]
     for bullet in tailored.selected_bullets:
         core = bullet.rstrip(".").lower()
-        assert any(core in source.lower() or source.lower().rstrip(".") == core for source in sources), (
-            f"bullet not traceable to candidate data: {bullet!r}"
-        )
+        assert any(
+            core in source.lower() or source.lower().rstrip(".") == core for source in sources
+        ), f"bullet not traceable to candidate data: {bullet!r}"
 
 
 def test_tailoring_reorders_by_relevance_without_deleting_a_role(profile, document, job) -> None:
@@ -508,7 +508,12 @@ def test_placeholder_candidate_yields_an_incomplete_package(job) -> None:
     )
     assert built.status is PackageStatus.INCOMPLETE
     assert not built.complete
-    assert set(built.missing_inputs) >= {"identity.full_name", "identity.email", "employment", "skills"}
+    assert set(built.missing_inputs) >= {
+        "identity.full_name",
+        "identity.email",
+        "employment",
+        "skills",
+    }
     assert built.schema.unresolved_questions
     assert built.violations == []
     # Nothing resembling a fabricated qualification appears anywhere.
@@ -524,8 +529,12 @@ def test_placeholder_candidate_yields_an_incomplete_package(job) -> None:
 def test_package_hash_changes_with_content_but_not_with_ids_or_time(profile, document, job) -> None:
     factory = PackageFactory()
     base = factory.build(
-        profile=profile, master=document, job=job, master_resume_id="res_master",
-        job_id="job_1", opportunity_id="opp_1",
+        profile=profile,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
     ).schema
 
     edited = base.model_copy(update={"cover_letter": (base.cover_letter or "") + "\nExtra line."})
@@ -543,8 +552,12 @@ def test_package_hash_changes_with_content_but_not_with_ids_or_time(profile, doc
 
     # Rebuilding the same content reproduces the same hash.
     again = factory.build(
-        profile=profile, master=document, job=job, master_resume_id="res_master",
-        job_id="job_1", opportunity_id="opp_1",
+        profile=profile,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
     ).schema
     assert again.content_hash == base.content_hash
 
@@ -554,8 +567,14 @@ def test_package_schema_rejects_a_non_unit_confidence() -> None:
 
     with pytest.raises(ValidationError):
         FitAssessmentSchema(
-            fit_score=1.4, career_score=0.5, qualification_score=0.5, compensation_score=0.5,
-            location_score=0.5, industry_score=0.5, trajectory_score=0.5, confidence=0.5,
+            fit_score=1.4,
+            career_score=0.5,
+            qualification_score=0.5,
+            compensation_score=0.5,
+            location_score=0.5,
+            industry_score=0.5,
+            trajectory_score=0.5,
+            confidence=0.5,
         )
 
 
@@ -575,8 +594,13 @@ def test_fit_explanation_is_included_and_explainable(profile, document, job) -> 
         component_rationale={"fit_score": "weighted mean of six assessable components"},
     )
     built = PackageFactory().build(
-        profile=profile, master=document, job=job, master_resume_id="res_master",
-        job_id="job_1", opportunity_id="opp_1", assessment=assessment,
+        profile=profile,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
+        assessment=assessment,
     )
     assert "Strong regional fit" in built.schema.fit_explanation
     assert built.schema.qualification_gaps == assessment.gaps
@@ -585,8 +609,12 @@ def test_fit_explanation_is_included_and_explainable(profile, document, job) -> 
 
 def test_application_package_schema_validates_round_trip(profile, document, job) -> None:
     built = PackageFactory().build(
-        profile=profile, master=document, job=job, master_resume_id="res_master",
-        job_id="job_1", opportunity_id="opp_1",
+        profile=profile,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
     )
     restored = ApplicationPackageSchema.model_validate(built.schema.model_dump(mode="json"))
     assert restored.content_hash == built.schema.content_hash
@@ -595,8 +623,12 @@ def test_application_package_schema_validates_round_trip(profile, document, job)
 
 def test_cover_letter_quotes_only_candidate_content(profile, document, job) -> None:
     built = PackageFactory().build(
-        profile=profile, master=document, job=job, master_resume_id="res_master",
-        job_id="job_1", opportunity_id="opp_1",
+        profile=profile,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
     )
     letter = built.schema.cover_letter or ""
     from sabra_domain.identity import normalize_text

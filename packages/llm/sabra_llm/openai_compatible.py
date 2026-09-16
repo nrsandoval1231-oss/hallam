@@ -43,7 +43,9 @@ class OpenAICompatibleProvider(LLMProvider):
         if self._owns_client:
             self._client.close()
 
-    def complete(self, prompt: str, *, system: str | None = None, purpose: str = "generic") -> LLMResponse:
+    def complete(
+        self, prompt: str, *, system: str | None = None, purpose: str = "generic"
+    ) -> LLMResponse:
         if not self.model:
             raise ModelError("SABRA_LLM_MODEL is not set; refusing to call an unnamed model")
 
@@ -68,7 +70,9 @@ class OpenAICompatibleProvider(LLMProvider):
                 },
             )
         except httpx.HTTPError as exc:
-            raise ModelError(f"model request failed for {purpose}: {type(exc).__name__}: {exc}") from exc
+            raise ModelError(
+                f"model request failed for {purpose}: {type(exc).__name__}: {exc}"
+            ) from exc
 
         latency_ms = int((time.perf_counter() - started) * 1000)
         if response.status_code >= 400:

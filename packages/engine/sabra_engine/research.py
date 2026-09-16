@@ -92,7 +92,8 @@ class ResearchService:
                 company_description=company_row.description,
                 company_website=company_row.website
                 or (f"https://{primary.company_domain}" if primary.company_domain else None),
-                industry=primary.department or (registry_entry.industry if registry_entry else None),
+                industry=primary.department
+                or (registry_entry.industry if registry_entry else None),
                 role_context=_role_context(primary),
                 sources=sources,
             )
