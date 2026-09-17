@@ -32,6 +32,14 @@ def test_candidate_profile_endpoint_is_available() -> None:
     assert "candidate_id" in response.json()
 
 
+def test_application_factory_routes_are_exposed() -> None:
+    client = TestClient(app)
+    assert client.get("/api/packages").status_code == 200
+    response = client.get("/api/opportunities")
+    assert response.status_code == 200
+    assert "opportunities" in response.json()
+
+
 def test_resume_upload_persists_candidate_evidence() -> None:
     client = TestClient(app)
     response = client.post(
