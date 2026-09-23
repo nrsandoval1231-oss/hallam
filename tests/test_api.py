@@ -62,3 +62,18 @@ def test_health_is_machine_readable() -> None:
     response = TestClient(app).get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_industry_only_and_unrelated_industry_boundaries() -> None:
+    response = TestClient(app).get("/opportunities")
+    assert "`${o.company} ${o.title} ${o.industry}`.toLowerCase().includes(ind)" in response.text
+    rows = [
+        {"company": "Acme", "title": "Operations", "industry": "Data Centers"},
+        {"company": "Acme", "title": "Operations", "industry": "Healthcare"},
+    ]
+    term = "data"
+    matches = [
+        row for row in rows if term in f"{row['company']} {row['title']} {row['industry']}".lower()
+    ]
+    assert matches == [rows[0]]  # industry_only positive
+    assert rows[1] not in matches  # unrelated_industry negative
