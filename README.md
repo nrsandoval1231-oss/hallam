@@ -24,10 +24,13 @@ Verified against real data, not scaffolding:
 | M7 Ledger | Done | Append-only events, ledger projection, outcomes, learning records |
 | M8 Pilot | **Blocked on owner input** | See below |
 
+`apps/api` is a FastAPI app with an HTML dashboard. It serves `/` and `/opportunities`,
+plus JSON routes for health, status, the candidate profile, résumé upload, the
+shortlist, and package preparation. `make run-api` listens on http://127.0.0.1:8787.
+`apps/web` is still an empty scaffold.
+
 ### Honest gaps
 
-- **No FastAPI app or web UI yet.** The domain, engine and CLI are complete; the API
-  and web surfaces are not built.
 - **M8 needs your real résumé.** The pipeline runs end to end today, but package
   generation correctly refuses to invent candidate facts: with no résumé loaded it
   produces `INCOMPLETE` packages with every open question named. That is requirement
@@ -42,7 +45,8 @@ make sync        # create the venv and install (required after adding a package)
 make init        # create the database, load the source registry, seed a search profile
 make discover    # read every enabled board
 make rank        # hard-filter, assess fit, rank, shortlist
-make test        # 160 tests
+make test        # 184 tests (3 marked live)
+make run-api     # local dashboard at http://127.0.0.1:8787
 ```
 
 Reasoning-layer features are **off by default** (`SABRA_LLM_PROVIDER=none`) and every
@@ -51,7 +55,7 @@ one of them has a deterministic fallback, so the loop runs with no model configu
 ## Layout
 
 ```text
-apps/            web and API applications
+apps/            FastAPI app and HTML dashboard under api/; web/ is an empty scaffold
 packages/
   domain/        models, schema, state machines, repositories, event log
   llm/           provider abstraction (null provider by default)
@@ -61,10 +65,10 @@ packages/
   automation/    Playwright adapter contract and the Greenhouse adapter
   engine/        services: discovery, intelligence, research, documents,
                  approval, execution, ledger, CLI
-workers/         discovery, research and application workers
+workers/         empty scaffold (discovery, research, and application workers)
 config/          source registry and candidate profiles
 docs/            architecture, decisions, operations
-migrations/      database migrations
+migrations/      empty scaffold; the schema is created from the SQLAlchemy models
 tests/           test suite and committed fixtures
 ```
 

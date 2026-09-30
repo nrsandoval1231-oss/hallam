@@ -1,5 +1,9 @@
 # M6 — Greenhouse application form findings
 
+> **Historical record.** Captured by driving live Greenhouse boards. Treat the URLs,
+> field lists, and page contents as observations from that run. The adapter behavior
+> described below is still the implementation.
+
 Evidence gathered by driving a **real** Greenhouse board with a headless Chromium
 (`scripts/_probe_greenhouse_form.py`). The adapter's selectors come from this
 capture, not from guesswork, and the capture is committed so the tests run against

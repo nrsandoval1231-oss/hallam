@@ -529,32 +529,6 @@ def parse_date(value: Any) -> date | None:
     return None
 
 
-def parse_datetime(value: Any) -> datetime | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, (int, float)):
-        number = float(value)
-        if number > 1e11:
-            number /= 1000.0
-        from datetime import UTC
-
-        return datetime.fromtimestamp(number, tz=UTC)
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        day = parse_date(value)
-        if day is None:
-            return None
-        from datetime import UTC, time
-
-        return datetime.combine(day, time.min, tzinfo=UTC)
-    from datetime import UTC
-
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-
-
 # ---------------------------------------------------------------------------
 # Seniority
 # ---------------------------------------------------------------------------

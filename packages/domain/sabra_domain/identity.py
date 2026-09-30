@@ -75,11 +75,6 @@ def normalize_text(text: str | None) -> str:
     return _WS.sub(" ", text).strip()
 
 
-def slugify(text: str | None) -> str:
-    normalized = normalize_text(text).lower()
-    return _NON_WORD.sub("-", normalized).strip("-")
-
-
 def normalize_title(title: str | None) -> str:
     """Normalize a title for comparison.
 
