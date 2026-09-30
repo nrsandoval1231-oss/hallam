@@ -24,7 +24,6 @@ from sabra_domain.identity import (
     canonical_key,
     normalize_company,
     normalize_location,
-    normalize_text,
     normalize_title,
 )
 from sabra_domain.schemas import CanonicalJob
@@ -379,7 +378,3 @@ def duplicate_report(groups: Iterable[OpportunityGroup]) -> dict[str, Any]:
         "multi_source_opportunities": len(multi),
         "cross_source_pairs": sum(1 for g in multi if len({m.source for m in g.members}) > 1),
     }
-
-
-def normalize_excerpt(text: str | None, limit: int = 4000) -> str:
-    return normalize_text(text)[:limit]

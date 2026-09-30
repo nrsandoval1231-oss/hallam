@@ -1,5 +1,8 @@
 # Source registry findings
 
+> **Historical record.** Captured from a live probe of public boards. Treat posting
+> counts, tokens, and `verified_at` values as observations from that run.
+
 `config/sources.yaml` is the discovery source registry (requirement 7). Every entry
 was verified live against the source's public API before it was added; each carries
 `verified_jobs` (the posting count observed) and `verified_at`.

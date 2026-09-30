@@ -15,7 +15,6 @@ from typing import Any
 from sabra_domain.enums import RemoteStatus
 from sabra_domain.identity import normalize_location, normalize_text
 from sabra_domain.schemas import (
-    CandidateProfile,
     FitAssessmentSchema,
     SearchProfile,
 )
@@ -506,11 +505,3 @@ def _why_this_job(
     if gaps:
         parts.append(f"Primary gap: {gaps[0]}")
     return " ".join(parts)
-
-
-def assess_profile_ready(profile: CandidateProfile | None) -> bool:
-    """Whether a candidate profile carries anything to reason about."""
-
-    if profile is None:
-        return False
-    return bool(profile.employment or profile.skills or profile.summary or profile.headline)

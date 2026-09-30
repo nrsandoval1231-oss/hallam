@@ -2,9 +2,9 @@
 
 Every network read in the product goes through here, so a provider failure is
 always a recorded, bounded event rather than an exception that escapes into the
-discovery run. Providers are synchronous by design: the deterministic parts of
-this system stay synchronous and the API runs them in a worker thread, which is
-far easier to test and restart than a web of coroutines.
+discovery run. Providers are synchronous: a discovery run walks sources in
+sequence from the CLI. The FastAPI app serves stored results and package
+preparation.
 """
 
 from __future__ import annotations

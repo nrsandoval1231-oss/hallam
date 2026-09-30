@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from .settings import Settings, get_settings
+from .settings import get_settings
 
 
 def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
@@ -88,10 +88,3 @@ class Database:
 
     def dispose(self) -> None:
         self.engine.dispose()
-
-
-def database_from_settings(settings: Settings | None = None) -> Database:
-    settings = settings or get_settings()
-    if settings.database_url.startswith("sqlite"):
-        settings.ensure_dirs()
-    return Database(settings.database_url)

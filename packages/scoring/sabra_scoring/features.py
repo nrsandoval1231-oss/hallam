@@ -422,14 +422,3 @@ def annualized_salary(features: JobFeatures) -> tuple[float | None, float | None
     if features.salary_period in (None, "YEAR"):
         return features.salary_min, features.salary_max
     return None, None
-
-
-def detect_seniority_conflicts(title: str, search_profile: SearchProfile) -> list[str]:
-    """Return excluded seniority labels present in a title."""
-
-    from sabra_providers.normalize import parse_seniority
-
-    seniority = parse_seniority(title)
-    if seniority and seniority in {s.upper() for s in search_profile.excluded_seniority_levels}:
-        return [seniority]
-    return []

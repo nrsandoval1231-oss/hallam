@@ -138,10 +138,6 @@ def assert_application_transition(current: ApplicationStatus, target: Applicatio
         raise InvalidTransition("application", current.value, target.value)
 
 
-def allowed_job_targets(current: JobStatus) -> list[str]:
-    return sorted(t.value for t in JOB_TRANSITIONS.get(current, frozenset()))
-
-
 def application_path(
     current: ApplicationStatus, target: ApplicationStatus
 ) -> list[ApplicationStatus]:
