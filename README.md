@@ -24,9 +24,10 @@ Verified against real data, not scaffolding:
 | M7 Ledger | Done | Append-only events, ledger projection, outcomes, learning records |
 | M8 Pilot | **Blocked on owner input** | See below |
 
-`apps/api` is a FastAPI app with an HTML dashboard. It serves `/` and `/opportunities`,
-plus JSON routes for health, status, the candidate profile, résumé upload, the
-shortlist, and package preparation. `make run-api` listens on http://127.0.0.1:8787.
+`apps/api` is a FastAPI app with an HTML dashboard. It serves `/`, `/opportunities`,
+`/applications` (batch approval), and `/answers` (record and verify), plus JSON
+routes for health, status, the candidate profile, résumé upload, the shortlist,
+and package preparation. `make run-api` listens on http://127.0.0.1:8787.
 `apps/web` is still an empty scaffold.
 
 ### Honest gaps
@@ -35,8 +36,9 @@ shortlist, and package preparation. `make run-api` listens on http://127.0.0.1:8
   generation correctly refuses to invent candidate facts: with no résumé loaded it
   produces `INCOMPLETE` packages with every open question named. That is requirement
   5 working, and it is the one thing only you can supply.
-- The employment and education blocks on a Greenhouse form are recognised but not
-  filled. See `docs/operations/m6-greenhouse-form-findings.md`.
+- Sensitive answers (salary, background check, and the same class of question)
+  fill only after the owner records and verifies them. Until then the package
+  stays incomplete.
 
 ## Quick start
 
@@ -45,7 +47,7 @@ make sync        # create the venv and install (required after adding a package)
 make init        # create the database, load the source registry, seed a search profile
 make discover    # read every enabled board
 make rank        # hard-filter, assess fit, rank, shortlist
-make test        # 184 tests (3 marked live)
+make test        # default suite; live employer checks stay opted out
 make run-api     # local dashboard at http://127.0.0.1:8787
 ```
 
@@ -62,7 +64,7 @@ packages/
   providers/     Greenhouse, Lever, direct careers; normalization; deduplication
   scoring/       features, hard filter, fit engine, ranking
   documents/     master résumé, tailoring, answers, package assembly
-  automation/    Playwright adapter contract and the Greenhouse adapter
+  automation/    Playwright adapter contract, Greenhouse and Lever adapters
   engine/        services: discovery, intelligence, research, documents,
                  approval, execution, ledger, CLI
 workers/         empty scaffold (discovery, research, and application workers)
@@ -79,8 +81,10 @@ tests/           test suite and committed fixtures
   fail on a fabricated bullet.
 - **Approval before submission.** An approval carries the content hash of the package
   a human read. The execution path recomputes it and refuses on any difference.
-- **Stop, don't guess.** CAPTCHAs, identity checks, legal attestations and unknown
-  required questions stop the attempt and are recorded as `BLOCKED`.
+- **Stop, don't guess.** A CAPTCHA or a failed challenge probe is not submitted
+  and not solved: the pre-filled form is handed to a person in a headed browser.
+  Unknown required fields block that application and name the field. Dry-run is
+  the default and never submits.
 - **Code owns truth.** IDs, deduplication, state transitions and authorization are
   deterministic; models assist judgement only.
 
@@ -88,4 +92,5 @@ tests/           test suite and committed fixtures
 
 - [`docs/operations/source-registry-findings.md`](docs/operations/source-registry-findings.md)
 - [`docs/operations/m6-greenhouse-form-findings.md`](docs/operations/m6-greenhouse-form-findings.md)
+- [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md)
 - [`docs/architecture/assumptions.md`](docs/architecture/assumptions.md)

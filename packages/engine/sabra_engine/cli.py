@@ -228,6 +228,99 @@ def status_command(as_json: bool = typer.Option(False, "--json")) -> None:
         ctx.close()
 
 
+answers_app = typer.Typer(help="Record and verify reusable application answers.")
+app.add_typer(answers_app, name="answers")
+
+
+@answers_app.command("list")
+def answers_list(
+    candidate_id: str | None = typer.Option(None, "--candidate-id"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show recorded answers and whether each one is verified."""
+
+    from .answer_memory import AnswerMemoryService
+
+    ctx = _context()
+    try:
+        payload = AnswerMemoryService(ctx).list_answers(candidate_id)
+        _emit(payload, as_json, "Answer memory")
+    finally:
+        ctx.close()
+
+
+@answers_app.command("record")
+def answers_record(
+    key: str = typer.Argument(..., help="Canonical question key, such as salary_expectations"),
+    value: str = typer.Argument(..., help="The owner's answer, in their words"),
+    question: str | None = typer.Option(None, "--question", help="The form wording, if you have it"),
+    candidate_id: str | None = typer.Option(None, "--candidate-id"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Store an answer. It is not used on forms until you verify it."""
+
+    from .answer_memory import AnswerMemoryService
+
+    ctx = _context()
+    try:
+        payload = AnswerMemoryService(ctx).record(
+            key, value, question_text=question, candidate_id=candidate_id
+        )
+        _emit(payload, as_json, "Recorded")
+    finally:
+        ctx.close()
+
+
+@answers_app.command("verify")
+def answers_verify(
+    key: str = typer.Argument(..., help="Question key to authorize for auto-fill"),
+    candidate_id: str | None = typer.Option(None, "--candidate-id"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Mark a recorded answer verified so packages may use it."""
+
+    from .answer_memory import AnswerMemoryService
+
+    ctx = _context()
+    try:
+        payload = AnswerMemoryService(ctx).verify(key, candidate_id=candidate_id)
+        _emit(payload, as_json, "Verified")
+    finally:
+        ctx.close()
+
+
+@app.command("apply")
+def apply_command(
+    application_id: str = typer.Argument(..., help="Approved application to submit or hand off"),
+    real: bool = typer.Option(
+        False,
+        "--real",
+        help="Allow a real submission. Refused while SABRA_AUTOMATION_DRY_RUN is true (the default).",
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Submit an approved application, or hand a challenged form to the person here.
+
+    Dry-run is the default: the form is filled and nothing is submitted. A CAPTCHA
+    is never solved by this process. With --real, a challenged form opens in a
+    visible browser for the person to solve and submit.
+    """
+
+    from .execution import ExecutionService
+
+    def prompt() -> str:
+        return typer.prompt("Outcome after you submit or leave the form (submitted/abandoned/failed)")
+
+    ctx = _context()
+    try:
+        result = ExecutionService(ctx, handoff_prompt=prompt).submit(
+            application_id, allow_real_submission=real
+        )
+        _emit(result.as_dict(), as_json, "Submission")
+    finally:
+        ctx.close()
+
+
 def main() -> None:
     try:
         app()

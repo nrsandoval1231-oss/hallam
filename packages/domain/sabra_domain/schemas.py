@@ -195,8 +195,9 @@ class SoftPreference(BaseModel):
 class AnswerRecord(BaseModel):
     """Reusable answer to a common application question (requirement 18).
 
-    `sensitive` and `user_controlled` answers are never auto-filled into a form:
-    the system may propose text but the human decides.
+    Auto-fill requires a recorded value at `VERIFIED`. Sensitive questions follow
+    the same rule: the owner records the answer, then verifies it, and only then
+    may a package use it. An unverified value is stored and never typed.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -212,12 +213,7 @@ class AnswerRecord(BaseModel):
 
     @property
     def auto_fillable(self) -> bool:
-        return (
-            self.level is TruthLevel.VERIFIED
-            and not self.sensitive
-            and not self.user_controlled
-            and self.value not in (None, "")
-        )
+        return self.level is TruthLevel.VERIFIED and self.value not in (None, "")
 
 
 class CandidateProfile(BaseModel):
@@ -586,6 +582,18 @@ class ApplicationPackageSchema(BaseModel):
     fit_explanation: str | None = None
     qualification_gaps: list[str] = Field(default_factory=list)
     answers: list[ApplicationAnswerSchema] = Field(default_factory=list)
+    # Verified identity and history copied onto the package so an approval hash
+    # covers every value the adapter is allowed to type. Empty unless verified.
+    applicant_name: str | None = None
+    applicant_email: str | None = None
+    applicant_phone: str | None = None
+    applicant_city: str | None = None
+    applicant_state: str | None = None
+    applicant_postal_code: str | None = None
+    applicant_country: str | None = None
+    applicant_linkedin: str | None = None
+    employment: list[EmploymentEntry] = Field(default_factory=list)
+    education: list[EducationEntry] = Field(default_factory=list)
     recruiter_message: str | None = None
     hiring_manager_message: str | None = None
     interview_preparation: str | None = None
@@ -609,6 +617,16 @@ class ApplicationPackageSchema(BaseModel):
             "fit_explanation": self.fit_explanation,
             "qualification_gaps": self.qualification_gaps,
             "answers": [a.model_dump(mode="json") for a in self.answers],
+            "applicant_name": self.applicant_name,
+            "applicant_email": self.applicant_email,
+            "applicant_phone": self.applicant_phone,
+            "applicant_city": self.applicant_city,
+            "applicant_state": self.applicant_state,
+            "applicant_postal_code": self.applicant_postal_code,
+            "applicant_country": self.applicant_country,
+            "applicant_linkedin": self.applicant_linkedin,
+            "employment": [e.model_dump(mode="json") for e in self.employment],
+            "education": [e.model_dump(mode="json") for e in self.education],
             "recruiter_message": self.recruiter_message,
             "hiring_manager_message": self.hiring_manager_message,
             "interview_preparation": self.interview_preparation,

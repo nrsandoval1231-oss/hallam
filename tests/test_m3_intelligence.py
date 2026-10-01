@@ -638,3 +638,42 @@ def test_rejection_is_audited_with_reasons(engine_db: Database, settings: Settin
         assert payload["reasons"]
         assert payload["detail"]
         assert "title_relevance" in payload["checks_run"]
+
+
+def test_rescore_drops_a_newly_rejected_opportunity_from_the_shortlist(
+    engine_db: Database, settings: Settings
+) -> None:
+    """`rank --rescore` must not leave a role on the shortlist after the filter rejects it."""
+
+    jobs = [make_job(source_job_id="1", title="Territory Manager", location="Dallas, TX")]
+    candidate_id, search_id = _seed(engine_db, jobs)
+    ctx = EngineContext.create(
+        settings=settings,
+        database_url=settings.database_url,
+        registry_path=None,
+        create_schema=False,
+    )
+    try:
+        IntelligenceService(ctx).run(
+            candidate_id=candidate_id, search_profile_id=search_id, shortlist_limit=5
+        )
+        with ctx.repos() as repos:
+            opportunity = repos.opportunities.list_for_candidate(candidate_id)[0]
+            assert opportunity.shortlisted is True
+            assert opportunity.status == JobStatus.SHORTLISTED.value
+            job = repos.jobs.get(opportunity.primary_job_id)
+            job.salary_min = 40000.0
+            job.salary_max = 50000.0
+        IntelligenceService(ctx).run(
+            candidate_id=candidate_id,
+            search_profile_id=search_id,
+            shortlist_limit=5,
+            rescore=True,
+        )
+    finally:
+        ctx.close()
+
+    with engine_db.read_session() as session:
+        opportunity = session.execute(select(models.Opportunity)).scalars().one()
+        assert opportunity.status == JobStatus.REJECTED.value
+        assert opportunity.shortlisted is False

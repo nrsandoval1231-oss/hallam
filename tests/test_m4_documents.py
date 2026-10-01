@@ -383,8 +383,8 @@ def test_verified_answer_is_auto_fillable() -> None:
     assert auto_fillable_answers(resolutions)
 
 
-def test_sensitive_answers_are_withheld_even_when_supplied() -> None:
-    """Requirement 18: sensitive disclosures stay user-controlled."""
+def test_unverified_sensitive_answers_are_withheld() -> None:
+    """A recorded sensitive answer is not typed until the owner verifies it."""
 
     profile = CandidateProfile(
         candidate_id="c",
@@ -392,18 +392,98 @@ def test_sensitive_answers_are_withheld_even_when_supplied() -> None:
             "veteran_status": AnswerRecord(
                 question_key="veteran_status",
                 value="I am a protected veteran",
-                level=TruthLevel.VERIFIED,
+                level=TruthLevel.INFERRED,
                 sensitive=True,
                 user_controlled=True,
-            )
+            ),
+            "salary_expectations": AnswerRecord(
+                question_key="salary_expectations",
+                value="120000",
+                level=TruthLevel.INFERRED,
+                sensitive=True,
+            ),
         },
     )
-    resolutions = AnswerResolver().resolve(profile, ["What is your veteran status?"])
-    answer = resolutions[0].answer
-    assert answer.answer is None, "a sensitive answer must never be auto-filled"
-    assert answer.requires_user_input is True
-    assert answer.sensitive is True
+    resolutions = AnswerResolver().resolve(
+        profile,
+        ["What is your veteran status?", "What is your desired salary?"],
+    )
+    assert all(item.answer.answer is None for item in resolutions)
+    assert all(item.answer.requires_user_input for item in resolutions)
     assert auto_fillable_answers(resolutions) == []
+
+
+def test_verified_sensitive_answers_fill_and_can_complete_a_package(
+    profile, document, job
+) -> None:
+    """Salary and a background check complete the package once the owner verifies them."""
+
+    verified = profile.model_copy(
+        update={
+            "answer_memory": {
+                "salary_expectations": AnswerRecord(
+                    question_key="salary_expectations",
+                    value="$130,000",
+                    level=TruthLevel.VERIFIED,
+                    sensitive=True,
+                    evidence=["owner_verified"],
+                ),
+                "background_check": AnswerRecord(
+                    question_key="background_check",
+                    value="Yes",
+                    level=TruthLevel.VERIFIED,
+                    sensitive=True,
+                    evidence=["owner_verified"],
+                ),
+                "work_authorization": AnswerRecord(
+                    question_key="work_authorization",
+                    value="Yes",
+                    level=TruthLevel.VERIFIED,
+                    evidence=["owner_supplied"],
+                ),
+            }
+        }
+    )
+    resolutions = AnswerResolver().resolve(
+        verified,
+        [
+            "What are your salary expectations?",
+            "Are you willing to undergo a background check?",
+        ],
+    )
+    assert {item.answer.answer for item in resolutions} == {"$130,000", "Yes"}
+    assert auto_fillable_answers(resolutions)
+    built = PackageFactory().build(
+        profile=verified,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
+        questions=[
+            "Are you legally authorized to work in the United States?",
+            "What are your salary expectations?",
+            "Are you willing to undergo a background check?",
+        ],
+    )
+    assert built.status is PackageStatus.COMPLETE
+    assert built.schema.unresolved_questions == []
+
+
+def test_hiring_manager_message_is_role_neutral(profile, document, job) -> None:
+    built = PackageFactory().build(
+        profile=profile,
+        master=document,
+        job=job,
+        master_resume_id="res_master",
+        job_id="job_1",
+        opportunity_id="opp_1",
+    )
+    message = built.schema.hiring_manager_message or ""
+    assert "conversation about the role" in message
+    assert "conversation about the territory" not in message
+    assert "discuss the territory" not in message
+    assert "Regional Sales Manager" in message
 
 
 def test_inferred_answers_are_not_auto_filled() -> None:

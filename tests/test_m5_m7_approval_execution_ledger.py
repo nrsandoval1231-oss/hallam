@@ -545,37 +545,51 @@ def test_global_dry_run_lock_overrides_a_per_call_opt_in(
     )
 
 
-def test_real_submission_on_a_captcha_form_is_blocked_not_bypassed(prepared) -> None:
-    """Requirement 21, end to end: the approved attempt stops at the CAPTCHA."""
+def test_real_submission_on_a_captcha_form_is_handed_to_a_human_not_bypassed(prepared) -> None:
+    """A challenge is not submitted and not solved. The person gets the form."""
 
-    # Lift the global dry-run floor for this test: without it no real path is
-    # reachable at all, and the CAPTCHA stop would never be exercised.
+    from sabra_automation.handoff import HandoffResult
+
     prepared.ctx.settings.automation_dry_run = False
     ApprovalService(prepared.ctx).approve(
         prepared.package_id, approved_by="test", acknowledge_unresolved=True
     )
-    adapter = GreenhouseApplicationAdapter(
-        dry_run=False,
-        page_factory=lambda _url: FakeFormPage(
+    pages: list[FakeFormPage] = []
+
+    def factory(_url: str) -> FakeFormPage:
+        page = FakeFormPage(
             {"fields": [], "captcha": True, "title": "Vercel Security Checkpoint"}, body=""
-        ),
-    )
-    result = ExecutionService(prepared.ctx, registry=AdapterRegistry([adapter])).submit(
-        prepared.application_id, allow_real_submission=True
-    )
-    assert result.outcome == "BLOCKED"
-    assert any("CAPTCHA" in stop["kind"] for stop in result.stops)
+        )
+        pages.append(page)
+        return page
+
+    class Abandoned:
+        def run(self, **_kwargs: object) -> HandoffResult:
+            return HandoffResult(
+                outcome="abandoned",
+                source="user_confirmation",
+                opened_headed=True,
+            )
+
+    adapter = GreenhouseApplicationAdapter(dry_run=False, page_factory=factory)
+    result = ExecutionService(
+        prepared.ctx, registry=AdapterRegistry([adapter]), handoff=Abandoned()
+    ).submit(prepared.application_id, allow_real_submission=True)
+    assert result.outcome == "ABANDONED"
+    assert all(page.clicked == [] for page in pages)
 
     with prepared.ctx.read_repos() as repos:
         application = repos.applications.get(prepared.application_id)
-        assert application.status == ApplicationStatus.BLOCKED.value
+        assert application.status == ApplicationStatus.WITHDRAWN.value
         assert application.submission_time is None
-        assert application.external_confirmation == {}
         events = [
             e.event_type for e in repos.events.for_entity("application", prepared.application_id)
         ]
         assert "APPLICATION_SUBMITTED" not in events
-        assert "APPLICATION_BLOCKED" in events
+        assert "APPLICATION_ATTEMPTED" in events
+        assert "CHALLENGE_DETECTED" in events
+        assert "HANDED_TO_HUMAN" in events
+        assert "APPLICATION_ABANDONED" in events
 
 
 def test_a_consent_overlay_is_not_mistaken_for_an_application_form() -> None:

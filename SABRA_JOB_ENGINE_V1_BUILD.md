@@ -11,7 +11,7 @@ Inspect the repository and existing implementation first, then autonomously exec
 
 Work through milestones M1–M8 toward the real-data V1 success condition. Diagnose and repair recoverable failures, repeat relevant verification, and continue; scaffolding, a rendered UI, or passing tests alone do not establish completion. Follow the decision hierarchy in requirement 45, document assumptions, and bring product-direction changes to the owner.
 
-Build authority does not authorize external application submission: preserve candidate truth, bind explicit user approval to the specific application package, and stop for human intervention where requirements 19–21 demand it. Optimize for interviews and desirable job outcomes, never application volume.
+Build authority does not authorize external application submission on its own: preserve candidate truth, bind explicit user approval to the specific application package, and stop for human intervention where requirements 19–21 demand it. The human boundary is batch approval of complete packages plus human-only CAPTCHA solving. After that hash-bound approval, a supported form with no challenge may be submitted; a challenge is handed to the person in a headed browser and is never solved by the product. Optimize for interviews and desirable job outcomes, never application volume.
 
 Sabra Job Engine is a standalone product/repository. Athena-style learning and possible Nucleus integration are later capabilities, not V1 dependencies; collect trustworthy outcome evidence from day one.
 
@@ -451,7 +451,7 @@ Examples:
 - demographic disclosures
 - willingness to commute
 
-Sensitive or voluntary information must remain explicitly user-controlled.
+Sensitive or voluntary information must remain explicitly user-controlled until the owner records an answer and verifies it. A verified answer may be reused on later applications. An unverified or missing answer must not be typed, and it keeps the package from being COMPLETE.
 
 ---
 
@@ -474,7 +474,7 @@ Sabra may autonomously:
 
 Sabra should not submit an external job application without the user's explicit approval.
 
-Approval should bind to the specific application package being submitted.
+The approval the user gives is a batch of COMPLETE packages. Each approval binds to that package's content hash. A later edit invalidates the approval. Per-application clicking of Submit is not the boundary when the form has no CAPTCHA or bot challenge: after the hash-bound batch approval, Sabra may submit those forms. Dry-run remains the default until real submission is explicitly enabled.
 
 ---
 
@@ -500,15 +500,15 @@ If the system encounters:
 
 - unexpected legal attestations
 - unknown required questions
-- CAPTCHA
+- CAPTCHA or any bot challenge (reCAPTCHA, hCaptcha, Turnstile, and anything the detector cannot rule out)
 - identity verification
 - material ambiguity
 - unsupported file requirements
 - consent outside established policy
 
-stop safely and request human intervention.
+stop the automatic submission and request human intervention.
 
-Do not guess.
+A challenge is not a blocker that abandons the application. Do not solve, bypass, or click past it. Open the pre-filled form in a headed browser so the person solves the check and presses Submit, then record submitted, abandoned, or failed from their confirmation or from the confirmation page. A detection failure is treated as a challenge. An unknown required field blocks that application and names the field. Do not guess.
 
 ---
 

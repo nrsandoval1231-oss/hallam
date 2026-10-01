@@ -29,14 +29,28 @@ BOT_WALL_SIGNALS: tuple[str, ...] = (
 )
 
 # Selectors whose presence means an interactive challenge exists on the page.
+# Detection is conservative: a selector we cannot evaluate is treated as a hit
+# by the caller, and this list errs toward the common widgets rather than a
+# narrow Greenhouse-only check.
 CAPTCHA_SELECTORS: tuple[str, ...] = (
     'iframe[src*="recaptcha"]',
     'iframe[src*="hcaptcha"]',
-    'iframe[title*="captcha" i]',
     'iframe[src*="turnstile"]',
+    'iframe[src*="challenges.cloudflare.com"]',
+    'iframe[src*="arkoselabs"]',
+    'iframe[src*="funcaptcha"]',
+    'iframe[src*="geetest"]',
+    'iframe[title*="captcha" i]',
+    'iframe[title*="hcaptcha" i]',
+    'iframe[title*="turnstile" i]',
     ".g-recaptcha",
     ".h-captcha",
+    ".cf-turnstile",
+    "#px-captcha",
     "[data-sitekey]",
+    'script[src*="recaptcha"]',
+    'script[src*="hcaptcha"]',
+    'script[src*="turnstile"]',
 )
 
 LOGIN_SIGNALS: tuple[str, ...] = (
