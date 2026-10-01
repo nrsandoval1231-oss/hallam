@@ -591,6 +591,7 @@ class ApplicationPackageSchema(BaseModel):
     applicant_state: str | None = None
     applicant_postal_code: str | None = None
     applicant_country: str | None = None
+    applicant_street_address: str | None = None
     applicant_linkedin: str | None = None
     employment: list[EmploymentEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
@@ -624,6 +625,7 @@ class ApplicationPackageSchema(BaseModel):
             "applicant_state": self.applicant_state,
             "applicant_postal_code": self.applicant_postal_code,
             "applicant_country": self.applicant_country,
+            "applicant_street_address": self.applicant_street_address,
             "applicant_linkedin": self.applicant_linkedin,
             "employment": [e.model_dump(mode="json") for e in self.employment],
             "education": [e.model_dump(mode="json") for e in self.education],

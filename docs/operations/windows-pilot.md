@@ -109,7 +109,26 @@ Then, in the browser on this PC:
 
 Each approval is stored against that package's content hash. If the package changes later, that approval no longer authorizes submission.
 
-## 6. Dry-run first
+## 6. Refresh packages after you verify new answers
+
+An approved package keeps the contact fields it had when it was built. Verified answers recorded later (phone, street address, city, state, postal code, country) are not copied into that frozen package, and Prepare on an approved application stays refused.
+
+Profile identity wins when both the profile and a verified answer have a value. A verified answer fills a field only when the profile value is blank. An unverified answer is never used. Street address comes only from a verified `street_address` answer.
+
+Refresh revokes the approval, writes the old content hash to the ledger, builds a new revision, and returns the application to awaiting approval. You then approve the new package. It refuses an application that has already been submitted.
+
+On http://127.0.0.1:8787/applications, press **Refresh package** on one approved row, or **Refresh all unsubmitted** and confirm the dialog. Then tick the new complete packages and press **Approve selected**.
+
+Or from PowerShell, using the application id from **Copy**:
+
+```powershell
+uv run sabra packages refresh APPLICATION_ID
+uv run sabra packages refresh --all-unsubmitted
+```
+
+`--all-unsubmitted` asks you to confirm. Add `--yes` only when you intend to revoke every unsubmitted approval without that prompt.
+
+## 7. Dry-run first
 
 Leave `SABRA_AUTOMATION_DRY_RUN` unset or `true`. Restart the API if you change it.
 
@@ -119,7 +138,7 @@ uv run sabra apply APPLICATION_ID
 
 The outcome is `DRY_RUN`. The command does not open a browser, does not navigate to the employer, and does not type or upload. The ledger records the attempt with `navigated: false`. The dashboard **Apply** button is disabled and says why.
 
-## 7. Enable real submission
+## 8. Enable real submission
 
 Both switches are required. `--real` alone is refused while dry-run is still on. Restart the API after changing the variable so the dashboard sees it.
 

@@ -289,6 +289,54 @@ def answers_verify(
         ctx.close()
 
 
+packages_app = typer.Typer(help="Rebuild approved packages after answer memory changes.")
+app.add_typer(packages_app, name="packages")
+
+
+@packages_app.command("refresh")
+def packages_refresh(
+    application_id: str | None = typer.Argument(None, help="Approved application to rebuild"),
+    all_unsubmitted: bool = typer.Option(
+        False,
+        "--all-unsubmitted",
+        help="Refresh every approved application that has not been submitted",
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt for --all-unsubmitted"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Revoke approval and prepare a new package revision.
+
+    The owner must approve the new revision. Submitted applications are refused.
+    """
+
+    from sabra_domain.errors import ValidationFailure
+
+    from .refresh import PackageRefreshService
+
+    if all_unsubmitted and application_id:
+        raise ValidationFailure("pass either an application id or --all-unsubmitted, not both")
+    if not all_unsubmitted and not application_id:
+        raise ValidationFailure("pass an application id, or --all-unsubmitted")
+    if all_unsubmitted and not yes:
+        confirmed = typer.confirm(
+            "Refresh every approved application that has not been submitted? "
+            "Each approval is revoked and must be given again."
+        )
+        if not confirmed:
+            raise typer.Exit(code=1)
+
+    ctx = _context()
+    try:
+        service = PackageRefreshService(ctx)
+        if all_unsubmitted:
+            payload = service.refresh_all_unsubmitted().as_dict()
+        else:
+            payload = service.refresh(application_id or "").as_dict()
+        _emit(payload, as_json, "Refreshed")
+    finally:
+        ctx.close()
+
+
 @app.command("apply")
 def apply_command(
     application_id: str = typer.Argument(..., help="Approved application to submit or hand off"),
