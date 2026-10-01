@@ -82,7 +82,9 @@ def test_adapter_inspects_a_live_greenhouse_page_safely(
 ) -> None:
     """The adapter's real path: navigate, detect, enumerate — or refuse cleanly."""
 
-    adapter = GreenhouseApplicationAdapter(dry_run=True)
+    # Operator dry-run must not navigate. This opt-in live check is the explicit
+    # navigation path, so it is not a dry run.
+    adapter = GreenhouseApplicationAdapter(dry_run=False)
 
     try:
         form = adapter.inspect(job)

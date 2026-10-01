@@ -68,18 +68,21 @@ class Settings(BaseSettings):
         if self.private_dir is None:
             return
         root = Path(self.private_dir)
+        # The pilot keeps the database and runtime files under <private>/var,
+        # matching an existing checkout layout such as hallam-private\\var\\sabra.db.
+        private_var = root / "var"
         if self.data_dir == REPO_ROOT / "var":
-            self.data_dir = root
+            self.data_dir = private_var
         if self.artifacts_dir == REPO_ROOT / "var" / "artifacts":
-            self.artifacts_dir = root / "artifacts"
+            self.artifacts_dir = private_var / "artifacts"
         if self.evidence_dir == REPO_ROOT / "var" / "evidence":
-            self.evidence_dir = root / "evidence"
+            self.evidence_dir = private_var / "evidence"
         if self.candidate_dir == REPO_ROOT / "config" / "candidates":
             self.candidate_dir = root / "candidates"
         if self.automation_screenshot_dir == REPO_ROOT / "var" / "automation":
-            self.automation_screenshot_dir = root / "automation"
+            self.automation_screenshot_dir = private_var / "automation"
         if self.database_url == "sqlite+pysqlite:///./var/sabra.db":
-            self.database_url = f"sqlite+pysqlite:///{(root / 'sabra.db').as_posix()}"
+            self.database_url = f"sqlite+pysqlite:///{(private_var / 'sabra.db').as_posix()}"
 
     def ensure_dirs(self) -> None:
         for path in (

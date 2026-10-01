@@ -474,7 +474,7 @@ Sabra may autonomously:
 
 Sabra should not submit an external job application without the user's explicit approval.
 
-The approval the user gives is a batch of COMPLETE packages. Each approval binds to that package's content hash. A later edit invalidates the approval. Per-application clicking of Submit is not the boundary when the form has no CAPTCHA or bot challenge: after the hash-bound batch approval, Sabra may submit those forms. Dry-run remains the default until real submission is explicitly enabled.
+The approval the user gives is a batch of COMPLETE packages. Each approval binds to that package's content hash. A later edit invalidates the approval. Per-application clicking of Submit is not the boundary when the form has no CAPTCHA or bot challenge: after the hash-bound batch approval, Sabra may submit those forms. Dry-run remains the default until real submission is explicitly enabled. A dry run does not open the employer form, type into it, or upload a résumé.
 
 ---
 

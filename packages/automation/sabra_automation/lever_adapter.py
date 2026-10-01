@@ -63,6 +63,24 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
     """
 
     kind = "lever"
+    FIELD_KEYS = frozenset(
+        {
+            "name",
+            "email",
+            "phone",
+            "org",
+            "linkedin",
+            "comments",
+            "country",
+            "city",
+            "state_residence",
+            "postal_code",
+            "street_address",
+            "us_citizen",
+            "spanish",
+            "resume_headline",
+        }
+    )
 
     def supports(self, job: CanonicalJob | Any) -> bool:
         if str(getattr(job, "source", "")) == str(SourceKind.LEVER):

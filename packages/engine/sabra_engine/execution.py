@@ -53,6 +53,7 @@ class ExecutionResult:
     stops: list[dict[str, Any]] = field(default_factory=list)
     adapter: str | None = None
     detail: str | None = None
+    plan: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +63,7 @@ class ExecutionResult:
             "adapter": self.adapter,
             "detail": self.detail,
             "stops": self.stops,
+            "plan": self.plan,
             "validation": self.validation.as_dict() if self.validation else None,
             "receipt": self.receipt.as_dict() if self.receipt else None,
         }
@@ -87,6 +89,36 @@ class AdapterRegistry:
 
     def supported_kinds(self) -> list[str]:
         return [a.kind for a in self.adapters]
+
+
+def fill_plan(package: Any, job: Any) -> dict[str, Any]:
+    """What a real run would type, without opening a page or reading a network.
+
+    Values already on the approved package are named. Nothing is invented, and
+    the résumé text itself is not copied into the plan.
+    """
+
+    answers = [
+        answer.question_key
+        for answer in getattr(package, "answers", []) or []
+        if getattr(answer, "answer", None) and not getattr(answer, "requires_user_input", False)
+    ]
+    return {
+        "navigated": False,
+        "typed": False,
+        "uploaded": False,
+        "employer_url": str(getattr(job, "source_url", "") or ""),
+        "would_fill": {
+            "name": bool(getattr(package, "applicant_name", None)),
+            "email": bool(getattr(package, "applicant_email", None)),
+            "phone": bool(getattr(package, "applicant_phone", None)),
+            "employment": len(getattr(package, "employment", []) or []),
+            "education": len(getattr(package, "education", []) or []),
+            "resume": bool((getattr(package, "tailored_resume_markdown", None) or "").strip()),
+            "answers": answers,
+        },
+        "note": "dry run stopped before opening the employer form; nothing was typed or uploaded",
+    }
 
 
 def default_registry(*, dry_run: bool = True, settings: Any = None) -> AdapterRegistry:
@@ -153,9 +185,10 @@ class ExecutionService:
     ) -> ExecutionResult:
         """Attempt a submission for one approved application.
 
-        `allow_real_submission=False` (the default) performs the full preparation
-        path and stops short of clicking submit. That default is why a mistake in an
-        operator's script cannot produce an unintended application.
+        `allow_real_submission=False` (the default) does not open the employer
+        form, does not type, and does not upload. It reports a fill plan built
+        from the approved package and stops. A dry run that opened the live form
+        would type the résumé into an ATS that can store the upload immediately.
         """
 
         try:
@@ -199,15 +232,28 @@ class ExecutionService:
             )
 
         adapter.dry_run = not allow_real_submission or self.ctx.settings.automation_dry_run
-        self._record(
-            application_id,
-            EventType.APPLICATION_ATTEMPTED,
-            {
-                "adapter": adapter.kind,
-                "dry_run": adapter.dry_run,
-                "url": str(getattr(job, "source_url", "") or ""),
-            },
-        )
+        plan = fill_plan(package, job) if adapter.dry_run else None
+        attempted = {
+            "adapter": adapter.kind,
+            "dry_run": adapter.dry_run,
+            "url": str(getattr(job, "source_url", "") or ""),
+        }
+        if adapter.dry_run:
+            attempted.update(
+                {"navigated": False, "typed": False, "uploaded": False, "plan": plan}
+            )
+        self._record(application_id, EventType.APPLICATION_ATTEMPTED, attempted)
+        if adapter.dry_run:
+            return ExecutionResult(
+                application_id=application_id,
+                opportunity_id=opportunity_id,
+                outcome="DRY_RUN",
+                adapter=adapter.kind,
+                detail=(
+                    "dry run did not open the employer form and did not type or upload anything"
+                ),
+                plan=plan,
+            )
 
         # 1. Inspect the live form. A challenge, including a probe that failed,
         # is handed to a person. It is never submitted by the adapter.

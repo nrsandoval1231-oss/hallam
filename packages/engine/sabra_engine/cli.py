@@ -325,7 +325,18 @@ def main() -> None:
     try:
         app()
     except SabraError as exc:
-        console.print(f"[red]{type(exc).__name__}[/red]: {exc}")
+        from sabra_domain.errors import NotFound
+
+        from .candidate_intake import missing_candidate_message
+
+        text = str(exc)
+        if isinstance(exc, NotFound) and exc.entity == "candidate":
+            from sabra_domain.settings import get_settings
+
+            text = missing_candidate_message(get_settings().database_url)
+        # typer.echo, not Rich: a non-interactive capture still has to show the
+        # database path instead of a traceback.
+        typer.echo(f"{type(exc).__name__}: {text}")
         raise typer.Exit(code=1) from exc
 
 

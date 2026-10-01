@@ -15,6 +15,7 @@ from sabra_domain.enums import EntityType, EventType, TruthLevel
 from sabra_domain.errors import NotFound, ValidationFailure
 from sabra_domain.schemas import AnswerRecord
 
+from .candidate_intake import missing_candidate_message
 from .context import EngineContext
 
 
@@ -145,11 +146,10 @@ class AnswerMemoryService:
 
             return placeholder_candidate_profile(candidate_id)
 
-    @staticmethod
-    def _candidate(repos: Any, candidate_id: str | None) -> Any:
+    def _candidate(self, repos: Any, candidate_id: str | None) -> Any:
         if candidate_id:
             return repos.candidates.get(candidate_id)
         candidate = repos.candidates.primary()
         if candidate is None:
-            raise NotFound("candidate", "primary")
+            raise ValidationFailure(missing_candidate_message(self.ctx.settings.database_url))
         return candidate
