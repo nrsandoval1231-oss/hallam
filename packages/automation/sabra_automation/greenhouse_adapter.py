@@ -182,6 +182,27 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
     """Applies to a posting hosted on a Greenhouse job board."""
 
     kind = "greenhouse"
+    # Question and identity keys this adapter can fill from verified answers.
+    # The answers page derives its dropdown from this set.
+    FIELD_KEYS = frozenset(
+        {
+            "first_name",
+            "last_name",
+            "preferred_name",
+            "email",
+            "phone",
+            "country",
+            "city",
+            "state_residence",
+            "postal_code",
+            "street_address",
+            "us_citizen",
+            "spanish",
+            "resume_headline",
+            "age_eligibility",
+            "non_compete",
+        }
+    )
 
     def __init__(
         self,
@@ -206,6 +227,12 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         if self._page_factory is not None:
             page = self._page_factory(url)
             return page, None
+        if self.dry_run:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "dry run will not open an employer form or type into it",
+                {"url": url},
+            )
 
         from .playwright_driver import BrowserSession
 

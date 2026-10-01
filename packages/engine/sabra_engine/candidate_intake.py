@@ -226,6 +226,18 @@ def seed_search_profile(candidate_id: str) -> SearchProfile:
     )
 
 
+def missing_candidate_message(database_url: str) -> str:
+    """What the CLI prints when the opened database has no candidate row."""
+
+    return (
+        f"No candidate is stored in {database_url}. "
+        "Load the profile with `sabra init --profile <path-to-profile.yaml>`. "
+        "When SABRA_PRIVATE_DIR is set, that database file is "
+        "<private-dir>/var/sabra.db. "
+        "To open a different file, set SABRA_DATABASE_URL to its sqlite+pysqlite URL."
+    )
+
+
 def ensure_candidate(
     ctx: EngineContext,
     *,

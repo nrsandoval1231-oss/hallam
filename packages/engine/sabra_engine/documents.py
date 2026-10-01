@@ -206,6 +206,7 @@ class DocumentService:
 
         with self.ctx.repos() as repos:
             opportunity = repos.opportunities.get(opportunity_id)
+            self._refuse_if_already_approved(repos, opportunity)
             candidate_id = opportunity.candidate_id
             profile = self._profile(repos, candidate_id)
             master_row = repos.resumes.master(candidate_id)
@@ -320,6 +321,32 @@ class DocumentService:
         for opportunity_id in targets:
             results.append(self.prepare_package(opportunity_id, questions=questions))
         return results
+
+    @staticmethod
+    def _refuse_if_already_approved(repos: Repos, opportunity: Any) -> None:
+        """An approved application is not prepared again.
+
+        A new package would get a new content hash and silently detach the
+        approval the owner already gave. Later submission states are the same
+        refusal: the package they approved is the one that may be submitted.
+        """
+
+        from sabra_domain.enums import ApplicationStatus
+
+        existing = repos.applications.for_opportunity(opportunity.id)
+        locked_application = {
+            ApplicationStatus.APPROVED.value,
+            ApplicationStatus.APPLYING.value,
+            ApplicationStatus.APPLIED.value,
+        }
+        locked_job = {JobStatus.APPROVED, JobStatus.APPLYING, JobStatus.APPLIED}
+        if (existing is not None and existing.status in locked_application) or JobStatus(
+            opportunity.status
+        ) in locked_job:
+            raise ValidationFailure(
+                "already approved; this application was not prepared again "
+                "because a new package would break the approval hash"
+            )
 
     # -- helpers --------------------------------------------------------
 

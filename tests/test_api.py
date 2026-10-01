@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from sabra_api.main import app
 
@@ -78,6 +79,115 @@ def test_resume_upload_persists_candidate_evidence(isolate_database) -> None:
         database.dispose()
     after = real_database.stat().st_mtime_ns if real_database.exists() else None
     assert before == after
+
+
+def test_prepare_of_an_approved_application_is_json_and_does_not_reprepare(prepared, monkeypatch) -> None:
+    from sabra_engine.approval import ApprovalService
+
+    monkeypatch.setattr("sabra_engine.context.get_settings", lambda: prepared.ctx.settings)
+    ApprovalService(prepared.ctx).approve(
+        prepared.package_id, approved_by="test", acknowledge_unresolved=True
+    )
+    with prepared.ctx.read_repos() as repos:
+        before = len(repos.packages.list_all(prepared.candidate_id))
+    response = TestClient(app).post(f"/api/opportunities/{prepared.opportunity_id}/prepare")
+    assert response.status_code == 409
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert "already approved" in body["detail"].lower()
+    with prepared.ctx.read_repos() as repos:
+        assert len(repos.packages.list_all(prepared.candidate_id)) == before
+
+
+def test_package_list_keeps_only_the_latest_revision(prepared, monkeypatch) -> None:
+    from sabra_engine.documents import DocumentService
+
+    monkeypatch.setattr("sabra_engine.context.get_settings", lambda: prepared.ctx.settings)
+    DocumentService(prepared.ctx).prepare_package(prepared.opportunity_id)
+    payload = TestClient(app).get("/api/packages").json()
+    rows = payload["packages"]
+    assert len(rows) == 1
+    assert rows[0]["revision"] == 2
+    assert rows[0]["package_id"] != prepared.package_id
+    page = TestClient(app).get(f"/packages/{rows[0]['package_id']}")
+    assert page.status_code == 200
+    assert "Cover letter" in page.text
+    assert "Hiring manager note" in page.text
+    detail = TestClient(app).get(f"/api/packages/{rows[0]['package_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["content_hash"]
+
+
+def test_apply_is_refused_while_dry_run_is_on(prepared, monkeypatch) -> None:
+    monkeypatch.setattr("sabra_engine.context.get_settings", lambda: prepared.ctx.settings)
+    response = TestClient(app).post(
+        f"/api/applications/{prepared.application_id}/apply",
+        json={"confirm": True},
+    )
+    assert response.status_code == 409
+    assert "dry run is on" in response.json()["detail"].lower()
+    assert "nothing was opened" in response.json()["detail"].lower()
+
+
+def test_answer_keys_include_adapter_fields() -> None:
+    payload = TestClient(app).get("/api/answer-keys")
+    assert payload.status_code == 200
+    keys = set(payload.json()["keys"])
+    assert {
+        "us_citizen",
+        "spanish",
+        "resume_headline",
+        "phone",
+        "country",
+        "city",
+        "state_residence",
+        "postal_code",
+        "street_address",
+        "age_eligibility",
+        "non_compete",
+    } <= keys
+
+
+def test_private_dir_database_is_under_var(tmp_path, monkeypatch) -> None:
+    from sabra_domain.settings import Settings
+
+    for name in (
+        "SABRA_DATABASE_URL",
+        "SABRA_DATA_DIR",
+        "SABRA_ARTIFACTS_DIR",
+        "SABRA_EVIDENCE_DIR",
+        "SABRA_AUTOMATION_SCREENSHOT_DIR",
+        "SABRA_CANDIDATE_DIR",
+        "SABRA_PRIVATE_DIR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    private = tmp_path / "hallam-private"
+    settings = Settings(private_dir=private)
+    assert settings.database_url.endswith(f"{private.as_posix()}/var/sabra.db")
+    override = Settings(
+        private_dir=private,
+        database_url="sqlite+pysqlite:///C:/Users/nrsan/hallam-private/custom.db",
+    )
+    assert override.database_url.endswith("custom.db")
+
+
+def test_missing_candidate_names_the_database(isolate_database, monkeypatch, capsys) -> None:
+    import sys
+
+    import typer
+    from sabra_engine.cli import main
+
+    monkeypatch.setattr(sys, "argv", ["sabra", "answers", "list"])
+    with pytest.raises(typer.Exit) as excinfo:
+        main()
+    assert excinfo.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.out
+    assert "Traceback" not in captured.err
+    assert "No candidate is stored" in captured.out
+    assert str(isolate_database) in captured.out
+    assert "SABRA_DATABASE_URL" in captured.out
+    assert "var/sabra.db" in captured.out
 
 
 def test_health_is_machine_readable() -> None:

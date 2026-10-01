@@ -149,18 +149,22 @@ def test_captcha_fixture_is_not_submitted_and_a_failed_probe_is_a_challenge(prep
         prepared.application_id
     )
     assert result.outcome == "DRY_RUN"
-    assert "challenge" in (result.detail or "").lower()
-    assert all(page.clicked == [] for page in pages)
+    assert "did not open" in (result.detail or "").lower()
+    assert pages == []
+    assert result.plan is not None
+    assert result.plan["navigated"] is False
+    assert result.plan["uploaded"] is False
     with prepared.ctx.read_repos() as repos:
         events = [e.event_type for e in repos.events.for_entity("application", prepared.application_id)]
-        assert "CHALLENGE_DETECTED" in events
         assert "APPLICATION_SUBMITTED" not in events
-        handed = [
+        assert "CHALLENGE_DETECTED" not in events
+        attempted = [
             e
             for e in repos.events.for_entity("application", prepared.application_id)
-            if e.event_type == "HANDED_TO_HUMAN"
+            if e.event_type == "APPLICATION_ATTEMPTED"
         ]
-        assert handed and handed[-1].payload["opened"] is False
+        assert attempted and attempted[-1].payload["navigated"] is False
+        assert attempted[-1].payload["uploaded"] is False
 
     class Exploding(HtmlFormPage):
         def evaluate(self, script: str):
@@ -341,3 +345,67 @@ def test_dashboard_exposes_batch_approval_and_answer_verification() -> None:
     overview = client.get("/")
     assert 'href="/applications"' in overview.text
     assert 'href="/answers"' in overview.text
+    assert 'id="overview-queue"' in overview.text
+    assert "/api/opportunities" in overview.text
+    assert 'data-key="packages_latest"' in overview.text
+    assert "Read package" in applications.text
+    assert ">Copy<" in applications.text
+    assert ">Apply<" in applications.text
+    assert "SABRA_AUTOMATION_DRY_RUN" in applications.text
+    assert "confirm(" in applications.text
+    answers_body = answers.text
+    for key in (
+        "us_citizen",
+        "spanish",
+        "resume_headline",
+        "phone",
+        "country",
+        "city",
+        "state_residence",
+        "postal_code",
+        "street_address",
+        "age_eligibility",
+        "non_compete",
+    ):
+        assert key in answers_body
+    assert "Custom key" in answers_body
+
+
+def test_dry_run_never_opens_a_page_or_launches_a_browser(prepared, monkeypatch) -> None:
+    """Dry run plans the fill and stops. No browser, no employer request."""
+
+    opened: list[str] = []
+
+    def factory(url: str):
+        opened.append(url)
+        raise AssertionError(f"dry run opened {url}")
+
+    launched: list[bool] = []
+
+    class Boom:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            launched.append(True)
+            raise AssertionError("browser launched")
+
+    monkeypatch.setattr("sabra_automation.playwright_driver.BrowserSession", Boom)
+    ApprovalService(prepared.ctx).approve(
+        prepared.package_id, approved_by="test", acknowledge_unresolved=True
+    )
+    adapter = GreenhouseApplicationAdapter(dry_run=True, page_factory=factory)
+    result = ExecutionService(prepared.ctx, registry=AdapterRegistry([adapter])).submit(
+        prepared.application_id
+    )
+    assert result.outcome == "DRY_RUN"
+    assert opened == []
+    assert launched == []
+    assert result.plan["typed"] is False
+    assert result.plan["uploaded"] is False
+    assert result.plan["navigated"] is False
+
+    from sabra_domain.errors import SafetyStop
+
+    bare = GreenhouseApplicationAdapter(dry_run=True)
+    with pytest.raises(SafetyStop) as excinfo:
+        bare.inspect(build_job())
+    assert launched == []
+    assert "will not open" in str(excinfo.value).lower()

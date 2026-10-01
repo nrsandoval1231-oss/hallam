@@ -84,7 +84,7 @@ tests/           test suite and committed fixtures
 - **Stop, don't guess.** A CAPTCHA or a failed challenge probe is not submitted
   and not solved: the pre-filled form is handed to a person in a headed browser.
   Unknown required fields block that application and name the field. Dry-run is
-  the default and never submits.
+  the default: it never opens an employer form, never types or uploads, and never submits.
 - **Code owns truth.** IDs, deduplication, state transitions and authorization are
   deterministic; models assist judgement only.
 
