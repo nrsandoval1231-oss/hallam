@@ -60,6 +60,13 @@ IDENTITY_SELECTORS: dict[str, tuple[str, ...]] = {
     "email": ("#email", 'input[name="email"]', 'input[type="email"]'),
     "phone": ("#phone", 'input[name="phone"]', 'input[type="tel"]'),
     "country": ("#country", 'input[name="country"]'),
+    "street_address": (
+        "#street_address",
+        'input[name="street_address"]',
+        "#address",
+        'input[name="address"]',
+        'input[autocomplete="street-address"]',
+    ),
     "resume": ("#resume", 'input[type="file"][id*="resume" i]'),
     "cover_letter": ("#cover_letter", 'input[type="file"][id*="cover" i]'),
 }
@@ -651,6 +658,8 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
     @staticmethod
     def _identity_key(name: str) -> str | None:
         lowered = name.lower()
+        if "street" in lowered or lowered in {"address", "street_address"}:
+            return "street_address"
         for token in (
             "first_name",
             "last_name",
@@ -714,6 +723,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             "state_residence": package.applicant_state,
             "postal_code": package.applicant_postal_code,
             "phone": package.applicant_phone,
+            "street_address": package.applicant_street_address,
             "linkedin": package.applicant_linkedin,
         }
         value = mapping.get(key)
@@ -740,6 +750,8 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             values["phone"] = package.applicant_phone
         if package.applicant_country:
             values["country"] = package.applicant_country
+        if package.applicant_street_address:
+            values["street_address"] = package.applicant_street_address
         for answer in package.answers:
             if not answer.answer or answer.requires_user_input:
                 continue
@@ -774,11 +786,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
     @staticmethod
     def _is_identity_field(field: FormField) -> bool:
-        name = field.name.lower()
-        return any(
-            token in name
-            for token in ("first_name", "last_name", "email", "phone", "country", "preferred_name")
-        )
+        return GreenhouseApplicationAdapter._identity_key(field.name) is not None
 
     @staticmethod
     def _is_structured_history_field(field: FormField) -> bool:

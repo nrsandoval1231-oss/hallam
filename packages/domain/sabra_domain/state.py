@@ -119,23 +119,40 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
 # Statuses that may never be reached without a bound human approval.
 APPROVAL_GATED_STATUSES = frozenset({ApplicationStatus.APPROVED, ApplicationStatus.APPLYING})
 
+# Returning an approved application to the approval queue is not a normal edge.
+# `application_path` and a plain `set_status` must not take it. Only the package
+# refresh command passes `revoke=True`, and only for an application that has not
+# been submitted.
+REVOKE_APPLICATION_EDGES = frozenset(
+    {(ApplicationStatus.APPROVED, ApplicationStatus.AWAITING_APPROVAL)}
+)
+REVOKE_JOB_EDGES = frozenset({(JobStatus.APPROVED, JobStatus.AWAITING_APPROVAL)})
+
 
 def can_transition_job(current: JobStatus, target: JobStatus) -> bool:
     return target in JOB_TRANSITIONS.get(current, frozenset())
 
 
-def assert_job_transition(current: JobStatus, target: JobStatus) -> None:
-    if not can_transition_job(current, target):
-        raise InvalidTransition("job", current.value, target.value)
+def assert_job_transition(current: JobStatus, target: JobStatus, *, revoke: bool = False) -> None:
+    if can_transition_job(current, target):
+        return
+    if revoke and (current, target) in REVOKE_JOB_EDGES:
+        return
+    raise InvalidTransition("job", current.value, target.value)
 
 
 def can_transition_application(current: ApplicationStatus, target: ApplicationStatus) -> bool:
     return target in APPLICATION_TRANSITIONS.get(current, frozenset())
 
 
-def assert_application_transition(current: ApplicationStatus, target: ApplicationStatus) -> None:
-    if not can_transition_application(current, target):
-        raise InvalidTransition("application", current.value, target.value)
+def assert_application_transition(
+    current: ApplicationStatus, target: ApplicationStatus, *, revoke: bool = False
+) -> None:
+    if can_transition_application(current, target):
+        return
+    if revoke and (current, target) in REVOKE_APPLICATION_EDGES:
+        return
+    raise InvalidTransition("application", current.value, target.value)
 
 
 def application_path(

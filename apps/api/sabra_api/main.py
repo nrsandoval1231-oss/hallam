@@ -25,6 +25,7 @@ from sabra_engine.candidate_intake import ensure_candidate
 from sabra_engine.context import EngineContext
 from sabra_engine.documents import DocumentService, package_summary
 from sabra_engine.execution import ExecutionService
+from sabra_engine.refresh import PackageRefreshService
 
 app = FastAPI(title="Sabra Job Engine", version="0.1.0")
 
@@ -38,7 +39,8 @@ async def sabra_error_handler(_request: Request, exc: SabraError) -> JSONRespons
         status = 409
     elif isinstance(exc, NotFound):
         status = 404
-    if "already approved" in str(exc).lower():
+    lowered = str(exc).lower()
+    if "already approved" in lowered or "was not refreshed" in lowered or "already submitted" in lowered:
         status = 409
     return JSONResponse(status_code=status, content={"detail": str(exc)})
 
@@ -311,6 +313,31 @@ class ApplyRequest(BaseModel):
     confirm: bool = False
 
 
+@app.post("/api/applications/refresh-unsubmitted")
+def refresh_unsubmitted(body: ApplyRequest) -> dict[str, Any]:
+    """Revoke approval and rebuild every approved application that has not been submitted."""
+
+    if not body.confirm:
+        raise HTTPException(
+            status_code=422,
+            detail="Confirm before refreshing unsubmitted applications. Nothing was changed.",
+        )
+    ctx = EngineContext.create()
+    try:
+        return PackageRefreshService(ctx).refresh_all_unsubmitted().as_dict()
+    finally:
+        ctx.close()
+
+
+@app.post("/api/applications/{application_id}/refresh")
+def refresh_application(application_id: str) -> dict[str, Any]:
+    ctx = EngineContext.create()
+    try:
+        return PackageRefreshService(ctx).refresh(application_id).as_dict()
+    finally:
+        ctx.close()
+
+
 @app.post("/api/applications/{application_id}/apply")
 def apply_application(application_id: str, body: ApplyRequest) -> dict[str, Any]:
     """Run the same submission path as `sabra apply`.
@@ -424,10 +451,17 @@ def applications_page() -> str:
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sabra | Applications</title>
-<style>body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}.row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:10px 0}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-weight:700}button.copy,button.apply{padding:6px 10px;margin-left:8px}button:disabled{background:#9aada6;cursor:not-allowed}code{font-size:12px}.why{color:#6c7f7a;display:block;margin-top:6px}</style></head>
+<style>body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}.row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:10px 0}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-weight:700}button.copy,button.apply,button.refresh-one{padding:6px 10px;margin-left:8px}button:disabled{background:#9aada6;cursor:not-allowed}code{font-size:12px}.why{color:#6c7f7a;display:block;margin-top:6px}dialog{border:1px solid #dce6df;border-radius:12px;padding:22px;max-width:440px;background:#fff;color:#18332f}dialog::backdrop{background:rgba(24,51,47,.45)}dialog p{margin:0 0 16px;color:#18332f}dialog button{margin-right:8px}</style></head>
 <body><main><a href="/">Back to overview</a><h1>Applications</h1>
 <p>Select complete packages and approve them together. Each approval is stored against that package's content hash, so a later edit invalidates it. The list shows the latest revision of each application.</p>
-<form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button></form>
+<form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button> <button type="button" id="refresh-all">Refresh all unsubmitted</button></form>
+<dialog id="confirm-refresh">
+<p>Refresh every approved application that has not been submitted? Each approval is revoked. You will need to approve the new packages.</p>
+<form method="dialog">
+<button type="submit" value="cancel">Cancel</button>
+<button type="submit" id="confirm-refresh-yes" value="refresh">Refresh packages</button>
+</form>
+</dialog>
 <p id="result"></p>
 <script>
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -446,13 +480,20 @@ async function load(){
     const label=p.review_label||(p.approvable?'ready to approve':'not approvable');
     const next=p.next_step?`<span class="why">${esc(p.next_step)}</span>`:'';
     const appId=p.application_id||'';
+    const refresh=p.application_status==='APPROVED'?`<button type="button" class="refresh-one" data-id="${esc(appId)}">Refresh package</button>`:'';
     const apply=p.application_status==='APPROVED'?`<button type="button" class="apply" data-id="${esc(appId)}" ${dry?'disabled':''}>Apply</button>${dry?'<span class="why">Dry run is on, so Apply is off. Set SABRA_AUTOMATION_DRY_RUN=false and restart the dashboard.</span>':''}`:'';
-    return `<div class="row"><label><input type="checkbox" name="package" value="${esc(p.package_id)}" data-hash="${esc(p.content_hash)}" ${p.approvable?'':'disabled'}></label><span><strong>${esc(p.title||'Package')} at ${esc(p.company||'the company')}</strong><br><a href="/packages/${esc(p.package_id)}">Read package</a><br>${esc(p.status)} · ${esc(label)}${next}<br>Application ID <code class="app-id">${esc(appId)}</code><button type="button" class="copy" data-copy="${esc(appId)}">Copy</button>${apply}<br><code>${esc(p.content_hash)}</code></span></div>`;
+    return `<div class="row"><label><input type="checkbox" name="package" value="${esc(p.package_id)}" data-hash="${esc(p.content_hash)}" ${p.approvable?'':'disabled'}></label><span><strong>${esc(p.title||'Package')} at ${esc(p.company||'the company')}</strong><br><a href="/packages/${esc(p.package_id)}">Read package</a><br>${esc(p.status)} · ${esc(label)}${next}<br>Application ID <code class="app-id">${esc(appId)}</code><button type="button" class="copy" data-copy="${esc(appId)}">Copy</button>${refresh}${apply}<br><code>${esc(p.content_hash)}</code></span></div>`;
   }).join('');
   list.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('click',async()=>{
     const id=btn.dataset.copy||'';
     try{await navigator.clipboard.writeText(id);}catch(e){}
     btn.textContent='Copied';
+  }));
+  list.querySelectorAll('button.refresh-one').forEach(btn=>btn.addEventListener('click',async()=>{
+    const response=await fetch('/api/applications/'+encodeURIComponent(btn.dataset.id)+'/refresh',{method:'POST'});
+    const refreshed=await readBody(response);
+    line.textContent=refreshed.ok?'Package refreshed. Approve the new revision; the previous approval no longer applies.':(refreshed.d.detail||refreshed.text||'Refresh failed');
+    if(refreshed.ok) load();
   }));
   list.querySelectorAll('button.apply').forEach(btn=>btn.addEventListener('click',async()=>{
     if(btn.disabled)return;
@@ -474,6 +515,21 @@ document.querySelector('#batch').addEventListener('submit',async e=>{
   const d=body.d;
   const ok=(d.approved||[]).length, no=(d.refused||[]).length;
   line.textContent=`Approved ${ok}. Refused ${no}.`+(no?(' '+d.refused.map(x=>x.message).join(' ')):'');
+  load();
+});
+document.querySelector('#refresh-all').addEventListener('click',async()=>{
+  const dialog=document.querySelector('#confirm-refresh');
+  const choice=await new Promise(resolve=>{
+    dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true});
+    dialog.showModal();
+  });
+  if(choice!=='refresh')return;
+  const line=document.querySelector('#result');
+  const r=await fetch('/api/applications/refresh-unsubmitted',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+  const body=await readBody(r);
+  if(!body.ok){line.textContent=body.d.detail||body.text||'Refresh failed';return;}
+  const n=(body.d.refreshed||[]).length, no=(body.d.refused||[]).length;
+  line.textContent=`Refreshed ${n}. Refused ${no}. Approve the new packages; the old approvals no longer apply.`;
   load();
 });
 load();

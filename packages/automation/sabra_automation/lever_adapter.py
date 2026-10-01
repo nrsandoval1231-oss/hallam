@@ -320,6 +320,8 @@ def _lever_field_key(field: FormField) -> str | None:
     name = field.name.lower()
     if name in {"name", "email", "phone", "org", "resume", "comments"}:
         return name
+    if "street" in name or name in {"address", "street_address"}:
+        return "street_address"
     if name in {"urls[linkedin]", "linkedin"} or "linkedin" in name:
         return "linkedin"
     return None
@@ -333,6 +335,8 @@ def _lever_values(package: ApplicationPackageSchema) -> dict[str, str]:
         values["email"] = package.applicant_email
     if package.applicant_phone:
         values["phone"] = package.applicant_phone
+    if package.applicant_street_address:
+        values["street_address"] = package.applicant_street_address
     if package.applicant_linkedin:
         values["linkedin"] = package.applicant_linkedin
     if package.employment and package.employment[0].employer:

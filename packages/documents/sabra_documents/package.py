@@ -112,6 +112,58 @@ def _verified_identity(profile: CandidateProfile) -> dict[str, str | None]:
     }
 
 
+# Answer-memory keys that may fill a blank contact field. The profile field name
+# is the dict key; the answer key is what the owner records.
+_CONTACT_ANSWER_KEYS = (
+    ("phone", "phone"),
+    ("city", "city"),
+    ("state", "state_residence"),
+    ("postal_code", "postal_code"),
+    ("country", "country"),
+    ("street_address", "street_address"),
+)
+
+
+def _verified_answer_value(profile: CandidateProfile, key: str) -> str | None:
+    record = profile.answer_memory.get(key)
+    if record is None or record.level is not TruthLevel.VERIFIED:
+        return None
+    if record.value in (None, ""):
+        return None
+    text = str(record.value).strip()
+    return text or None
+
+
+def _package_contact(profile: CandidateProfile) -> dict[str, str | None]:
+    """Contact values copied onto a package.
+
+    Precedence: a verified profile identity field wins when both it and a
+    verified answer exist. Verified answer memory fills a field only when the
+    profile value is missing. Unverified answers are never used. Street address
+    has no profile field, so it comes only from a verified `street_address` answer.
+    """
+
+    identity = _verified_identity(profile)
+    contact: dict[str, str | None] = {
+        "name": identity.get("name"),
+        "email": identity.get("email"),
+        "phone": identity.get("phone"),
+        "city": identity.get("city"),
+        "state": identity.get("state"),
+        "postal_code": identity.get("postal_code"),
+        "country": identity.get("country"),
+        "street_address": None,
+        "linkedin": identity.get("linkedin"),
+    }
+    for contact_field, answer_key in _CONTACT_ANSWER_KEYS:
+        if contact.get(contact_field):
+            continue
+        contact[contact_field] = _verified_answer_value(profile, answer_key)
+    if contact.get("country") in {"USA", "US"}:
+        contact["country"] = "United States"
+    return contact
+
+
 def _closing_line(profile: CandidateProfile) -> str:
     name = profile.identity.full_name or "the candidate"
     return f"Sincerely,\n{name}"
@@ -183,7 +235,7 @@ class PackageFactory:
         if missing:
             warnings.append("candidate profile is missing required fields: " + ", ".join(missing))
 
-        identity = _verified_identity(profile)
+        identity = _package_contact(profile)
         schema = ApplicationPackageSchema(
             opportunity_id=opportunity_id,
             candidate_id=profile.candidate_id,
@@ -202,6 +254,7 @@ class PackageFactory:
             applicant_state=identity.get("state"),
             applicant_postal_code=identity.get("postal_code"),
             applicant_country=identity.get("country"),
+            applicant_street_address=identity.get("street_address"),
             applicant_linkedin=identity.get("linkedin"),
             employment=_verified_section(profile, "employment"),
             education=_verified_section(profile, "education"),

@@ -520,7 +520,12 @@ class OpportunityRepository:
         return opportunity
 
     def set_status(
-        self, opportunity_id: str, target: JobStatus, *, rejection: dict[str, Any] | None = None
+        self,
+        opportunity_id: str,
+        target: JobStatus,
+        *,
+        rejection: dict[str, Any] | None = None,
+        revoke: bool = False,
     ) -> models.Opportunity:
         row = self.get(opportunity_id)
         if JobStatus(row.status) == target:
@@ -528,7 +533,7 @@ class OpportunityRepository:
                 row.rejection = rejection
             self.session.flush()
             return row
-        assert_job_transition(JobStatus(row.status), target)
+        assert_job_transition(JobStatus(row.status), target, revoke=revoke)
         row.status = str(target)
         if rejection is not None:
             row.rejection = rejection
@@ -788,10 +793,15 @@ class ApplicationRepository:
         return self.session.execute(stmt).scalars().first()
 
     def set_status(
-        self, application_id: str, target: ApplicationStatus, **fields: Any
+        self,
+        application_id: str,
+        target: ApplicationStatus,
+        *,
+        revoke: bool = False,
+        **fields: Any,
     ) -> models.ApplicationRow:
         row = self.get(application_id)
-        assert_application_transition(ApplicationStatus(row.status), target)
+        assert_application_transition(ApplicationStatus(row.status), target, revoke=revoke)
         row.status = str(target)
         for key, value in fields.items():
             setattr(row, key, value)
