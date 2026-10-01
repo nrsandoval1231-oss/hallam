@@ -57,6 +57,9 @@ class ApplicationForm:
     url: str
     fields: list[FormField] = field(default_factory=list)
     has_captcha: bool = False
+    # True when the challenge probe itself failed. Callers must treat that as a
+    # challenge: an unknown page is not safe to submit.
+    challenge_detection_failed: bool = False
     requires_login: bool = False
     has_file_upload: bool = False
     attestations: list[str] = field(default_factory=list)
@@ -82,6 +85,7 @@ class ApplicationForm:
             "field_count": len(self.fields),
             "required_count": len(self.required_fields),
             "has_captcha": self.has_captcha,
+            "challenge_detection_failed": self.challenge_detection_failed,
             "requires_login": self.requires_login,
             "has_file_upload": self.has_file_upload,
             "attestations": self.attestations,
@@ -208,13 +212,21 @@ class ApplicationAdapter(ABC):
         """
 
         stops: list[SafetyStop] = []
-        if form.has_captcha:
+        if form.has_captcha or form.challenge_detection_failed:
+            detail = (
+                "challenge detection failed, so the form is treated as challenged"
+                if form.challenge_detection_failed and not form.has_captcha
+                else "the application form presents a CAPTCHA or bot challenge, which "
+                "automation must not attempt to solve"
+            )
             stops.append(
                 SafetyStop(
                     SafetyStopKind.CAPTCHA,
-                    "the application form presents a CAPTCHA, which automation must not "
-                    "attempt to solve",
-                    {"url": form.url},
+                    detail,
+                    {
+                        "url": form.url,
+                        "detection_failed": form.challenge_detection_failed,
+                    },
                 )
             )
         if form.requires_login:

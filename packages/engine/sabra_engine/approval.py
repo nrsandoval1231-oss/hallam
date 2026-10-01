@@ -28,12 +28,27 @@ from sabra_domain.errors import (
     ApprovalRequired,
     ApprovalScopeMismatch,
     NotFound,
+    SabraError,
     TruthBoundaryViolation,
     ValidationFailure,
 )
 from sabra_domain.schemas import ApplicationPackageSchema, ApprovalRecord
 
 from .context import EngineContext
+
+
+@dataclass(slots=True)
+class BatchApprovalResult:
+    """One batch action, with each package approved or refused on its own hash."""
+
+    approved: list[ApprovalOutcome]
+    refused: list[dict[str, Any]]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "approved": [item.as_dict() for item in self.approved],
+            "refused": self.refused,
+        }
 
 
 @dataclass(slots=True)
@@ -155,6 +170,61 @@ class ApprovalService:
             ]
 
     # -- decisions ------------------------------------------------------
+
+    def approve_selected(
+        self,
+        selections: list[dict[str, str]],
+        *,
+        approved_by: str,
+    ) -> BatchApprovalResult:
+        """Approve every selected COMPLETE package, each bound to its content hash.
+
+        A selection is `{package_id, content_hash}`. The hash is the one the person
+        saw. A mismatch, an incomplete package, or any other refusal leaves that
+        package unapproved and does not approve a different revision in its place.
+        """
+
+        approved: list[ApprovalOutcome] = []
+        refused: list[dict[str, Any]] = []
+        for selection in selections:
+            package_id = selection.get("package_id") or ""
+            expected_hash = selection.get("content_hash") or ""
+            try:
+                with self.ctx.read_repos() as repos:
+                    row = repos.packages.get(package_id)
+                    status = row.status
+                    current_hash = row.content_hash
+                if status != PackageStatus.COMPLETE.value:
+                    raise ValidationFailure(
+                        f"package {package_id} is {status}; batch approval accepts only COMPLETE packages"
+                    )
+                if not expected_hash:
+                    raise ApprovalRequired(
+                        f"package {package_id} was submitted without the content hash that was reviewed"
+                    )
+                if expected_hash != current_hash:
+                    raise ApprovalScopeMismatch(
+                        "the approval does not bind to this package revision: "
+                        f"expected {current_hash}, received {expected_hash}"
+                    )
+                approved.append(
+                    self.approve(
+                        package_id,
+                        approved_by=approved_by,
+                        expected_hash=expected_hash,
+                        acknowledge_unresolved=False,
+                    )
+                )
+            except SabraError as exc:
+                refused.append(
+                    {
+                        "package_id": package_id,
+                        "content_hash": expected_hash,
+                        "error": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                )
+        return BatchApprovalResult(approved=approved, refused=refused)
 
     def approve(
         self,

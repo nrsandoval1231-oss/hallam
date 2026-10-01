@@ -1,11 +1,14 @@
 """Application question memory (requirement 18).
 
-Reusable, structured answers to common questions. The two rules that matter:
+Reusable, structured answers to common questions. The rules that matter:
 
-* an answer the candidate did not supply is **UNKNOWN**, never a guess; and
-* sensitive or voluntary disclosures remain explicitly user-controlled, so the
-  system will surface them for the human and never auto-fill them, however
-  complete the stored value looks.
+* an answer the candidate did not supply is **UNKNOWN**, never a guess;
+* a stored answer is placed on a form only when the owner has recorded it and
+  marked it **VERIFIED**;
+* sensitive questions (salary, background check, voluntary disclosures, and the
+  rest of `SENSITIVE_KEYS`) follow that same rule. A verified answer may fill
+  them, which is what lets a package reach COMPLETE. Anything short of verified
+  stays blank and blocks the package.
 """
 
 from __future__ import annotations
@@ -69,6 +72,7 @@ QUESTION_CATALOGUE: tuple[tuple[str, tuple[str, ...]], ...] = (
         "salary_expectations",
         (
             "salary expectation",
+            "salary expectations",
             "desired compensation",
             "compensation expectation",
             "salary requirement",
@@ -101,6 +105,33 @@ QUESTION_CATALOGUE: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("background_check", ("background check", "drug screen", "drug test")),
+    (
+        "non_compete",
+        ("non-compete", "noncompete", "non compete"),
+    ),
+    (
+        "age_eligibility",
+        ("18 or older", "at least 18", "over the age of 18", "are you 18"),
+    ),
+    (
+        "prior_employer",
+        ("previously worked", "previously employed", "former employee"),
+    ),
+    (
+        "family_employed",
+        ("family members", "relatives employed", "relatives currently employ"),
+    ),
+    (
+        "street_address",
+        ("street address", "permanent residence", "current address"),
+    ),
+    (
+        "current_employer",
+        ("current employer", "most recent employer", "most recent/current employer"),
+    ),
+    ("city", ("what city", "city do you", "current city")),
+    ("state_residence", ("what state", "state do you", "current state")),
+    ("postal_code", ("postal code", "zip code")),
     ("how_did_you_hear", ("how did you hear", "how you heard", "where did you hear")),
     ("education_level", ("highest level of education", "degree", "education level")),
     ("years_experience", ("years of experience", "how many years")),
@@ -135,6 +166,14 @@ class Resolution:
 def _record_to_answer(
     key: str, question: str, record: AnswerRecord | None
 ) -> ApplicationAnswerSchema:
+    """Turn a stored record into the answer that may be placed on a form.
+
+    Verified is the only level that fills, including sensitive questions. A value
+    that was recorded but not verified is kept off the form and named as needing
+    the owner, so a package cannot become COMPLETE on an unconfirmed disclosure.
+    """
+
+    sensitive = key in SENSITIVE_KEYS or bool(record and record.sensitive)
     if record is None or record.value in (None, ""):
         return ApplicationAnswerSchema(
             question_key=key,
@@ -142,20 +181,7 @@ def _record_to_answer(
             answer=None,
             level=TruthLevel.UNKNOWN,
             requires_user_input=True,
-            sensitive=key in SENSITIVE_KEYS,
-        )
-    sensitive = key in SENSITIVE_KEYS or record.sensitive
-    if sensitive or record.user_controlled:
-        # Deliberately withheld rather than filled. The value exists, but supplying
-        # it is the candidate's decision to make per application.
-        return ApplicationAnswerSchema(
-            question_key=key,
-            question_text=question,
-            answer=None,
-            level=record.level,
-            evidence=list(record.evidence),
-            requires_user_input=True,
-            sensitive=True,
+            sensitive=sensitive,
         )
     if record.level is not TruthLevel.VERIFIED:
         return ApplicationAnswerSchema(
@@ -165,7 +191,7 @@ def _record_to_answer(
             level=record.level,
             evidence=list(record.evidence),
             requires_user_input=True,
-            sensitive=False,
+            sensitive=sensitive,
         )
     return ApplicationAnswerSchema(
         question_key=key,
@@ -174,7 +200,63 @@ def _record_to_answer(
         level=TruthLevel.VERIFIED,
         evidence=list(record.evidence) or ["candidate_profile.answer_memory"],
         requires_user_input=False,
-        sensitive=False,
+        sensitive=sensitive,
+    )
+
+
+def _section_verified(profile: CandidateProfile, path: str) -> bool:
+    """True when a profile section may be copied onto a form.
+
+    An explicit provenance entry wins. With no entry, the in-memory profile is the
+    owner's own object (tests and YAML load both look like this) and its populated
+    fields are verified. A résumé import writes INFERRED and must not pass.
+    """
+
+    if path in profile.provenance:
+        return profile.provenance[path].level is TruthLevel.VERIFIED
+    return True
+
+
+def verified_profile_fact(profile: CandidateProfile, key: str) -> AnswerRecord | None:
+    """A recognised question answered by a verified profile field.
+
+    Sensitive keys are not bridged. Salary, a background check, and the other
+    disclosures in `SENSITIVE_KEYS` are filled only from answer memory the owner
+    has verified, never from a nearby profile field that happens to look related.
+    """
+
+    if key in SENSITIVE_KEYS:
+        return None
+    value: str | None = None
+    evidence: str | None = None
+    if key == "current_employer" and _section_verified(profile, "employment"):
+        value = profile.employment[0].employer if profile.employment else None
+        evidence = "candidate_profile.employment"
+    elif key == "city" and _section_verified(profile, "identity.city"):
+        value = profile.identity.city
+        evidence = "candidate_profile.identity.city"
+    elif key == "state_residence" and _section_verified(profile, "identity.state"):
+        value = profile.identity.state
+        evidence = "candidate_profile.identity.state"
+    elif key == "postal_code" and _section_verified(profile, "identity.postal_code"):
+        value = profile.identity.postal_code
+        evidence = "candidate_profile.identity.postal_code"
+    elif key == "phone" and _section_verified(profile, "identity.phone"):
+        value = profile.identity.phone
+        evidence = "candidate_profile.identity.phone"
+    elif key == "linkedin" and _section_verified(profile, "identity.linkedin_url"):
+        value = profile.identity.linkedin_url
+        evidence = "candidate_profile.identity.linkedin_url"
+    elif key == "website" and _section_verified(profile, "identity.website_url"):
+        value = profile.identity.website_url or profile.identity.portfolio_url
+        evidence = "candidate_profile.identity.website_url"
+    if not value:
+        return None
+    return AnswerRecord(
+        question_key=key,
+        value=value,
+        level=TruthLevel.VERIFIED,
+        evidence=[evidence or "candidate_profile"],
     )
 
 
@@ -200,7 +282,11 @@ class AnswerResolver:
             seen.add(key or text.lower())
             # An explicit stored answer keyed on the exact question wins over the
             # catalogue, because the candidate supplied it for this wording.
+            # A verified profile fact is used only when memory has nothing stored,
+            # and never for a sensitive key.
             record = profile.answer_memory.get(key or "") or self._exact_match(text, profile)
+            if record is None and key:
+                record = verified_profile_fact(profile, key)
             resolutions.append(
                 Resolution(
                     answer=_record_to_answer(key or text.lower(), text, record), matched_key=key

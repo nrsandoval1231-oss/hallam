@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SABRA_", env_file=".env", extra="ignore")
 
     database_url: str = "sqlite+pysqlite:///./var/sabra.db"
+    # When set, résumé, answers, the database and artifacts live here instead of
+    # inside the repository. Personal data must not be committed.
+    private_dir: Path | None = None
     data_dir: Path = Field(default=REPO_ROOT / "var")
     artifacts_dir: Path = Field(default=REPO_ROOT / "var" / "artifacts")
     evidence_dir: Path = Field(default=REPO_ROOT / "var" / "evidence")
@@ -53,6 +56,30 @@ class Settings(BaseSettings):
     api_port: int = 8787
     api_token: str | None = None
     web_origin: str = "http://localhost:3000"
+
+    def model_post_init(self, __context: object) -> None:
+        """Root personal paths at `private_dir` when the operator sets one.
+
+        Individual `SABRA_*` paths still win when they were changed from the
+        repository defaults. The default database URL is retargeted so a private
+        directory does not leave the SQLite file inside the checkout.
+        """
+
+        if self.private_dir is None:
+            return
+        root = Path(self.private_dir)
+        if self.data_dir == REPO_ROOT / "var":
+            self.data_dir = root
+        if self.artifacts_dir == REPO_ROOT / "var" / "artifacts":
+            self.artifacts_dir = root / "artifacts"
+        if self.evidence_dir == REPO_ROOT / "var" / "evidence":
+            self.evidence_dir = root / "evidence"
+        if self.candidate_dir == REPO_ROOT / "config" / "candidates":
+            self.candidate_dir = root / "candidates"
+        if self.automation_screenshot_dir == REPO_ROOT / "var" / "automation":
+            self.automation_screenshot_dir = root / "automation"
+        if self.database_url == "sqlite+pysqlite:///./var/sabra.db":
+            self.database_url = f"sqlite+pysqlite:///{(root / 'sabra.db').as_posix()}"
 
     def ensure_dirs(self) -> None:
         for path in (

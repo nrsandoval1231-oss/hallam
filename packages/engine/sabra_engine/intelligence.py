@@ -244,6 +244,14 @@ class IntelligenceService:
             repos.opportunities.set_status(
                 opportunity.id, JobStatus.REJECTED, rejection=record.model_dump(mode="json")
             )
+            # Rejection and the shortlist flag are separate columns. A rescore that
+            # newly rejects a shortlisted opportunity used to leave `shortlisted`
+            # true, so the queue still showed a role the filter had just removed.
+            repos.opportunities.set_shortlist(
+                opportunity.id,
+                False,
+                reason="removed from shortlist: " + ", ".join(decision.reasons),
+            )
             repos.events.append(
                 EntityType.OPPORTUNITY,
                 opportunity.id,

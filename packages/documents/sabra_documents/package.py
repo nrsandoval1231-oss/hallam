@@ -57,6 +57,61 @@ class BuiltPackage:
         }
 
 
+def _provenance_verified(profile: CandidateProfile, path: str) -> bool:
+    """Whether a profile path is allowed onto a form.
+
+    Explicit INFERRED or UNKNOWN provenance (a résumé import, a placeholder)
+    blocks the copy. No provenance entry means the object was supplied directly
+    and its populated values are the owner's.
+    """
+
+    record = profile.provenance.get(path)
+    if record is None:
+        return True
+    return record.level is TruthLevel.VERIFIED
+
+
+def _verified_section(profile: CandidateProfile, name: str) -> list[Any]:
+    if not _provenance_verified(profile, name):
+        return []
+    return list(getattr(profile, name) or [])
+
+
+def _verified_identity(profile: CandidateProfile) -> dict[str, str | None]:
+    """Contact fields that may be typed. Never the schema's default country alone."""
+
+    identity = profile.identity
+
+    def take(field: str) -> str | None:
+        if not _provenance_verified(profile, f"identity.{field}"):
+            return None
+        value = getattr(identity, field, None)
+        if value in (None, ""):
+            return None
+        return str(value)
+
+    country = take("country")
+    # ContactInfo defaults country to "USA" even when the person supplied nothing.
+    # That default is not a statement. Use it only beside a verified location, or
+    # when the owner set provenance on the country itself.
+    if country and "identity.country" not in profile.provenance and not (
+        take("city") or take("state")
+    ):
+        country = None
+    if country in {"USA", "US"}:
+        country = "United States"
+    return {
+        "name": take("full_name"),
+        "email": take("email"),
+        "phone": take("phone"),
+        "city": take("city"),
+        "state": take("state"),
+        "postal_code": take("postal_code"),
+        "country": country,
+        "linkedin": take("linkedin_url"),
+    }
+
+
 def _closing_line(profile: CandidateProfile) -> str:
     name = profile.identity.full_name or "the candidate"
     return f"Sincerely,\n{name}"
@@ -128,6 +183,7 @@ class PackageFactory:
         if missing:
             warnings.append("candidate profile is missing required fields: " + ", ".join(missing))
 
+        identity = _verified_identity(profile)
         schema = ApplicationPackageSchema(
             opportunity_id=opportunity_id,
             candidate_id=profile.candidate_id,
@@ -139,6 +195,16 @@ class PackageFactory:
             fit_explanation=self._fit_explanation(assessment, job),
             qualification_gaps=gaps,
             answers=answers,
+            applicant_name=identity.get("name"),
+            applicant_email=identity.get("email"),
+            applicant_phone=identity.get("phone"),
+            applicant_city=identity.get("city"),
+            applicant_state=identity.get("state"),
+            applicant_postal_code=identity.get("postal_code"),
+            applicant_country=identity.get("country"),
+            applicant_linkedin=identity.get("linkedin"),
+            employment=_verified_section(profile, "employment"),
+            education=_verified_section(profile, "education"),
             recruiter_message=self._recruiter_message(profile, job, tailored),
             hiring_manager_message=self._hiring_manager_message(profile, job, tailored, assessment),
             interview_preparation=self._interview_prep(job, assessment, profile),
@@ -307,7 +373,7 @@ class PackageFactory:
         return (
             f"Regarding the {title} opening: "
             + (body + " " if body else "")
-            + "I'd welcome a conversation about the territory and what success looks like in the first year."
+            + "I'd welcome a conversation about the role and what success looks like in the first year."
         )
 
     def _interview_prep(

@@ -33,7 +33,7 @@ from sabra_documents.answers import classify_question
 from sabra_domain.enums import SafetyStopKind, SourceKind, SubmissionMethod
 from sabra_domain.errors import SafetyStop
 from sabra_domain.identity import sha256_text
-from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
+from sabra_domain.schemas import ApplicationAnswerSchema, ApplicationPackageSchema, CanonicalJob
 
 from .base import (
     ApplicationAdapter,
@@ -43,6 +43,7 @@ from .base import (
     SubmissionReceipt,
     ValidationReport,
 )
+from .history import plan_greenhouse_field
 from .playwright_driver import (
     CAPTCHA_SELECTORS,
     FormPage,
@@ -135,6 +136,19 @@ ENUMERATE_FIELDS_JS = """
   return out;
 }
 """
+
+
+def _matching_option(options: list[str], value: str) -> str | None:
+    """Pick a select option that equals the verified value, ignoring case."""
+
+    target = value.strip().lower()
+    for option in options:
+        if option.strip().lower() == target:
+            return option
+    for option in options:
+        if target and target in option.strip().lower():
+            return option
+    return None
 
 
 def looks_like_application_form(
@@ -246,8 +260,17 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             # double quotes produced `["iframe[src*="recaptcha"]", ...]`, which is a
             # JavaScript syntax error. Playwright surfaced it as
             # "SyntaxError: Unexpected identifier 'recaptcha'".
-            captcha_script = f"() => {json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
-            captcha_present = bool(page.evaluate(captcha_script))
+            captcha_script = (
+                "() => { try { return "
+                f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
+                "; } catch (e) { return true; } }"
+            )
+            detection_failed = False
+            try:
+                captcha_present = bool(page.evaluate(captcha_script))
+            except Exception:  # noqa: BLE001 - a failed probe is a challenge, not a pass
+                captcha_present = True
+                detection_failed = True
             attestations = [
                 f.label or ""
                 for f in fields
@@ -282,6 +305,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 url=page.current_url() or url,
                 fields=fields,
                 has_captcha=captcha_present,
+                challenge_detection_failed=detection_failed,
                 requires_login=False,
                 has_file_upload=any(f.kind == "file" for f in fields),
                 attestations=attestations,
@@ -298,47 +322,16 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
     def prepare(
         self, package: ApplicationPackageSchema, form: ApplicationForm
     ) -> PreparedSubmission:
-        """Fill the identity fields, employment/education blocks and answer memory.
+        """Fill recognised fields. Does not submit.
 
-        Only answers the candidate's memory can supply at VERIFIED level are typed.
-        Everything else is left blank and named in the validation report — the form is
-        never completed with a guess.
+        Identity, employment, education, the résumé, and verified answers are typed.
+        A required field with no verified value is left blank and named.
         """
 
         url = form.url
         page, session = self._open(url)
-        filled: dict[str, str] = {}
-        skipped: list[str] = []
         try:
-            identity = self._identity_values(package)
-            for name, value in identity.items():
-                if not value:
-                    skipped.append(name)
-                    continue
-                selector = self._existing_selector(page, IDENTITY_SELECTORS.get(name, ()))
-                if selector is None:
-                    skipped.append(name)
-                    continue
-                page.fill(selector, value)
-                filled[name] = value
-
-            # Only answers the candidate's memory can supply at VERIFIED level are
-            # typed. Anything requiring user input is left blank and reported.
-            for answer in package.answers:
-                if answer.requires_user_input or not answer.answer:
-                    continue
-                selector = self._question_selector(form, answer.question_key)
-                if selector is None:
-                    skipped.append(f"question:{answer.question_key}")
-                    continue
-                page.fill(selector, str(answer.answer))
-                filled[answer.question_key] = str(answer.answer)
-
-            for field in form.fields:
-                if field.required and field.kind != "file" and field.name not in filled:
-                    skipped.append(field.name)
-
-            self._upload_documents(page, form, package, filled, skipped)
+            filled, skipped = self.apply_to_page(page, package, form)
             self._last_page = page
             return PreparedSubmission(
                 url=url,
@@ -352,6 +345,74 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             if session is not None:
                 self._close(session)
 
+    def apply_to_page(
+        self,
+        page: FormPage,
+        package: ApplicationPackageSchema,
+        form: ApplicationForm,
+    ) -> tuple[dict[str, str], list[str]]:
+        """Type verified values onto an already-open page. Never clicks submit."""
+
+        filled: dict[str, str] = {}
+        skipped: list[str] = []
+        identity = self._identity_values(package)
+        for name, value in identity.items():
+            if not value:
+                skipped.append(name)
+                continue
+            selector = self._existing_selector(page, IDENTITY_SELECTORS.get(name, ()))
+            if selector is None:
+                skipped.append(name)
+                continue
+            page.fill(selector, value)
+            filled[name] = value
+
+        for field in form.fields:
+            plan = plan_greenhouse_field(field.name, package.employment, package.education)
+            if plan is None or not plan.covered or plan.action == "blank":
+                continue
+            selector = field.selector or (f"#{field.name}" if field.name else None)
+            if not selector:
+                skipped.append(field.name)
+                continue
+            if plan.action == "check":
+                page.check(selector)
+                filled[field.name] = "checked"
+            elif plan.value:
+                self._write_value(page, field, selector, plan.value)
+                filled[field.name] = plan.value
+
+        for answer in package.answers:
+            if answer.requires_user_input or not answer.answer:
+                continue
+            selector = self._question_selector(form, answer.question_key)
+            if selector is None:
+                skipped.append(f"question:{answer.question_key}")
+                continue
+            page.fill(selector, str(answer.answer))
+            filled[answer.question_key] = str(answer.answer)
+
+        for field in form.fields:
+            bridged = self._bridged_answer(package, field)
+            if bridged is None or field.name in filled or bridged.question_key in filled:
+                continue
+            if not field.selector:
+                continue
+            self._write_value(page, field, field.selector, bridged.answer or "")
+            filled[field.name] = bridged.answer or ""
+
+        for field in form.fields:
+            if (
+                field.required
+                and field.kind != "file"
+                and field.name not in filled
+                and field.name not in skipped
+            ):
+                skipped.append(field.name)
+
+        self._upload_documents(page, form, package, filled, skipped)
+        return filled, skipped
+
     def validate(
         self, package: ApplicationPackageSchema, form: ApplicationForm
     ) -> ValidationReport:
@@ -362,14 +423,19 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         """
 
         stops = list(self.detect_stops(form, package))
-        answered = {a.question_key for a in package.answers if a.answer}
-        require_input = {a.question_key for a in package.answers if a.requires_user_input}
         unknown_required: list[str] = []
         unanswered: list[str] = []
         mapped: dict[str, str] = {}
+        identity = self._identity_values(package)
 
         for field in form.required_fields:
             if field.kind == "file":
+                if "resume" in field.name.lower() and not (package.tailored_resume_markdown or "").strip():
+                    unknown_required.append(
+                        f"{field.label or field.name}: no tailored résumé is available to upload"
+                    )
+                elif (package.tailored_resume_markdown or "").strip() and "resume" in field.name.lower():
+                    mapped[field.name] = "resume"
                 continue
             # Structural identity first. The captured form labels its employment-block
             # date inputs "Start date month" / "Start date year", which the question
@@ -377,16 +443,27 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             # blocker, because the field belongs to a known repeating block rather
             # than to a board question.
             if self._is_identity_field(field):
-                mapped[field.name] = "identity"
+                key = self._identity_key(field.name)
+                if key and identity.get(key):
+                    mapped[field.name] = "identity"
+                else:
+                    unknown_required.append(
+                        f"{field.label or field.name}: no verified candidate value"
+                    )
                 continue
-            if self._is_structured_history_field(field):
-                mapped[field.name] = "employment_history"
+            plan = plan_greenhouse_field(field.name, package.employment, package.education)
+            if plan is not None:
+                if plan.covered:
+                    mapped[field.name] = plan.section
+                else:
+                    unknown_required.append(plan.reason or field.label or field.name)
                 continue
             key = field.question_key or classify_question(field.label or "")
-            if key and key in answered:
+            answer = self._answer_text(package, key) if key else None
+            if key and answer:
                 mapped[field.name] = key
                 continue
-            if key and key in require_input:
+            if key:
                 unanswered.append(field.label or field.name)
                 continue
             unknown_required.append(field.label or field.name)
@@ -404,7 +481,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             stops.append(
                 SafetyStop(
                     SafetyStopKind.UNKNOWN_REQUIRED_QUESTION,
-                    "these required fields were not recognized and cannot be answered safely: "
+                    "these required fields cannot be completed from verified candidate data: "
                     + "; ".join(sorted(set(unknown_required))[:8]),
                     {"fields": sorted(set(unknown_required))},
                 )
@@ -545,16 +622,99 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         return None
 
     @staticmethod
-    def _identity_values(package: ApplicationPackageSchema) -> dict[str, str]:
-        """Identity values come from the package's own answers and résumé header.
+    def _identity_key(name: str) -> str | None:
+        lowered = name.lower()
+        for token in (
+            "first_name",
+            "last_name",
+            "preferred_name",
+            "email",
+            "phone",
+            "country",
+        ):
+            if token in lowered:
+                return token
+        return None
 
-        Only VERIFIED answers are used; anything else leaves the field blank rather
-        than guessing a name or an email address.
+    @staticmethod
+    def _write_value(page: FormPage, field: FormField, selector: str, value: str) -> None:
+        if field.kind == "select" and field.options:
+            match = _matching_option(field.options, value)
+            page.select_option(selector, match or value)
+            return
+        if field.kind == "checkbox":
+            page.check(selector)
+            return
+        page.fill(selector, value)
+
+    def _answer_text(self, package: ApplicationPackageSchema, key: str | None) -> str | None:
+        if not key:
+            return None
+        for answer in package.answers:
+            if answer.question_key == key and answer.answer and not answer.requires_user_input:
+                return str(answer.answer)
+        bridged = self._bridge_value(package, key)
+        return bridged
+
+    def _bridged_answer(
+        self, package: ApplicationPackageSchema, field: FormField
+    ) -> ApplicationAnswerSchema | None:
+        key = field.question_key or classify_question(field.label or "")
+        if not key:
+            return None
+        # A stored answer already handled above wins; this only covers fields the
+        # package can answer from verified identity or employment.
+        if any(a.question_key == key and a.answer and not a.requires_user_input for a in package.answers):
+            return None
+        value = self._bridge_value(package, key)
+        if not value:
+            return None
+        return ApplicationAnswerSchema(
+            question_key=key,
+            question_text=field.label,
+            answer=value,
+            requires_user_input=False,
+        )
+
+    @staticmethod
+    def _bridge_value(package: ApplicationPackageSchema, key: str) -> str | None:
+        """Verified package fields that answer a recognised question. No invention."""
+
+        if key == "current_employer" and package.employment:
+            return package.employment[0].employer or None
+        mapping = {
+            "city": package.applicant_city,
+            "state_residence": package.applicant_state,
+            "postal_code": package.applicant_postal_code,
+            "phone": package.applicant_phone,
+            "linkedin": package.applicant_linkedin,
+        }
+        value = mapping.get(key)
+        return value or None
+
+    @staticmethod
+    def _identity_values(package: ApplicationPackageSchema) -> dict[str, str]:
+        """Identity values from the package. Résumé text is only a fallback for the
+        name and email already printed on the tailored résumé header.
+
+        Nothing is guessed. A missing phone stays missing.
         """
 
         values: dict[str, str] = {}
+        if package.applicant_name:
+            parts = package.applicant_name.split()
+            if parts:
+                values["first_name"] = parts[0]
+            if len(parts) > 1:
+                values["last_name"] = " ".join(parts[1:])
+        if package.applicant_email:
+            values["email"] = package.applicant_email
+        if package.applicant_phone:
+            values["phone"] = package.applicant_phone
+        if package.applicant_country:
+            values["country"] = package.applicant_country
         for answer in package.answers:
-            if not answer.answer:
+            if not answer.answer or answer.requires_user_input:
                 continue
             key = answer.question_key
             if key in {"first_name", "last_name", "email", "phone", "country", "preferred_name"}:

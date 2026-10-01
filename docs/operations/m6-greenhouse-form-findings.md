@@ -83,10 +83,9 @@ it claims to be.
 
 ## Known limits, stated rather than hidden
 
-- The employment and education blocks are **recognized and mapped but not filled**.
-  The adapter reports them as `employment_history`, which is why they do not appear
-  as unknown blockers. Populating them from the candidate profile is a natural next
-  step and is deliberately out of V1 scope.
+- The employment and education blocks are filled from verified profile history.
+  A required block the profile cannot cover blocks that application and names the
+  missing value. Inferred résumé text is not used as if the candidate had confirmed it.
 - Board-specific required questions are answered only from candidate-verified answer
   memory. Anything else stops the attempt with the question named, because guessing
   at "Have you signed a non-compete?" is exactly the failure requirement 21 exists

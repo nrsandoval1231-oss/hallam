@@ -303,33 +303,34 @@ def ensure_search_profile(
     return profile.id
 
 
-def load_answer_memory(candidate_id: str, answers: dict[str, Any]) -> CandidateProfile:
+def load_answer_memory(
+    candidate_id: str,
+    answers: dict[str, Any],
+    *,
+    verified_keys: set[str] | None = None,
+) -> CandidateProfile:
     """Build AnswerRecords from owner-supplied answers (requirement 18).
 
-    Sensitive and voluntary disclosures are marked `user_controlled` and are never
-    auto-filled, regardless of how complete they are.
+    Sensitive answers are recorded but not verified unless `verified_keys` names
+    them. An unverified sensitive answer is stored and will not be typed onto a
+    form. Non-sensitive owner-supplied answers are verified, because the owner
+    put them in the file as statements.
     """
 
-    sensitive_keys = {
-        "veteran_status",
-        "disability_status",
-        "gender",
-        "race",
-        "ethnicity",
-        "date_of_birth",
-        "criminal_history",
-        "background_check",
-    }
+    from sabra_documents.answers import SENSITIVE_KEYS
+
     profile = CandidateProfile(candidate_id=candidate_id)
+    verified = verified_keys or set()
     for key, value in answers.items():
-        is_sensitive = key in sensitive_keys
+        is_sensitive = key in SENSITIVE_KEYS
+        is_verified = (not is_sensitive) or key in verified
         profile.answer_memory[key] = AnswerRecord(
             question_key=key,
             value=value,
-            level=TruthLevel.VERIFIED,
+            level=TruthLevel.VERIFIED if is_verified else TruthLevel.INFERRED,
             sensitive=is_sensitive,
-            user_controlled=is_sensitive,
-            evidence=["owner_supplied"],
+            user_controlled=is_sensitive and not is_verified,
+            evidence=["owner_supplied"] + (["owner_verified"] if is_verified else []),
         )
     return profile
 

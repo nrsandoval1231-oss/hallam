@@ -40,7 +40,15 @@ def test_application_factory_routes_are_exposed() -> None:
     assert "opportunities" in response.json()
 
 
-def test_resume_upload_persists_candidate_evidence() -> None:
+def test_resume_upload_persists_candidate_evidence(isolate_database) -> None:
+    from pathlib import Path
+
+    from sabra_domain.db import Database
+    from sabra_domain.models import Resume
+    from sabra_domain.settings import get_settings
+
+    real_database = Path("var/sabra.db")
+    before = real_database.stat().st_mtime_ns if real_database.exists() else None
     client = TestClient(app)
     response = client.post(
         "/api/candidate/resume",
@@ -56,6 +64,20 @@ def test_resume_upload_persists_candidate_evidence() -> None:
     payload = response.json()
     assert payload["resume_id"]
     assert payload["truth_level"] == "INFERRED"
+
+    settings = get_settings()
+    assert str(isolate_database) in settings.database_url
+    assert "var/sabra.db" not in settings.database_url.replace("\\", "/")
+    database = Database(settings.database_url)
+    try:
+        with database.read_session() as session:
+            stored = session.get(Resume, payload["resume_id"])
+            assert stored is not None
+            assert "Operations leader" in stored.content_text
+    finally:
+        database.dispose()
+    after = real_database.stat().st_mtime_ns if real_database.exists() else None
+    assert before == after
 
 
 def test_health_is_machine_readable() -> None:

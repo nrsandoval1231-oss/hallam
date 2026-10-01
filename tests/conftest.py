@@ -20,6 +20,34 @@ from sabra_domain.settings import Settings
 pytest_plugins = ["conftest_app"]
 
 
+@pytest.fixture(autouse=True)
+def isolate_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Point every settings lookup at this test's temporary database.
+
+    API routes call `EngineContext.create()` with no arguments, which reads
+    `get_settings()`. Without this override that opens `./var/sabra.db`, the
+    operator's real database. Tests must not be able to reach it.
+    """
+
+    from sabra_domain.settings import reset_settings_cache
+
+    database = tmp_path / "isolated.db"
+    data = tmp_path / "isolated-data"
+    for path in (data, data / "artifacts", data / "evidence", data / "automation", data / "candidates"):
+        path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("SABRA_DATABASE_URL", f"sqlite+pysqlite:///{database}")
+    monkeypatch.setenv("SABRA_DATA_DIR", str(data))
+    monkeypatch.setenv("SABRA_ARTIFACTS_DIR", str(data / "artifacts"))
+    monkeypatch.setenv("SABRA_EVIDENCE_DIR", str(data / "evidence"))
+    monkeypatch.setenv("SABRA_AUTOMATION_SCREENSHOT_DIR", str(data / "automation"))
+    monkeypatch.setenv("SABRA_CANDIDATE_DIR", str(data / "candidates"))
+    monkeypatch.setenv("SABRA_AUTOMATION_DRY_RUN", "true")
+    monkeypatch.delenv("SABRA_PRIVATE_DIR", raising=False)
+    reset_settings_cache()
+    yield database
+    reset_settings_cache()
+
+
 @pytest.fixture()
 def settings(tmp_path: Path) -> Settings:
     settings = Settings(

@@ -23,6 +23,7 @@ automation = [
 ]
 dev = [
     "pytest>=8.3",
+    "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -46,7 +47,7 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not live'"
 filterwarnings = ["error::DeprecationWarning:sabra_.*"]
 markers = [
     "live: reaches the network. Run with `make test-live`; excluded from the default suite because it depends on third-party availability, not on this repository's correctness.",
