@@ -4,9 +4,14 @@ An approval is bound to a content hash. New verified contact answers do not
 alter that package. Refresh revokes the approval, writes the old hash to the
 ledger, and prepares a new revision the owner must approve again.
 
-Submitted applications, and any application with a submission in progress, are
-refused. The APPROVED -> AWAITING_APPROVAL move is allowed only with
-`revoke=True` on the state helper.
+An APPROVED application can be refreshed. So can a BLOCKED or FAILED one, because
+those are the states a missing or wrong answer leaves behind, and without this path
+the owner could neither fix the package nor approve it again. That is allowed only
+when nothing can have reached the employer: no submission time, no
+APPLICATION_SUBMITTED event, and no unresolved APPLICATION_UNCONFIRMED in the latest
+attempt. Submitted applications, and any application with a submission in progress,
+are refused. The move back to AWAITING_APPROVAL is allowed only with `revoke=True` on
+the state helper.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from sabra_domain.enums import (
 )
 from sabra_domain.errors import NotFound, ValidationFailure
 
+from .attempt_events import submission_evidence
 from .context import EngineContext
 from .documents import DocumentService
 
@@ -63,10 +69,13 @@ class BulkRefreshResult:
         }
 
 
-_SUBMITTED_STATUSES = frozenset(
+_IN_OR_PAST_SUBMISSION = frozenset(
+    {ApplicationStatus.APPLIED.value, ApplicationStatus.APPLYING.value}
+)
+# Statuses from which a refresh is possible at all (when nothing was submitted).
+_REFRESHABLE = frozenset(
     {
-        ApplicationStatus.APPLIED.value,
-        ApplicationStatus.APPLYING.value,
+        ApplicationStatus.APPROVED.value,
         ApplicationStatus.BLOCKED.value,
         ApplicationStatus.FAILED.value,
     }
@@ -102,7 +111,7 @@ class PackageRefreshService:
             ids = [
                 row.id
                 for row in repos.applications.list_for_candidate(candidate.id)
-                if row.status == ApplicationStatus.APPROVED.value
+                if row.status in _REFRESHABLE
             ]
         result = BulkRefreshResult()
         for application_id in ids:
@@ -121,24 +130,32 @@ class PackageRefreshService:
                     f"application {application_id} was not found; nothing was refreshed"
                 ) from exc
             self._refuse_if_submitted(repos, application)
-            if application.status != ApplicationStatus.APPROVED.value:
+            if application.status not in _REFRESHABLE:
                 raise ValidationFailure(
-                    f"application {application_id} is {application.status}; "
-                    "only an approved, unsubmitted application can be refreshed"
+                    f"application {application_id} is {application.status}; only an "
+                    "approved, blocked or failed application that was not submitted "
+                    "can be refreshed"
                 )
+            previous_status = application.status
             old_hash = application.approved_package_hash
             old_package_id = application.package_id
             opportunity_id = application.opportunity_id
+            opportunity = repos.opportunities.get(opportunity_id)
+            if JobStatus(opportunity.status) is JobStatus.EXPIRED:
+                raise ValidationFailure(
+                    "the posting is no longer available, so this application was not refreshed"
+                )
             application.approved_package_hash = None
             application.approval = None
+            application.blocked_reason = None
+            application.last_error = None
             repos.session.flush()
             repos.applications.set_status(
                 application.id,
                 ApplicationStatus.AWAITING_APPROVAL,
                 revoke=True,
             )
-            opportunity = repos.opportunities.get(opportunity_id)
-            if JobStatus(opportunity.status) is JobStatus.APPROVED:
+            if JobStatus(opportunity.status) in {JobStatus.APPROVED, JobStatus.FAILED}:
                 repos.opportunities.set_status(
                     opportunity_id,
                     JobStatus.AWAITING_APPROVAL,
@@ -152,6 +169,7 @@ class PackageRefreshService:
                     "action": "approval_revoked",
                     "old_hash": old_hash,
                     "old_package_id": old_package_id,
+                    "from_status": previous_status,
                     "reason": "package refresh before resubmission",
                 },
             )
@@ -159,7 +177,14 @@ class PackageRefreshService:
 
     @staticmethod
     def _refuse_if_submitted(repos: Any, application: Any) -> None:
-        if application.submission_time is not None or application.status in _SUBMITTED_STATUSES:
+        """Refuse anything that is, or may be, a submission to the employer.
+
+        APPLIED and APPLYING are refused outright. BLOCKED and FAILED are refused only
+        on evidence of a submission (see `submission_evidence`): a blocked attempt that
+        never clicked is exactly the one that needs a corrected package.
+        """
+
+        if application.status in _IN_OR_PAST_SUBMISSION:
             raise ValidationFailure(
                 "already submitted; this application was not refreshed"
                 if application.status == ApplicationStatus.APPLIED.value
@@ -167,8 +192,9 @@ class PackageRefreshService:
                 else "a submission attempt is already recorded; this application was not refreshed"
             )
         events = repos.events.for_entity(EntityType.APPLICATION, application.id)
-        if any(event.event_type == EventType.APPLICATION_SUBMITTED.value for event in events):
-            raise ValidationFailure("already submitted; this application was not refreshed")
+        evidence = submission_evidence(application, events)
+        if evidence is not None:
+            raise ValidationFailure(f"{evidence}; this application was not refreshed")
 
 
 __all__ = ["BulkRefreshResult", "PackageRefreshService", "RefreshResult"]

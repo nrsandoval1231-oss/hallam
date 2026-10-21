@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .settings import get_settings
 
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
 
 def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
     """Enable foreign keys and WAL.
@@ -27,13 +29,19 @@ def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    # Another Sabra process (the dashboard, a CLI run) may hold the write lock. Wait
+    # for it rather than failing instantly with "database is locked".
+    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     cursor.close()
 
 
 def build_engine(database_url: str, *, echo: bool = False) -> Engine:
     kwargs: dict[str, Any] = {"future": True, "echo": echo, "pool_pre_ping": True}
     if database_url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
+        kwargs["connect_args"] = {
+            "check_same_thread": False,
+            "timeout": SQLITE_BUSY_TIMEOUT_MS // 1000,
+        }
     engine = create_engine(database_url, **kwargs)
     if engine.dialect.name == "sqlite":
         event.listen(engine, "connect", _configure_sqlite)

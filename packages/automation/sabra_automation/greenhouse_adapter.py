@@ -25,24 +25,38 @@ there deliberately.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import unicodedata
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sabra_documents.answers import classify_question
 from sabra_domain.enums import SafetyStopKind, SourceKind, SubmissionMethod
 from sabra_domain.errors import SafetyStop
 from sabra_domain.identity import sha256_text
-from sabra_domain.schemas import ApplicationAnswerSchema, ApplicationPackageSchema, CanonicalJob
+from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
 
+from .answer_match import (
+    OPTION_READ_LIMIT,
+    is_typable,
+    match_answer,
+    option_problem,
+    write_value,
+)
 from .base import (
     ApplicationAdapter,
     ApplicationForm,
+    ClaimLost,
     FormField,
     PreparedSubmission,
     SubmissionReceipt,
     ValidationReport,
 )
+from .confirmation import detect_confirmation, take_snapshot
 from .history import plan_greenhouse_field
 from .playwright_driver import (
     CAPTCHA_SELECTORS,
@@ -103,6 +117,9 @@ ATTESTATION_SIGNALS: tuple[str, ...] = (
     "i consent",
 )
 
+# Prefix of a `skipped` entry that means a document could not be produced.
+DOCUMENT_ERROR = "document render failed:"
+
 ENUMERATE_FIELDS_JS = """
 () => {
   const out = [];
@@ -113,6 +130,7 @@ ENUMERATE_FIELDS_JS = """
     const key = id || (el.getAttribute('name') || '') + '|' + el.tagName + '|' + (el.getAttribute('type') || '');
     if (seen.has(key)) return;
     seen.add(key);
+    const index = out.length;
     let label = null;
     if (el.id) {
       const escaped = (window.CSS && CSS.escape) ? CSS.escape(el.id) : el.id;
@@ -129,15 +147,29 @@ ENUMERATE_FIELDS_JS = """
     if (tag === 'select') type = 'select';
     else if (tag === 'textarea') type = 'textarea';
     else if (!type) type = 'text';
+    let context = null;
+    const holder = el.closest('fieldset, [class*="field"], [class*="question"], div');
+    if (holder && holder.innerText) {
+      context = holder.innerText.replace(/\\s+/g, ' ').trim().slice(0, 120) || null;
+    }
     out.push({
       id: id,
+      name: el.getAttribute('name') || null,
+      ariaLabel: el.getAttribute('aria-label') || null,
+      autocomplete: el.getAttribute('autocomplete') || null,
+      index: index,
+      context: context,
       tag: tag,
       type: type,
       required: !!(el.required || el.getAttribute('aria-required') === 'true'),
       label: label ? label.replace(/\\s+/g, ' ').trim().slice(0, 300) : null,
       placeholder: el.getAttribute('placeholder'),
       value: type === 'file' ? null : (el.value || '').slice(0, 200),
-      options: tag === 'select' ? Array.from(el.options).map(o => o.value).slice(0, 50) : [],
+      // Visible labels, not values: an answer is matched to the words the person sees.
+      // Playwright's select_option accepts a label as well as a value.
+      options: tag === 'select'
+        ? Array.from(el.options).map(o => (o.textContent || '').replace(/\\s+/g, ' ').trim() || o.value).slice(0, __LIMIT__)
+        : [],
     });
   });
   return out;
@@ -145,17 +177,73 @@ ENUMERATE_FIELDS_JS = """
 """
 
 
-def _matching_option(options: list[str], value: str) -> str | None:
-    """Pick a select option that equals the verified value, ignoring case."""
+ENUMERATE_FIELDS_JS = ENUMERATE_FIELDS_JS.replace("__LIMIT__", str(OPTION_READ_LIMIT))
 
-    target = value.strip().lower()
-    for option in options:
-        if option.strip().lower() == target:
-            return option
-    for option in options:
-        if target and target in option.strip().lower():
-            return option
+_PLAIN_ID = re.compile(r"^[A-Za-z_][\w-]*$")
+
+
+def _css_attr(value: str) -> str:
+    """Escape a value for a double-quoted CSS attribute selector.
+
+    A raw newline is a syntax error inside a CSS string; `\a ` is its escape.
+    """
+
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r", "")
+        .replace("\n", "\\a ")
+    )
+
+
+def _count_matches(page: Any, selector: str) -> int:
+    value = page.evaluate("() => document.querySelectorAll(" + repr(selector) + ").length")
+    return int(value or 0)
+
+
+def field_selector(entry: dict[str, Any]) -> str | None:
+    """A selector for an enumerated field: `#id`, else `[name]`, else `[aria-label]`."""
+
+    identifier = entry.get("id")
+    if identifier:
+        if _PLAIN_ID.match(str(identifier)):
+            return f"#{identifier}"
+        return f'[id="{_css_attr(str(identifier))}"]'
+    if entry.get("name"):
+        return f'[name="{_css_attr(str(entry["name"]))}"]'
+    if entry.get("ariaLabel"):
+        return f'[aria-label="{_css_attr(str(entry["ariaLabel"]))}"]'
     return None
+
+
+def describe_field(field: FormField) -> str:
+    """How a blocked field is named in a report: always something findable."""
+
+    if field.label and field.label.strip() and field.label.strip() != field.name:
+        return f"{field.label.strip()} [{field.name}]"
+    if field.context and field.name.startswith("unnamed-"):
+        return f"{field.name} (near: {field.context.strip()[:80]})"
+    return field.name
+
+
+def split_name(full_name: str) -> tuple[str | None, str | None]:
+    """First and last name from a full name, without turning a middle initial into a surname.
+
+    "JORDAN A. RIVERA" is first "JORDAN", last "RIVERA": a single letter (with or without
+    a period) between the first and last tokens is a middle initial. Anything longer
+    stays in the last name ("Mary Jo Smith" is last "Jo Smith"), because guessing a
+    middle name would be a guess. Structured first/last fields on the package win over
+    this split; see `_identity_values`.
+    """
+
+    parts = (full_name or "").split()
+    if not parts:
+        return None, None
+    first = parts[0]
+    rest = parts[1:]
+    while len(rest) > 1 and re.fullmatch(r"[A-Za-z]\.?", rest[0]):
+        rest = rest[1:]
+    return first, " ".join(rest) or None
 
 
 def looks_like_application_form(
@@ -219,46 +307,8 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         page_factory: Any = None,
         evidence_dir: Any = None,
     ) -> None:
-        super().__init__(dry_run=dry_run, settings=settings)
-        self._page_factory = page_factory
+        super().__init__(dry_run=dry_run, settings=settings, page_factory=page_factory)
         self._evidence_dir = evidence_dir
-        self._last_page: FormPage | None = None
-        self._last_receipt: SubmissionReceipt | None = None
-
-    # -- session handling -----------------------------------------------
-
-    def _open(self, url: str) -> tuple[FormPage, Any]:
-        """Return `(page, closer)`. A page factory supplied by the caller (tests) is
-        not closed by the adapter, because the caller owns its lifetime."""
-
-        if self._page_factory is not None:
-            page = self._page_factory(url)
-            return page, None
-        if self.dry_run:
-            raise SafetyStop(
-                SafetyStopKind.MATERIAL_AMBIGUITY,
-                "dry run will not open an employer form or type into it",
-                {"url": url},
-            )
-
-        from .playwright_driver import BrowserSession
-
-        headless = True
-        timeout_ms = 30_000
-        user_agent = None
-        if self.settings is not None:
-            headless = bool(getattr(self.settings, "playwright_headless", True))
-            timeout_ms = int(getattr(self.settings, "playwright_timeout_ms", 30_000))
-            user_agent = getattr(self.settings, "discovery_user_agent", None)
-        session = BrowserSession(headless=headless, timeout_ms=timeout_ms, user_agent=user_agent)
-        session.__enter__()
-        page = session.new_page()
-        page.open(url)
-        return page, session
-
-    def _close(self, session: Any) -> None:
-        if session is not None:
-            session.close()
 
     # -- contract -------------------------------------------------------
 
@@ -269,137 +319,206 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         return "greenhouse.io" in url
 
     def inspect(self, job: CanonicalJob | Any) -> ApplicationForm:
-        url = self._application_url(job)
-        page, session = self._open(url)
+        url = self.application_url(job)
+        with self._page_for(url) as page:
+            return self._inspect_page(page, url)
+
+    def _inspect_page(self, page: FormPage, url: str) -> ApplicationForm:
+        title = page.title()
+        body = page.body_text()
+        if looks_like_bot_wall(title, body):
+            raise SafetyStop(
+                SafetyStopKind.CAPTCHA,
+                f"the posting is behind a bot-protection interstitial ({title!r}); "
+                "a human must open and complete this application",
+                {"url": url, "title": title},
+            )
+        if looks_like_login_wall(body):
+            raise SafetyStop(
+                SafetyStopKind.IDENTITY_VERIFICATION,
+                "the application requires signing in or identity verification",
+                {"url": url},
+            )
+
+        raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
+        fields = [self._to_field(entry) for entry in raw_fields]
+        # JSON-encoded, not hand-quoted: interpolating CSS selectors that contain
+        # double quotes produced `["iframe[src*="recaptcha"]", ...]`, which is a
+        # JavaScript syntax error. Playwright surfaced it as
+        # "SyntaxError: Unexpected identifier 'recaptcha'".
+        captcha_script = (
+            "() => { try { return "
+            f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
+            "; } catch (e) { return true; } }"
+        )
+        detection_failed = False
         try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"the posting is behind a bot-protection interstitial ({title!r}); "
-                    "a human must open and complete this application",
-                    {"url": url, "title": title},
-                )
-            if looks_like_login_wall(body):
-                raise SafetyStop(
-                    SafetyStopKind.IDENTITY_VERIFICATION,
-                    "the application requires signing in or identity verification",
-                    {"url": url},
-                )
+            captcha_present = bool(page.evaluate(captcha_script))
+        except Exception:  # noqa: BLE001 - a failed probe is a challenge, not a pass
+            captcha_present = True
+            detection_failed = True
+        attestations = [
+            f.label or ""
+            for f in fields
+            if f.label and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
+        ]
+        submit_selector = self._find_submit_selector(page, fields)
 
-            raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
-            fields = [self._to_field(entry) for entry in raw_fields]
-            # JSON-encoded, not hand-quoted: interpolating CSS selectors that contain
-            # double quotes produced `["iframe[src*="recaptcha"]", ...]`, which is a
-            # JavaScript syntax error. Playwright surfaced it as
-            # "SyntaxError: Unexpected identifier 'recaptcha'".
-            captcha_script = (
-                "() => { try { return "
-                f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
-                "; } catch (e) { return true; } }"
+        # Confirm we are actually looking at an application form before doing
+        # anything with it. Measured live: a board served a cookie-consent overlay
+        # whose only field was the consent widget, and the adapter accepted it as
+        # the form. A consent page has no required fields, so validation would
+        # have returned ok=True and the service would have proceeded to "prepare"
+        # — and with a real submission enabled, to click — something that is not
+        # the application form.
+        if not looks_like_application_form(title, fields, submit_selector):
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "the page could not be confirmed as an application form "
+                f"(title {title!r}, {len(fields)} field(s), "
+                f"submit control {'found' if submit_selector else 'not found'}); "
+                "a human must open this posting and complete it. The page is "
+                "usually a consent or bot interstitial in front of the form",
+                {
+                    "url": page.current_url() or url,
+                    "title": title,
+                    "field_names": [f.name for f in fields][:10],
+                },
             )
-            detection_failed = False
-            try:
-                captcha_present = bool(page.evaluate(captcha_script))
-            except Exception:  # noqa: BLE001 - a failed probe is a challenge, not a pass
-                captcha_present = True
-                detection_failed = True
-            attestations = [
-                f.label or ""
-                for f in fields
-                if f.label and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
-            ]
-            submit_selector = self._find_submit_selector(page, fields)
 
-            # Confirm we are actually looking at an application form before doing
-            # anything with it. Measured live: a board served a cookie-consent overlay
-            # whose only field was the consent widget, and the adapter accepted it as
-            # the form. A consent page has no required fields, so validation would
-            # have returned ok=True and the service would have proceeded to "prepare"
-            # — and with a real submission enabled, to click — something that is not
-            # the application form.
-            if not looks_like_application_form(title, fields, submit_selector):
-                raise SafetyStop(
-                    SafetyStopKind.MATERIAL_AMBIGUITY,
-                    "the page could not be confirmed as an application form "
-                    f"(title {title!r}, {len(fields)} field(s), "
-                    f"submit control {'found' if submit_selector else 'not found'}); "
-                    "a human must open this posting and complete it. The page is "
-                    "usually a consent or bot interstitial in front of the form",
-                    {
-                        "url": page.current_url() or url,
-                        "title": title,
-                        "field_names": [f.name for f in fields][:10],
-                    },
-                )
-
-            self._last_page = page
-            return ApplicationForm(
-                url=page.current_url() or url,
-                fields=fields,
-                has_captcha=captcha_present,
-                challenge_detection_failed=detection_failed,
-                requires_login=False,
-                has_file_upload=any(f.kind == "file" for f in fields),
-                attestations=attestations,
-                submit_selector=submit_selector,
-                page_hash=sha256_text(title + "|" + str(len(fields))),
-                title=title,
-                inspected_at=datetime.now(UTC),
-            )
-        finally:
-            if session is not None:
-                self._close(session)
-                self._last_page = None
+        return ApplicationForm(
+            url=page.current_url() or url,
+            fields=fields,
+            has_captcha=captcha_present,
+            challenge_detection_failed=detection_failed,
+            requires_login=False,
+            has_file_upload=any(f.kind == "file" for f in fields),
+            attestations=attestations,
+            submit_selector=submit_selector,
+            page_hash=sha256_text(title + "|" + str(len(fields))),
+            title=title,
+            inspected_at=datetime.now(UTC),
+        )
 
     def prepare(
         self, package: ApplicationPackageSchema, form: ApplicationForm
     ) -> PreparedSubmission:
-        """Fill recognised fields. Does not submit.
+        """Fill recognised fields on the live session page. Does not submit.
 
         Identity, employment, education, the résumé, and verified answers are typed.
-        A required field with no verified value is left blank and named.
+        A required field with no verified value is left blank and named. Inside
+        `session()` this is the page `inspect` read and the page `submit` will click;
+        outside a session it is a one-shot fill that is discarded and can never be
+        submitted.
         """
 
         url = form.url
-        page, session = self._open(url)
-        try:
-            filled, skipped = self.apply_to_page(page, package, form)
-            self._last_page = page
+        in_session = self._page is not None
+        if not in_session and self._page_factory is None:
+            # Typing and uploading into a page that is then thrown away is never
+            # useful, and with a real browser it is a side effect on the employer's
+            # site. Reading (`inspect`) outside a session is allowed; filling is not.
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "prepare needs a live session: open one with `with adapter.session(url):`",
+                {"url": url},
+            )
+        # Render the documents BEFORE the page is touched. In a real run `prepare_documents`
+        # already ran before the browser opened (the execution service calls it), so this
+        # is a cache hit; either way a render failure stops here, with nothing typed.
+        documents, notes, report = self._documents_for(package)
+        with self._page_for(url) as page:
+            if in_session:
+                self._require_live_page(url)
+            filled, skipped = self.apply_to_page(page, package, form, documents=documents)
+            if in_session:
+                self._filled_page = page
             return PreparedSubmission(
                 url=url,
                 filled=filled,
                 files={k: v for k, v in filled.items() if k in {"resume", "cover_letter"}},
-                skipped=skipped,
+                skipped=[*notes, *skipped],
                 prepared_at=datetime.now(UTC),
                 dry_run=self.dry_run,
+                submit_selector=form.submit_selector,
+                unfilled_required=self._unfilled_required(package, form, filled),
+                documents=report,
             )
-        finally:
-            if session is not None:
-                self._close(session)
+
+    def _unfilled_required(
+        self, package: ApplicationPackageSchema, form: ApplicationForm, filled: dict[str, str]
+    ) -> list[str]:
+        """Required non-file fields that were left empty and are not empty on purpose.
+
+        A field counts as filled only when it was written under its own name (or the
+        identity key it stands for). A *question key* in `filled` proves nothing about
+        another field that happens to share it. A history field the plan deliberately
+        leaves blank (the end date of a current role) is covered; anything else that is
+        required and untouched blocks the click.
+        """
+
+        missing: list[str] = []
+        for field in form.fields:
+            if not field.required or field.kind == "file":
+                continue
+            if field.name in filled or any(alias in filled for alias in self._filled_aliases(field)):
+                continue
+            plan = plan_greenhouse_field(field.name, package.employment, package.education)
+            if plan is not None and plan.covered and plan.action == "blank":
+                continue
+            missing.append(describe_field(field))
+        return missing
+
+    def _filled_aliases(self, field: FormField) -> list[str]:
+        """Other keys `filled` may hold for this field (the identity key it stands for)."""
+
+        key = self._identity_key(field.name)
+        return [key] if key else []
 
     def apply_to_page(
         self,
         page: FormPage,
         package: ApplicationPackageSchema,
         form: ApplicationForm,
+        *,
+        documents: dict[str, Path] | None = None,
     ) -> tuple[dict[str, str], list[str]]:
-        """Type verified values onto an already-open page. Never clicks submit."""
+        """Type verified values onto an already-open page. Never clicks submit.
+
+        `documents` are the PDFs rendered ahead of time (the real path). Without them
+        (the human handoff) they are rendered here, and a failure is only noted in
+        `skipped`, because a partial fill is still useful to the person finishing it.
+
+        Every write goes through `write_value`, which knows what kind of control it is
+        writing to. A value that cannot be written (a drop-down with no option that
+        equals the answer, a radio group) leaves the field unfilled and named in
+        `skipped`; a required one then blocks the click.
+        """
 
         filled: dict[str, str] = {}
         skipped: list[str] = []
+        if documents is None:
+            documents = self._prepare_documents(package, skipped, {})
+
         identity = self._identity_values(package)
         for name, value in identity.items():
             if not value:
                 skipped.append(name)
                 continue
+            field = self._identity_field(form, name)
             selector = self._existing_selector(page, IDENTITY_SELECTORS.get(name, ()))
+            if selector is None and field is not None:
+                selector = field.selector
             if selector is None:
                 skipped.append(name)
                 continue
-            page.fill(selector, value)
+            target = field or FormField(name=name, kind="text")
+            if not write_value(page, target, selector, value):
+                skipped.append(name)
+                continue
             filled[name] = value
+            if field is not None:
+                filled[field.name] = value
 
         for field in form.fields:
             plan = plan_greenhouse_field(field.name, package.employment, package.education)
@@ -410,30 +529,19 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 skipped.append(field.name)
                 continue
             if plan.action == "check":
-                page.check(selector)
-                filled[field.name] = "checked"
+                written = write_value(page, replace(field, kind="checkbox"), selector, "checked")
+                value = "checked"
             elif plan.value:
-                self._write_value(page, field, selector, plan.value)
-                filled[field.name] = plan.value
+                value = plan.value
+                written = write_value(page, field, selector, value)
+            else:
+                continue
+            if written:
+                filled[field.name] = value
+            else:
+                skipped.append(field.name)
 
-        for answer in package.answers:
-            if answer.requires_user_input or not answer.answer:
-                continue
-            selector = self._question_selector(form, answer.question_key)
-            if selector is None:
-                skipped.append(f"question:{answer.question_key}")
-                continue
-            page.fill(selector, str(answer.answer))
-            filled[answer.question_key] = str(answer.answer)
-
-        for field in form.fields:
-            bridged = self._bridged_answer(package, field)
-            if bridged is None or field.name in filled or bridged.question_key in filled:
-                continue
-            if not field.selector:
-                continue
-            self._write_value(page, field, field.selector, bridged.answer or "")
-            filled[field.name] = bridged.answer or ""
+        self._fill_answers(page, package, form, filled, skipped)
 
         for field in form.fields:
             if (
@@ -444,8 +552,42 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             ):
                 skipped.append(field.name)
 
-        self._upload_documents(page, form, package, filled, skipped)
+        self._upload_documents(page, form, package, documents, filled, skipped)
         return filled, skipped
+
+    def _fill_answers(
+        self,
+        page: FormPage,
+        package: ApplicationPackageSchema,
+        form: ApplicationForm,
+        filled: dict[str, str],
+        skipped: list[str],
+    ) -> None:
+        """Type the verified answer for every question the form asks.
+
+        Each field is resolved on its own: fields the structured plan recognises
+        (employment and education blocks, identity, files) are never treated as
+        questions, so "when can you start?" cannot land in `start-date-month-0`. A
+        question is answered by its key or, where the key is unknown, by its wording.
+        """
+
+        for field in form.fields:
+            if not field.selector or field.name in filled or self._is_structural_field(field, package):
+                continue
+            resolved, refusal = self._resolve_answer(package, field)
+            if resolved is None:
+                if refusal:
+                    skipped.append(field.name)
+                continue
+            answer_key, value = resolved
+            if write_value(page, field, field.selector, value):
+                filled[field.name] = value
+                # The answer's own key is recorded as well, for the audit trail. Whether a
+                # field was filled is decided by the field's own name, never by this key.
+                if not any(other.name == answer_key for other in form.fields):
+                    filled.setdefault(answer_key, value)
+            else:
+                skipped.append(field.name)
 
     def validate(
         self, package: ApplicationPackageSchema, form: ApplicationForm
@@ -466,7 +608,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             if field.kind == "file":
                 if "resume" in field.name.lower() and not (package.tailored_resume_markdown or "").strip():
                     unknown_required.append(
-                        f"{field.label or field.name}: no tailored résumé is available to upload"
+                        f"{describe_field(field)}: no tailored résumé is available to upload"
                     )
                 elif (package.tailored_resume_markdown or "").strip() and "resume" in field.name.lower():
                     mapped[field.name] = "resume"
@@ -478,29 +620,30 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             # than to a board question.
             if self._is_identity_field(field):
                 key = self._identity_key(field.name)
-                if key and identity.get(key):
-                    mapped[field.name] = "identity"
-                else:
+                value = identity.get(key) if key else None
+                if not value:
                     unknown_required.append(
-                        f"{field.label or field.name}: no verified candidate value"
+                        f"{describe_field(field)}: no verified candidate value"
                     )
+                    continue
+                problem = option_problem(field, value)
+                if problem:
+                    unknown_required.append(f"{describe_field(field)}: {problem}")
+                    continue
+                mapped[field.name] = "identity"
                 continue
             plan = plan_greenhouse_field(field.name, package.employment, package.education)
             if plan is not None:
-                if plan.covered:
-                    mapped[field.name] = plan.section
-                else:
-                    unknown_required.append(plan.reason or field.label or field.name)
+                if not plan.covered:
+                    unknown_required.append(plan.reason or describe_field(field))
+                    continue
+                problem = option_problem(field, plan.value) if plan.action == "fill" and plan.value else None
+                if problem:
+                    unknown_required.append(f"{describe_field(field)}: {problem}")
+                    continue
+                mapped[field.name] = plan.section
                 continue
-            key = field.question_key or classify_question(field.label or "")
-            answer = self._answer_text(package, key) if key else None
-            if key and answer:
-                mapped[field.name] = key
-                continue
-            if key:
-                unanswered.append(field.label or field.name)
-                continue
-            unknown_required.append(field.label or field.name)
+            self._classify_question(package, field, mapped, unknown_required, unanswered)
 
         if unanswered:
             stops.append(
@@ -534,7 +677,26 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         )
 
     def submit(self, prepared: PreparedSubmission) -> SubmissionReceipt:
-        """Click submit. Only reachable with a validated, approved, opt-in submission."""
+        """Click submit on the page `prepare` filled. Only reachable with a validated,
+        approved, opt-in submission."""
+
+        return self._submit_live(prepared, settle_ms=6000, capture_evidence=True)
+
+    def _submit_live(
+        self,
+        prepared: PreparedSubmission,
+        *,
+        settle_ms: int,
+        capture_evidence: bool,
+    ) -> SubmissionReceipt:
+        """Shared by the Greenhouse and Lever adapters.
+
+        Refuses unless the live session page is the one `prepare` filled, every
+        required field was filled, and the control `inspect` found matches exactly one
+        element. Whether the employer confirmed is decided by `detect_confirmation`,
+        never by body keywords. A click with no confirmation is returned as
+        `clicked=True, submitted=False`.
+        """
 
         self.require_opt_in()
         if not prepared.filled and not prepared.files:
@@ -542,69 +704,114 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 SafetyStopKind.MATERIAL_AMBIGUITY,
                 "refusing to submit an empty form",
             )
+        page = self._page
+        if page is None or self._filled_page is not page:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "refusing to submit: there is no live browser page that prepare filled in "
+                "this session, so there is no form to click",
+                {"url": prepared.url},
+            )
+        self._require_live_page(prepared.url)
+        if prepared.unfilled_required:
+            raise SafetyStop(
+                SafetyStopKind.UNKNOWN_REQUIRED_QUESTION,
+                "refusing to submit: required fields were left empty: "
+                + "; ".join(prepared.unfilled_required[:8]),
+                {"fields": prepared.unfilled_required},
+            )
+        submit_selector = prepared.submit_selector
+        if not submit_selector:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "refusing to submit: inspect did not find a submit control",
+                {"url": prepared.url},
+            )
+        matches = _count_matches(page, submit_selector)
+        if matches != 1:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                f"refusing to submit: {submit_selector!r} matches {matches} elements, not one",
+                {"url": prepared.url, "selector": submit_selector, "matches": matches},
+            )
 
-        page, session = self._open(prepared.url)
         evidence: list[str] = []
-        try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"bot-protection interstitial appeared at submission time ({title!r})",
-                    {"url": prepared.url},
-                )
+        title = page.title()
+        body = page.body_text()
+        if looks_like_bot_wall(title, body):
+            raise SafetyStop(
+                SafetyStopKind.CAPTCHA,
+                f"bot-protection interstitial appeared at submission time ({title!r})",
+                {"url": prepared.url},
+            )
+        before = take_snapshot(page, self.kind)
+        if not before.form_present:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "refusing to submit: the application form is not on the page",
+                {"url": prepared.url},
+            )
+        if capture_evidence:
             screenshot = self._capture(page, "before_submit")
             if screenshot:
                 evidence.append(screenshot)
 
-            page.click(SUBMIT_SELECTORS[0])
-            page.wait(6000)
-
-            after_title = page.title()
-            after_url = page.current_url()
-            after_body = page.body_text()
-            screenshot = self._capture(page, "after_submit")
-            if screenshot:
-                evidence.append(screenshot)
-
-            confirmed = any(
-                signal in after_body.lower()
-                for signal in ("thank you", "application submitted", "we received", "submitted")
+        if self.pre_click_check is not None and not self.pre_click_check():
+            raise ClaimLost(
+                "the application is no longer APPLYING under this run, so nothing was clicked"
             )
-            self._last_page = page
-            receipt = SubmissionReceipt(
-                submitted=confirmed,
+
+        # From here the employer may have received the application, so nothing below
+        # may raise: any failure is reported as an unconfirmed click.
+        self.click_attempted = True
+        try:
+            page.click(submit_selector)
+            page.wait(settle_ms)
+            confirmation = detect_confirmation(page, self.kind, before)
+            after_url = page.current_url()
+            after_title = page.title()
+            if capture_evidence:
+                screenshot = self._capture(page, "after_submit")
+                if screenshot:
+                    evidence.append(screenshot)
+        except Exception as exc:  # noqa: BLE001 - the click may have gone through
+            return SubmissionReceipt(
+                submitted=False,
+                clicked=True,
                 method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
-                external_confirmation={
-                    "url": after_url,
-                    "page_title": after_title,
-                    "confirmation_detected": confirmed,
-                    "form_url": prepared.url,
-                },
-                confirmation_text=after_body[:2000] if confirmed else None,
+                external_confirmation={"form_url": prepared.url, "confirmation_detected": False},
                 evidence_paths=evidence,
-                submitted_at=datetime.now(UTC) if confirmed else None,
-                error=None
-                if confirmed
-                else "no confirmation was detected on the page after submitting; "
-                "the application is NOT recorded as submitted",
+                error=f"the submit click was attempted but the result could not be read ({exc}); "
+                "the application is NOT recorded as submitted and must be checked by a person",
                 dry_run=False,
             )
-            self._last_receipt = receipt
-            return receipt
-        finally:
-            if session is not None:
-                self._close(session)
 
-    def capture_confirmation(self) -> dict[str, Any]:
-        if self._last_receipt is None:
-            return {"captured": False, "reason": "no submission has been performed in this session"}
-        return {"captured": True, **self._last_receipt.as_dict()}
+        confirmed = confirmation.confirmed
+        return SubmissionReceipt(
+            submitted=confirmed,
+            clicked=True,
+            method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
+            external_confirmation={
+                "url": after_url,
+                "page_title": after_title,
+                "confirmation_detected": confirmed,
+                "confirmation_reason": confirmation.reason,
+                "confirmation_marker": confirmation.marker,
+                "form_url": prepared.url,
+            },
+            confirmation_text=confirmation.text if confirmed else None,
+            evidence_paths=evidence,
+            submitted_at=datetime.now(UTC) if confirmed else None,
+            error=None
+            if confirmed
+            else "the submit control was clicked but no confirmation was detected "
+            f"({confirmation.reason}); the application is NOT recorded as submitted",
+            dry_run=False,
+        )
 
     # -- helpers --------------------------------------------------------
 
-    def _application_url(self, job: Any) -> str:
+    def application_url(self, job: Any) -> str:
         url = str(getattr(job, "source_url", "") or "")
         if "greenhouse.io" in url or "revance.com" in url or "?gh_jid=" in url:
             return url
@@ -616,31 +823,54 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
     @staticmethod
     def _to_field(entry: dict[str, Any]) -> FormField:
-        identifier = entry.get("id") or (entry.get("placeholder") or "unnamed")
-        label = entry.get("label")
+        """Name and address a field so a human can find it on the page.
+
+        Name: id, else `name` attribute, else label, else aria-label, else placeholder,
+        else `unnamed-<tag>-<position>`. Selector: `#id`, else `[name="..."]`, else
+        `[aria-label="..."]`.
+        """
+
+        identifier = (
+            entry.get("id")
+            or entry.get("name")
+            or entry.get("label")
+            or entry.get("ariaLabel")
+            or entry.get("placeholder")
+            or f"unnamed-{entry.get('tag') or 'input'}-{entry.get('index', 0)}"
+        )
+        label = entry.get("label") or entry.get("ariaLabel")
         kind = str(entry.get("type") or "text").lower()
         return FormField(
-            name=str(identifier),
+            name=" ".join(str(identifier).split()),
             label=label,
             kind=kind,
             required=bool(entry.get("required")),
             options=list(entry.get("options") or []),
-            selector=f"#{entry['id']}" if entry.get("id") else None,
-            question_key=classify_question(label or "") or None,
+            selector=field_selector(entry),
+            question_key=classify_question(entry.get("label") or "") or None,
+            context=entry.get("context") or None,
+            autocomplete=entry.get("autocomplete") or None,
         )
 
     @staticmethod
     def _find_submit_selector(page: FormPage, fields: list[FormField]) -> str | None:
+        """The submit control to click: the first selector matching exactly one element.
+
+        If none matches exactly one, the first that matches anything is returned, and
+        `submit` then refuses because the match is ambiguous.
+        """
+
+        first_any: str | None = None
         for selector in SUBMIT_SELECTORS:
             try:
-                found = page.evaluate(
-                    "() => document.querySelectorAll(" + repr(selector) + ").length"
-                )
+                found = _count_matches(page, selector)
             except Exception:  # noqa: BLE001
                 continue
-            if found:
+            if found == 1:
                 return selector
-        return None
+            if found and first_any is None:
+                first_any = selector
+        return first_any
 
     @staticmethod
     def _existing_selector(page: FormPage, selectors: tuple[str, ...]) -> str | None:
@@ -672,45 +902,102 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 return token
         return None
 
-    @staticmethod
-    def _write_value(page: FormPage, field: FormField, selector: str, value: str) -> None:
-        if field.kind == "select" and field.options:
-            match = _matching_option(field.options, value)
-            page.select_option(selector, match or value)
-            return
-        if field.kind == "checkbox":
-            page.check(selector)
-            return
-        page.fill(selector, value)
-
-    def _answer_text(self, package: ApplicationPackageSchema, key: str | None) -> str | None:
-        if not key:
-            return None
-        for answer in package.answers:
-            if answer.question_key == key and answer.answer and not answer.requires_user_input:
-                return str(answer.answer)
-        bridged = self._bridge_value(package, key)
-        return bridged
-
-    def _bridged_answer(
+    def _resolve_answer(
         self, package: ApplicationPackageSchema, field: FormField
-    ) -> ApplicationAnswerSchema | None:
-        key = field.question_key or classify_question(field.label or "")
-        if not key:
-            return None
-        # A stored answer already handled above wins; this only covers fields the
-        # package can answer from verified identity or employment.
-        if any(a.question_key == key and a.answer and not a.requires_user_input for a in package.answers):
-            return None
-        value = self._bridge_value(package, key)
-        if not value:
-            return None
-        return ApplicationAnswerSchema(
-            question_key=key,
-            question_text=field.label,
-            answer=value,
-            requires_user_input=False,
+    ) -> tuple[tuple[str, str] | None, str | None]:
+        """`((answer key, verified text), refusal)` for this field's question.
+
+        A verified package answer wins: by the question's wording, else by question key
+        (see `match_answer` for when a key match is refused). Failing that, a recognised
+        key may be answered from a verified package field such as the city or the current
+        employer. Nothing is invented. A refusal is returned only when nothing else
+        answers the field.
+        """
+
+        own_key = self._own_field_key(field)
+        key = own_key or field.question_key or classify_question(field.label or "")
+        match = match_answer(
+            package, field, question_key=key, key_is_trusted=own_key is not None and own_key == key
         )
+        if match.answer is not None:
+            return (match.answer.question_key, str(match.answer.answer)), None
+        if key:
+            bridged = self._bridge_value(package, key)
+            if bridged:
+                if own_key == key:
+                    return (key, bridged), None
+                # The catalogue recognised a phrase, not a location input: "What city would
+                # you like to work in?" is not the candidate's home city. Wording that was
+                # recorded with an answer is handled above (`match_answer`).
+                return None, (
+                    f"the form's question {(field.label or field.name)!r} only resembles "
+                    f"{key!r}, and this field is not recognisable as that input by its id; "
+                    "the candidate's value is typed only when the question wording was "
+                    "recorded with an answer (record the answer again with the exact "
+                    "question wording and verify it)"
+                )
+        return None, match.refused
+
+    @staticmethod
+    def _own_field_key(field: FormField) -> str | None:
+        """The answer key a control declares by its own id, name or autocomplete attribute.
+
+        This is structure, not wording: a `city` input or `candidate-location` field holds
+        the city whatever its label says. An id that is really a label (it has spaces, as
+        when a control had no id and was named from its text) never counts.
+        """
+
+        autocomplete = (field.autocomplete or "").strip().lower()
+        by_autocomplete = {
+            "address-level2": "city",
+            "address-level1": "state_residence",
+            "postal-code": "postal_code",
+            "organization": "current_employer",
+        }
+        if autocomplete in by_autocomplete:
+            return by_autocomplete[autocomplete]
+        name = (field.name or "").strip().lower()
+        if not name or any(ch.isspace() for ch in name):
+            return None
+        if name in {"city", "candidate-location", "candidate_location", "location-city"}:
+            return "city"
+        if name in {"state", "state_residence", "province"}:
+            return "state_residence"
+        if name in {"zip", "zipcode", "zip_code", "postal_code", "postal-code", "postcode"}:
+            return "postal_code"
+        if name in {"employer", "current_employer", "current-employer", "current_company"}:
+            return "current_employer"
+        if "linkedin" in name:
+            return "linkedin"
+        return None
+
+    def _classify_question(
+        self,
+        package: ApplicationPackageSchema,
+        field: FormField,
+        mapped: dict[str, str],
+        unknown_required: list[str],
+        unanswered: list[str],
+    ) -> None:
+        """Validation of one required question field against verified answers."""
+
+        key = (
+            self._own_field_key(field) or field.question_key or classify_question(field.label or "")
+        )
+        resolved, refusal = self._resolve_answer(package, field)
+        if resolved is not None:
+            problem = option_problem(field, resolved[1])
+            if problem:
+                unknown_required.append(f"{describe_field(field)}: {problem}")
+            else:
+                mapped[field.name] = key or "answer"
+            return
+        if refusal:
+            unknown_required.append(f"{describe_field(field)}: {refusal}")
+        elif key:
+            unanswered.append(field.label or field.name)
+        else:
+            unknown_required.append(describe_field(field))
 
     @staticmethod
     def _bridge_value(package: ApplicationPackageSchema, key: str) -> str | None:
@@ -731,19 +1018,26 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
     @staticmethod
     def _identity_values(package: ApplicationPackageSchema) -> dict[str, str]:
-        """Identity values from the package. Résumé text is only a fallback for the
-        name and email already printed on the tailored résumé header.
+        """Identity values from verified sources only.
 
-        Nothing is guessed. A missing phone stays missing.
+        Sources: the package's `applicant_*` fields, and package answers that are
+        verified (`level` VERIFIED and `not requires_user_input`). Nothing is parsed out of the résumé text
+        and nothing is inferred: a name, an e-mail address or a country that is not on
+        the package is simply absent, and validation then blocks on the field.
         """
 
         values: dict[str, str] = {}
         if package.applicant_name:
-            parts = package.applicant_name.split()
-            if parts:
-                values["first_name"] = parts[0]
-            if len(parts) > 1:
-                values["last_name"] = " ".join(parts[1:])
+            first, last = split_name(package.applicant_name)
+            if first:
+                values["first_name"] = first
+            if last:
+                values["last_name"] = last
+        # A structured name on the package is the owner's own split and wins.
+        if package.applicant_first_name:
+            values["first_name"] = package.applicant_first_name
+        if package.applicant_last_name:
+            values["last_name"] = package.applicant_last_name
         if package.applicant_email:
             values["email"] = package.applicant_email
         if package.applicant_phone:
@@ -753,113 +1047,213 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         if package.applicant_street_address:
             values["street_address"] = package.applicant_street_address
         for answer in package.answers:
-            if not answer.answer or answer.requires_user_input:
+            if not is_typable(answer):
                 continue
             key = answer.question_key
             if key in {"first_name", "last_name", "email", "phone", "country", "preferred_name"}:
+                # A structured name on the package is the owner's own and is not
+                # overridden by a memory answer.
+                if key == "first_name" and package.applicant_first_name:
+                    continue
+                if key == "last_name" and package.applicant_last_name:
+                    continue
                 values[key] = str(answer.answer)
-        resume = package.tailored_resume_markdown or ""
-        for line in resume.splitlines():
-            if line.startswith("# "):
-                full = line[2:].strip()
-                if full and "last_name" not in values:
-                    parts = full.split()
-                    values.setdefault("first_name", parts[0] if parts else "")
-                    values.setdefault("last_name", " ".join(parts[1:]) if len(parts) > 1 else "")
-            if "@" in line and "email" not in values:
-                for token in line.replace("|", " ").split():
-                    if "@" in token:
-                        values["email"] = token.strip(" ,;")
-                        break
-            if "country" not in values and any(
-                marker in line for marker in ("USA", "United States")
-            ):
-                values["country"] = "United States"
         return values
 
-    @staticmethod
-    def _question_selector(form: ApplicationForm, question_key: str) -> str | None:
+    def _identity_field(self, form: ApplicationForm, name: str) -> FormField | None:
+        """The form field that stands for identity value `name`, if the form has one."""
+
         for field in form.fields:
-            if field.question_key == question_key and field.selector:
-                return field.selector
+            if field.kind != "file" and self._identity_key(field.name) == name:
+                return field
         return None
+
+    def _is_structural_field(self, field: FormField, package: ApplicationPackageSchema) -> bool:
+        """A field that belongs to a known section, never to a board question.
+
+        File inputs, identity inputs and the employment / education blocks (including
+        the ones the candidate has no entry for) are filled from structured data or not
+        at all. Matching a question's answer to one of them is how a verified start
+        date once landed in the employment block's start-month input.
+        """
+
+        if field.kind == "file":
+            return True
+        if plan_greenhouse_field(field.name, package.employment, package.education) is not None:
+            return True
+        return self._identity_key(field.name) is not None
 
     @staticmethod
     def _is_identity_field(field: FormField) -> bool:
         return GreenhouseApplicationAdapter._identity_key(field.name) is not None
 
-    @staticmethod
-    def _is_structured_history_field(field: FormField) -> bool:
-        """Employment and education blocks are known sections, not unknowns.
+    def _artifact_dir(self, package: ApplicationPackageSchema) -> Path:
+        """Where this application's documents are written: the evidence dir if one was
+        given, else the settings' artifacts dir (never a path relative to the cwd)."""
 
-        They are recorded as mapped so the report distinguishes "a section we cannot
-        fill" from "a question we do not understand" — the first is a known limit, the
-        second is a reason to stop.
+        if self._evidence_dir is not None:
+            base = Path(self._evidence_dir)
+        else:
+            configured = getattr(self.settings, "artifacts_dir", None)
+            if configured is None:
+                from sabra_domain.settings import get_settings
+
+                configured = get_settings().artifacts_dir
+            base = Path(configured)
+        return base / "applications" / package.opportunity_id
+
+    def _document_stem(self, package: ApplicationPackageSchema) -> str:
+        """`First-Last` for the uploaded file's name, from the verified name only.
+
+        Accents are stripped first ("José García" is "Jose-Garcia"), so a name is never
+        reduced to the letters left after dropping what is not ASCII.
         """
 
-        name = field.name.lower()
-        patterns = (
-            "company-name",
-            "title-",
-            "start-date",
-            "end-date",
-            "current-role",
-            "school",
-            "degree",
-            "discipline",
-            "start-month",
-            "start-year",
-            "end-month",
-            "end-year",
+        values = self._identity_values(package)
+        words: list[str] = []
+        for key in ("first_name", "last_name"):
+            for token in (values.get(key) or "").split():
+                plain = "".join(
+                    c
+                    for c in unicodedata.normalize("NFKD", token)
+                    if not unicodedata.combining(c)
+                )
+                cleaned = re.sub(r"[^A-Za-z0-9]+", "", plain)
+                if cleaned:
+                    words.append(cleaned.title() if cleaned.isupper() else cleaned)
+        return "-".join(words) or "Candidate"
+
+    @staticmethod
+    def _document_key(package: ApplicationPackageSchema) -> tuple[Any, ...]:
+        return (
+            package.opportunity_id,
+            package.applicant_name,
+            package.applicant_first_name,
+            package.applicant_last_name,
+            package.tailored_resume_markdown,
+            package.cover_letter,
         )
-        return any(pattern in name for pattern in patterns)
+
+    def prepare_documents(self, package: ApplicationPackageSchema) -> dict[str, Path]:
+        """Render the PDFs now, before any browser or page exists.
+
+        Called by the execution service ahead of opening the session, so a document that
+        cannot be produced blocks the application before the employer's site is touched.
+        Raises `SafetyStop` (UNSUPPORTED_FILE_REQUIREMENT) on failure. The result is
+        cached for `prepare`.
+        """
+
+        notes: list[str] = []
+        report: dict[str, Any] = {}
+        documents = self._prepare_documents(package, notes, report)
+        failures = [item for item in notes if item.startswith(DOCUMENT_ERROR)]
+        if failures:
+            raise SafetyStop(
+                SafetyStopKind.UNSUPPORTED_FILE_REQUIREMENT,
+                "; ".join(failures),
+                {"documents": failures},
+            )
+        self._rendered = (self._document_key(package), documents, notes, report)
+        return documents
+
+    def _documents_for(
+        self, package: ApplicationPackageSchema
+    ) -> tuple[dict[str, Path], list[str], dict[str, Any]]:
+        cached = getattr(self, "_rendered", None)
+        if cached is None or cached[0] != self._document_key(package):
+            self.prepare_documents(package)
+            cached = self._rendered
+        return cached[1], list(cached[2]), dict(cached[3])
+
+    def _prepare_documents(
+        self,
+        package: ApplicationPackageSchema,
+        skipped: list[str],
+        report: dict[str, Any],
+    ) -> dict[str, Path]:
+        """Write the owner's Markdown copies and the PDFs that will be uploaded.
+
+        The PDFs are rendered here, at submit time, from the approved package's own
+        Markdown, so the file an employer receives is bound to the approval hash by
+        construction. Markdown is never uploaded: an employer would see `#` and `**`.
+        Any failure (the render, or a file the OS will not let us write) is recorded in
+        `skipped` prefixed with `DOCUMENT_ERROR` and nothing is uploaded in its place.
+        `report` receives the sha256 of each PDF, the number of characters that had no
+        safe mapping, and the renderer version, for the attempt event.
+        """
+
+        from sabra_documents import render as renderer
+
+        stem = self._document_stem(package)
+        who = package.applicant_name or "Candidate"
+        documents: dict[str, Path] = {}
+        for key, text, md_name, pdf_name, label in (
+            (
+                "resume",
+                package.tailored_resume_markdown,
+                "tailored_resume.md",
+                f"{stem}-Resume.pdf",
+                "Resume",
+            ),
+            (
+                "cover_letter",
+                package.cover_letter,
+                "cover_letter.md",
+                f"{stem}-Cover-Letter.pdf",
+                "Cover Letter",
+            ),
+        ):
+            if not (text or "").strip():
+                if key == "resume":
+                    skipped.append("resume upload: no tailored resume is available")
+                continue
+            try:
+                base = self._artifact_dir(package)
+                base.mkdir(parents=True, exist_ok=True)
+                (base / md_name).write_text(text or "", encoding="utf-8")
+                pdf = renderer.render_resume_pdf(text or "", title=f"{who} - {label}")
+                path = base / pdf_name
+                path.write_bytes(pdf)
+                report[key] = {
+                    "file": pdf_name,
+                    "sha256": hashlib.sha256(pdf).hexdigest(),
+                    "bytes": len(pdf),
+                    "unmapped_characters": renderer.count_unmapped(text or ""),
+                }
+            except Exception as exc:  # noqa: BLE001 - reported, and nothing else is uploaded
+                skipped.append(
+                    f"{DOCUMENT_ERROR} the {label.lower()} PDF could not be produced "
+                    f"({type(exc).__name__}: {exc}); no file was uploaded in its place"
+                )
+                continue
+            documents[key] = path
+        if report:
+            report["renderer"] = renderer.renderer_version()
+        return documents
 
     def _upload_documents(
         self,
         page: FormPage,
         form: ApplicationForm,
         package: ApplicationPackageSchema,
+        documents: dict[str, Path],
         filled: dict[str, str],
         skipped: list[str],
     ) -> None:
-        """Upload the tailored résumé and cover letter when the form accepts files.
+        """Upload the rendered PDFs when the form accepts files."""
 
-        Documents are written to the configured artifact directory first, so the file
-        that was uploaded is retained and auditable alongside the submission evidence.
-        """
-
-        from pathlib import Path
-
-        base = Path(
-            getattr(self._evidence_dir, "__fspath__", lambda: None)()
-            if self._evidence_dir is not None
-            else (getattr(self.settings, "artifacts_dir", None) or Path("var/artifacts"))
-        )
-        base = Path(base) / "applications" / package.opportunity_id
-        base.mkdir(parents=True, exist_ok=True)
-
-        resume_path = base / "tailored_resume.md"
-        resume_path.write_text(package.tailored_resume_markdown or "", encoding="utf-8")
-        selector = self._existing_selector(page, IDENTITY_SELECTORS["resume"])
-        if selector:
-            page.set_input_files(selector, str(resume_path))
-            filled["resume"] = str(resume_path)
-        else:
-            skipped.append("resume upload not available on this form")
-
-        if package.cover_letter:
-            cover_path = base / "cover_letter.md"
-            cover_path.write_text(package.cover_letter, encoding="utf-8")
-            selector = self._existing_selector(page, IDENTITY_SELECTORS["cover_letter"])
+        for key, label in (("resume", "resume"), ("cover_letter", "cover letter")):
+            path = documents.get(key)
+            if path is None:
+                continue
+            selector = self._existing_selector(page, IDENTITY_SELECTORS[key])
             if selector:
-                page.set_input_files(selector, str(cover_path))
-                filled["cover_letter"] = str(cover_path)
+                page.set_input_files(selector, str(path))
+                filled[key] = str(path)
             else:
-                skipped.append("cover letter upload not available on this form")
+                skipped.append(f"{label} upload not available on this form")
 
     def _capture(self, page: FormPage, label: str) -> str | None:
-        from pathlib import Path
-
         base = Path(
             getattr(self.settings, "automation_screenshot_dir", None) or Path("var/automation")
         )

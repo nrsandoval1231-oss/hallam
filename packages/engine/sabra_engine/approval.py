@@ -32,8 +32,10 @@ from sabra_domain.errors import (
     TruthBoundaryViolation,
     ValidationFailure,
 )
+from sabra_domain.identity import content_hash
 from sabra_domain.schemas import ApplicationPackageSchema, ApprovalRecord
 
+from .attempt_events import submission_evidence, unresolved_unconfirmed
 from .context import EngineContext
 
 
@@ -240,6 +242,10 @@ class ApprovalService:
         Refuses when: the package is not truth-clean; the caller's expected hash does
         not match the stored content; or unresolved questions exist and the approver
         has not explicitly acknowledged them.
+
+        `acknowledge_unresolved=True` approves an INCOMPLETE package. It exists for tests
+        and scripted setups only: neither the API nor the CLI passes it, and using it
+        records a WARNING_RECORDED event.
         """
 
         with self.ctx.repos() as repos:
@@ -270,6 +276,12 @@ class ApprovalService:
             if application is None:
                 raise ValidationFailure(
                     "no application record exists for this package; prepare the package first"
+                )
+            if application.package_id != package_row.id:
+                raise ValidationFailure(
+                    f"package {package_id} is not the current package of application "
+                    f"{application.id} (current package: {application.package_id}); "
+                    "only the current package can be approved"
                 )
             if application.status in {
                 ApplicationStatus.APPLIED.value,
@@ -305,6 +317,21 @@ class ApprovalService:
                 repos.opportunities.set_status(package_row.opportunity_id, JobStatus.APPROVED)
 
             payload = record.model_dump(mode="json")
+            if acknowledge_unresolved and unresolved:
+                # The batch approval used by the dashboard never passes this flag. It
+                # exists for tests and scripted setups, so using it leaves a trail.
+                repos.events.append(
+                    EntityType.APPLICATION,
+                    application.id,
+                    EventType.WARNING_RECORDED,
+                    {
+                        "warning": "approved_with_unresolved_questions",
+                        "package_id": package_row.id,
+                        "content_hash": package_row.content_hash,
+                        "approved_by": approved_by,
+                        "unresolved_questions": unresolved,
+                    },
+                )
             repos.events.append(
                 EntityType.APPLICATION, application.id, EventType.PACKAGE_APPROVED, payload
             )
@@ -335,27 +362,52 @@ class ApprovalService:
         with self.ctx.repos() as repos:
             package_row = repos.packages.get(package_id)
             decided_at = datetime.now(UTC)
+            application = repos.applications.for_opportunity(package_row.opportunity_id)
+            # A BLOCKED or FAILED application is the owner giving up on a role that was
+            # approved. That is allowed only when nothing can have reached the employer.
+            giving_up = application is not None and application.status in {
+                ApplicationStatus.BLOCKED.value,
+                ApplicationStatus.FAILED.value,
+            }
+            if giving_up:
+                evidence = submission_evidence(
+                    application,
+                    repos.events.for_entity(EntityType.APPLICATION, application.id),
+                )
+                if evidence is not None:
+                    raise ValidationFailure(
+                        f"{evidence}; this application was not withdrawn"
+                    )
             repos.packages.set_status(package_row.id, PackageStatus.SUPERSEDED)
 
             opportunity = repos.opportunities.get(package_row.opportunity_id)
             repos.opportunities.set_shortlist(
                 opportunity.id, False, reason=reason or "passed by the candidate"
             )
-            repos.opportunities.set_status(
-                opportunity.id,
-                JobStatus.REJECTED,
-                rejection={
-                    "reasons": ["DECLINED_BY_CANDIDATE"],
-                    "detail": {"reason": reason or ""},
-                },
-            )
+            rejection = {
+                "reasons": ["DECLINED_BY_CANDIDATE"],
+                "detail": {"reason": reason or ""},
+            }
+            if giving_up:
+                # APPROVED and FAILED both reach WITHDRAWN through the job graph. An
+                # EXPIRED posting is already terminal and stays as it is.
+                if JobStatus(opportunity.status) is not JobStatus.EXPIRED:
+                    repos.opportunities.set_status(
+                        opportunity.id, JobStatus.WITHDRAWN, rejection=rejection
+                    )
+            else:
+                repos.opportunities.set_status(
+                    opportunity.id, JobStatus.REJECTED, rejection=rejection
+                )
 
-            application = repos.applications.for_opportunity(package_row.opportunity_id)
             if application is not None and application.status not in {
                 ApplicationStatus.APPLIED.value,
                 ApplicationStatus.WITHDRAWN.value,
             }:
-                if application.status != ApplicationStatus.AWAITING_APPROVAL.value:
+                if (
+                    application.status != ApplicationStatus.AWAITING_APPROVAL.value
+                    and not giving_up
+                ):
                     repos.applications.set_status(
                         application.id, ApplicationStatus.AWAITING_APPROVAL
                     )
@@ -390,44 +442,82 @@ class ApprovalService:
     # -- authorisation check used by the execution path ------------------
 
     def assert_submission_authorised(
-        self, application_id: str
+        self, application_id: str, *, repos: Any = None
     ) -> tuple[Any, ApplicationPackageSchema]:
         """Verify a bound approval for the current package content.
 
         Called immediately before any external submission. Raises rather than
         returning a flag so there is no way to proceed by ignoring a boolean.
+
+        Pass `repos` to run the check inside a caller's transaction; the execution
+        service does, so the check and the claim of the application are one unit.
+
+        Authorised statuses: APPROVED; and BLOCKED or FAILED only when nothing was
+        submitted. APPLYING is never re-authorised: a submission in progress, or one
+        whose click is unconfirmed, is resolved by a reported outcome, not by trying
+        again.
         """
 
-        with self.ctx.read_repos() as repos:
-            application = repos.applications.get(application_id)
-            if application.status not in {
-                ApplicationStatus.APPROVED.value,
-                ApplicationStatus.APPLYING.value,
-                ApplicationStatus.FAILED.value,
-                ApplicationStatus.BLOCKED.value,
-            }:
+        if repos is not None:
+            return self._authorise(repos, application_id)
+        with self.ctx.read_repos() as read:
+            return self._authorise(read, application_id)
+
+    @staticmethod
+    def _authorise(repos: Any, application_id: str) -> tuple[Any, ApplicationPackageSchema]:
+        application = repos.applications.get(application_id)
+        status = application.status
+        if status == ApplicationStatus.APPLYING.value:
+            raise ApprovalRequired(
+                f"application {application_id} is APPLYING: a submission is in progress or "
+                "is waiting for its outcome to be reported, and it is never re-authorised"
+            )
+        if status not in {
+            ApplicationStatus.APPROVED.value,
+            ApplicationStatus.FAILED.value,
+            ApplicationStatus.BLOCKED.value,
+        }:
+            raise ApprovalRequired(
+                f"application {application_id} is {status}; "
+                "an external submission requires an approved application"
+            )
+        if status in {ApplicationStatus.FAILED.value, ApplicationStatus.BLOCKED.value}:
+            events = list(repos.events.for_entity(EntityType.APPLICATION, application_id))
+            submitted = application.submission_time is not None or any(
+                e.event_type == EventType.APPLICATION_SUBMITTED.value for e in events
+            )
+            # Order matters: an UNCONFIRMED click in the latest attempt that no person
+            # has reported on since may be a real submission. An old one that a person
+            # resolved (or that belongs to an earlier attempt) does not count.
+            if submitted or unresolved_unconfirmed(events):
                 raise ApprovalRequired(
-                    f"application {application_id} is {application.status}; "
-                    "an external submission requires an approved application"
+                    f"application {application_id} is {status} but a submission was recorded "
+                    "or may have reached the employer; it is not re-authorised"
                 )
-            package_row = repos.packages.get(application.package_id)
-            schema = repos.packages.schema(package_row)
-            current_hash = package_row.content_hash
-            if not application.approved_package_hash:
-                raise ApprovalRequired(
-                    "no approval is bound to this application; refusing to submit"
-                )
-            if application.approved_package_hash != current_hash:
-                raise ApprovalScopeMismatch(
-                    "the package content has changed since approval "
-                    f"(approved {application.approved_package_hash}, now {current_hash}); "
-                    "re-approval is required"
-                )
-            if not package_row.truth_clean:
-                raise TruthBoundaryViolation(
-                    "the approved package is not truth-clean; refusing to submit"
-                )
-            return application, schema
+        package_row = repos.packages.get(application.package_id)
+        schema = repos.packages.schema(package_row)
+        stored_hash = package_row.content_hash
+        if not application.approved_package_hash:
+            raise ApprovalRequired("no approval is bound to this application; refusing to submit")
+        if application.approved_package_hash != stored_hash:
+            raise ApprovalScopeMismatch(
+                "the package content has changed since approval "
+                f"(approved {application.approved_package_hash}, now {stored_hash}); "
+                "re-approval is required"
+            )
+        # The column is not trusted on its own: the hash is recomputed from the stored
+        # payload, so a payload edited without touching the column is refused too.
+        recomputed = content_hash(schema.semantic_payload())
+        if recomputed != stored_hash:
+            raise ApprovalScopeMismatch(
+                "the stored package payload does not match its recorded content hash "
+                f"(recorded {stored_hash}, recomputed {recomputed}); re-approval is required"
+            )
+        if not package_row.truth_clean:
+            raise TruthBoundaryViolation(
+                "the approved package is not truth-clean; refusing to submit"
+            )
+        return application, schema
 
     def approval_status(self, application_id: str) -> dict[str, Any]:
         with self.ctx.read_repos() as repos:

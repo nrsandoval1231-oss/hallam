@@ -39,6 +39,18 @@ and package preparation. `make run-api` listens on http://127.0.0.1:8787.
 - Sensitive answers (salary, background check, and the same class of question)
   fill only after the owner records and verifies them. Until then the package
   stays incomplete.
+- Every verified answer in answer memory (not only the default seven questions) is
+  carried on each package and matched to form questions by key or by exact wording.
+  A drop-down is set only by an exactly equal option; "Yes" never selects "Yes -
+  I will require sponsorship". An unmatched required question blocks and is named.
+- The uploaded résumé (and cover letter) is a PDF rendered from the approved
+  Markdown at submit time (`reportlab`, in the `automation` extra), not Markdown.
+- A BLOCKED or FAILED application that never reached the employer can be rebuilt
+  with **Refresh package** (a revocation, so it must be approved again). One with a
+  recorded submission or an unreported unconfirmed click cannot.
+- Before a real submission the provider's `verify` is called; a closed posting expires
+  the job and blocks the application without opening a browser. A failed check never
+  expires a job.
 
 ## Quick start
 
@@ -82,9 +94,13 @@ tests/           test suite and committed fixtures
 - **Approval before submission.** An approval carries the content hash of the package
   a human read. The execution path recomputes it and refuses on any difference.
 - **Stop, don't guess.** A CAPTCHA or a failed challenge probe is not submitted
-  and not solved: the pre-filled form is handed to a person in a headed browser.
-  Unknown required fields block that application and name the field. Dry-run is
-  the default: it never opens an employer form, never types or uploads, and never submits.
+  and not solved: the pre-filled form is handed to a person in a headed browser, and
+  the application waits (APPLYING) until the person reports an outcome or the page
+  confirms. An abandoned or timed-out handoff is BLOCKED and retryable, never
+  WITHDRAWN. Unknown required fields block that application and name the field.
+  A submission is confirmed only by the employer's confirmation page, never by
+  words in the posting. Dry-run is the default: it never opens an employer form,
+  never types or uploads, and never submits.
 - **Code owns truth.** IDs, deduplication, state transitions and authorization are
   deterministic; models assist judgement only.
 

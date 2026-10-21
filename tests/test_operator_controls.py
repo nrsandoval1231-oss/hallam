@@ -12,8 +12,9 @@ import pytest
 from conftest_app import build_job
 from html_form import HtmlFormPage
 from sabra_automation.base import ApplicationForm, FormField
+from sabra_automation.confirmation import PageSnapshot, detect_confirmation
 from sabra_automation.greenhouse_adapter import GreenhouseApplicationAdapter
-from sabra_automation.handoff import HandoffResult, confirmation_in
+from sabra_automation.handoff import HandoffResult
 from sabra_automation.lever_adapter import LeverApplicationAdapter
 from sabra_domain.enums import (
     ApplicationStatus,
@@ -119,24 +120,83 @@ def test_greenhouse_fixture_fills_history_resume_and_verified_answers(tmp_path) 
     assert "non-compete" in named.lower()
 
 
-def test_lever_fixture_fills_recognised_fields_and_blocks_an_unknown_question(tmp_path) -> None:
+def _lever_package(fixture_resume_text: str, *, wording: str | None) -> ApplicationPackageSchema:
+    """A package built from owner memory: the salary answer recorded (and verified) with
+    the Lever form's own wording, or with none."""
+
+    from conftest_app import build_profile
+    from sabra_documents.master_resume import parse_master_resume
+    from sabra_documents.package import PackageFactory
+
+    profile = build_profile("cand_lever")
+    profile.answer_memory["salary_expectations"] = AnswerRecord(
+        question_key="salary_expectations",
+        question_text=wording,
+        value="$130,000",
+        level=TruthLevel.VERIFIED,
+        sensitive=True,
+        evidence=["owner_verified"],
+    )
+    return (
+        PackageFactory()
+        .build(
+            profile=profile,
+            master=parse_master_resume(fixture_resume_text),
+            job=build_job(source="LEVER", source_url="https://jobs.lever.co/example/1"),
+            master_resume_id="resume_1",
+            job_id="job_1",
+            opportunity_id="opp_1",
+            questions=DocumentService._default_questions(),
+        )
+        .schema
+    )
+
+
+def _lever_adapter(tmp_path):
     factory, pages = _open("mock_lever_form.html")
     adapter = LeverApplicationAdapter(
         dry_run=True, page_factory=factory, settings=type("S", (), {"artifacts_dir": tmp_path})()
     )
+    return adapter, pages
+
+
+def test_lever_fixture_fills_recognised_fields_and_blocks_an_unknown_question(
+    tmp_path, fixture_resume_text
+) -> None:
+    adapter, pages = _lever_adapter(tmp_path)
     job = build_job(source="LEVER", source_url="https://jobs.lever.co/example/1")
     form = adapter.inspect(job)
-    prepared = adapter.prepare(_package(), form)
+    # The owner recorded the salary answer with this form's own wording; it rides on the
+    # package next to the default-wording one and is what fills the free-text field.
+    package = _lever_package(fixture_resume_text, wording="What is your desired salary?")
+    prepared = adapter.prepare(package, form)
     assert prepared.filled["name"] == "JORDAN A. RIVERA"
     assert prepared.filled["email"] == "jordan.rivera@example.test"
     assert prepared.filled["org"] == "Meridian Aesthetics"
     assert prepared.filled["salary_expectations"] == "$130,000"
+    assert prepared.filled["cards-q2"] == "$130,000"
     assert prepared.files.get("resume")
     assert all(page.clicked == [] for page in pages)
-    report = adapter.validate(_package(), form)
+    report = adapter.validate(package, form)
     assert not report.ok
     named = " ".join(report.unanswered_questions + report.unknown_required_fields)
     assert "certification" in named.lower()
+    assert "desired salary" not in named.lower()
+
+
+def test_lever_salary_recorded_without_the_forms_wording_is_refused_into_free_text(
+    tmp_path, fixture_resume_text
+) -> None:
+    adapter, _pages = _lever_adapter(tmp_path)
+    form = adapter.inspect(build_job(source="LEVER", source_url="https://jobs.lever.co/example/1"))
+    package = _lever_package(fixture_resume_text, wording=None)
+
+    report = adapter.validate(package, form)
+    refused = [item for item in report.unknown_required_fields if "desired salary" in item.lower()]
+    assert refused and "exact question wording" in refused[0]
+    prepared = adapter.prepare(package, form)
+    assert "cards-q2" not in prepared.filled
+    assert any("desired salary" in item.lower() for item in prepared.unfilled_required)
 
 
 def test_captcha_fixture_is_not_submitted_and_a_failed_probe_is_a_challenge(prepared, tmp_path) -> None:
@@ -200,8 +260,35 @@ def test_captcha_fixture_is_not_submitted_and_a_failed_probe_is_a_challenge(prep
 
 
 def test_confirmation_page_counts_as_submitted_without_the_adapter_clicking() -> None:
-    assert confirmation_in("Thank you. Your application has been submitted.")
-    assert not confirmation_in("Please solve the puzzle")
+    """The person submitted; the page left the form for the employer's confirmation URL."""
+
+    class Page:
+        def __init__(self, url: str, body: str) -> None:
+            self._url, self._body = url, body
+
+        def current_url(self) -> str:
+            return self._url
+
+        def body_text(self) -> str:
+            return self._body
+
+        def evaluate(self, _script: str) -> int:
+            return 0  # no submit control and no form on the page any more
+
+    before = PageSnapshot(url_key="https://job-boards.greenhouse.io/acme/jobs/1", form_present=True)
+    confirmed = detect_confirmation(
+        Page("https://job-boards.greenhouse.io/acme/jobs/1/confirmation?x=1", "Thank you."),
+        "greenhouse",
+        before,
+    )
+    assert confirmed.confirmed
+    # A solve-the-puzzle page that happens to be a different URL is not a confirmation.
+    other = detect_confirmation(
+        Page("https://job-boards.greenhouse.io/acme/jobs/1/verify", "Please solve the puzzle"),
+        "greenhouse",
+        before,
+    )
+    assert not other.confirmed
 
 
 def test_unknown_required_field_blocks_with_a_named_reason() -> None:

@@ -38,6 +38,10 @@ class ContactInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     full_name: str | None = None
+    # Optional structured name. When present these are typed as the first and last name;
+    # otherwise the full name is split (a middle initial is dropped, not made a surname).
+    first_name: str | None = None
+    last_name: str | None = None
     email: str | None = None
     phone: str | None = None
     city: str | None = None
@@ -585,6 +589,8 @@ class ApplicationPackageSchema(BaseModel):
     # Verified identity and history copied onto the package so an approval hash
     # covers every value the adapter is allowed to type. Empty unless verified.
     applicant_name: str | None = None
+    applicant_first_name: str | None = None
+    applicant_last_name: str | None = None
     applicant_email: str | None = None
     applicant_phone: str | None = None
     applicant_city: str | None = None
@@ -632,7 +638,22 @@ class ApplicationPackageSchema(BaseModel):
             "recruiter_message": self.recruiter_message,
             "hiring_manager_message": self.hiring_manager_message,
             "interview_preparation": self.interview_preparation,
+            **self._structured_name_payload(),
         }
+
+    def _structured_name_payload(self) -> dict[str, Any]:
+        """The structured name, only when set.
+
+        Left out when empty so a package built before these fields existed keeps the
+        content hash its approval is bound to.
+        """
+
+        extra: dict[str, Any] = {}
+        if self.applicant_first_name:
+            extra["applicant_first_name"] = self.applicant_first_name
+        if self.applicant_last_name:
+            extra["applicant_last_name"] = self.applicant_last_name
+        return extra
 
 
 class ApprovalRecord(BaseModel):

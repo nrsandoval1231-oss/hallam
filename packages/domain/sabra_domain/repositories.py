@@ -11,7 +11,7 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from . import models
@@ -807,6 +807,55 @@ class ApplicationRepository:
             setattr(row, key, value)
         self.session.flush()
         return row
+
+    def claim_status(
+        self,
+        application_id: str,
+        *,
+        expected: ApplicationStatus,
+        target: ApplicationStatus,
+    ) -> bool:
+        """Compare-and-set a status move, atomically, through the transition graph.
+
+        Returns False when the row was not in `expected` any more, which means another
+        writer got there first. The graph check runs first, so an edge that does not
+        exist is refused here too. A plain read-then-`set_status` cannot give this
+        guarantee, because two callers can both read `expected` before either writes.
+        """
+
+        assert_application_transition(expected, target)
+        result = self.session.execute(
+            update(models.ApplicationRow)
+            .where(
+                models.ApplicationRow.id == application_id,
+                models.ApplicationRow.status == str(expected),
+            )
+            .values(status=str(target))
+            .execution_options(synchronize_session=False)
+        )
+        self.session.expire_all()
+        return bool(result.rowcount)
+
+    def confirm_status(self, application_id: str, *, expected: ApplicationStatus) -> bool:
+        """Check, atomically, that the row is still `expected`.
+
+        A no-op compare-and-set: it changes nothing, and its transaction commits when
+        the caller's scope exits, before the click. It proves the row was `expected` at
+        that instant; it does not hold a lock through the click. The remaining gap is
+        the single call between this check and the browser's click.
+        """
+
+        result = self.session.execute(
+            update(models.ApplicationRow)
+            .where(
+                models.ApplicationRow.id == application_id,
+                models.ApplicationRow.status == str(expected),
+            )
+            .values(status=str(expected))
+            .execution_options(synchronize_session=False)
+        )
+        self.session.expire_all()
+        return bool(result.rowcount)
 
     def list_for_candidate(self, candidate_id: str) -> list[models.ApplicationRow]:
         stmt = (

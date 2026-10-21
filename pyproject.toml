@@ -21,6 +21,7 @@ api = [
 ]
 automation = [
     "playwright>=1.47",
+    "reportlab>=4.2",
 ]
 dev = [
     "pytest>=8.3",

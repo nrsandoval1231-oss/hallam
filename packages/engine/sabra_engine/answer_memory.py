@@ -19,6 +19,22 @@ from .candidate_intake import missing_candidate_message
 from .context import EngineContext
 
 
+def shown_value(value: Any) -> str:
+    """A stored value as the answers page displays it.
+
+    The page renders JSON values with JavaScript's `String()`, so a YAML boolean is
+    `true` / `false` (not Python's `True`) and a whole number has no `.0`.
+    """
+
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 class AnswerMemoryService:
     def __init__(self, ctx: EngineContext) -> None:
         self.ctx = ctx
@@ -94,8 +110,19 @@ class AnswerMemoryService:
                 "verified": False,
             }
 
-    def verify(self, key: str, *, candidate_id: str | None = None) -> dict[str, Any]:
-        """Authorize a previously recorded answer for use on application forms."""
+    def verify(
+        self,
+        key: str,
+        *,
+        candidate_id: str | None = None,
+        expected_value: str | None = None,
+    ) -> dict[str, Any]:
+        """Authorize a previously recorded answer for use on application forms.
+
+        When `expected_value` is given (the dashboard sends the value the owner saw) it
+        must equal the stored value. A mismatch verifies nothing: the answer changed
+        since the owner looked, and what they approved is not what would be typed.
+        """
 
         cleaned_key = key.strip()
         with self.ctx.repos() as repos:
@@ -105,6 +132,11 @@ class AnswerMemoryService:
             if record is None or record.value in (None, ""):
                 raise ValidationFailure(
                     f"no recorded answer exists for {cleaned_key!r}; record it before verifying"
+                )
+            if expected_value is not None and shown_value(record.value) != expected_value.strip():
+                raise ValidationFailure(
+                    f"the stored answer for {cleaned_key!r} is not the value you were shown; "
+                    "nothing was verified. Reload the page and verify the current value"
                 )
             evidence = list(record.evidence)
             if "owner_verified" not in evidence:

@@ -174,13 +174,12 @@ def test_private_dir_database_is_under_var(tmp_path, monkeypatch) -> None:
 def test_missing_candidate_names_the_database(isolate_database, monkeypatch, capsys) -> None:
     import sys
 
-    import typer
     from sabra_engine.cli import main
 
     monkeypatch.setattr(sys, "argv", ["sabra", "answers", "list"])
-    with pytest.raises(typer.Exit) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         main()
-    assert excinfo.value.exit_code == 1
+    assert excinfo.value.code == 1
     captured = capsys.readouterr()
     assert "Traceback" not in captured.out
     assert "Traceback" not in captured.err

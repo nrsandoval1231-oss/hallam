@@ -22,7 +22,12 @@ from sabra_domain.schemas import (
 )
 from sabra_domain.truth import Evidence, TruthLedger
 
-from .answers import AnswerResolver, Resolution, unresolved_questions
+from .answers import (
+    AnswerResolver,
+    Resolution,
+    unresolved_questions,
+    verified_memory_answers,
+)
 from .master_resume import ResumeDocument
 from .tailor import ResumeTailor, TailoredRésumé, verify_tailored_truth
 
@@ -102,6 +107,8 @@ def _verified_identity(profile: CandidateProfile) -> dict[str, str | None]:
         country = "United States"
     return {
         "name": take("full_name"),
+        "first_name": take("first_name"),
+        "last_name": take("last_name"),
         "email": take("email"),
         "phone": take("phone"),
         "city": take("city"),
@@ -146,6 +153,8 @@ def _package_contact(profile: CandidateProfile) -> dict[str, str | None]:
     identity = _verified_identity(profile)
     contact: dict[str, str | None] = {
         "name": identity.get("name"),
+        "first_name": identity.get("first_name"),
+        "last_name": identity.get("last_name"),
         "email": identity.get("email"),
         "phone": identity.get("phone"),
         "city": identity.get("city"),
@@ -226,6 +235,14 @@ class PackageFactory:
             cover_letter = self._cover_letter(profile, job, tailored, ledger)
 
         answers = [r.answer for r in resolutions]
+        # The whole of the owner's verified memory rides on the package, so a form's
+        # board-specific questions can be answered. Unverified entries never do.
+        answers.extend(
+            verified_memory_answers(
+                profile,
+                resolved={r.answer.question_key: r.answer.question_text for r in resolutions},
+            )
+        )
         gaps = list(assessment.gaps) if assessment else []
         warnings = list(tailored.ledger.unresolved)
         if violations:
@@ -248,6 +265,8 @@ class PackageFactory:
             qualification_gaps=gaps,
             answers=answers,
             applicant_name=identity.get("name"),
+            applicant_first_name=identity.get("first_name"),
+            applicant_last_name=identity.get("last_name"),
             applicant_email=identity.get("email"),
             applicant_phone=identity.get("phone"),
             applicant_city=identity.get("city"),
@@ -426,7 +445,7 @@ class PackageFactory:
         return (
             f"Regarding the {title} opening: "
             + (body + " " if body else "")
-            + "I'd welcome a conversation about the role and what success looks like in the first year."
+            + "I'd welcome a conversation about the role and what success looks like in the first months."
         )
 
     def _interview_prep(

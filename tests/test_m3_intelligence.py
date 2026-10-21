@@ -677,3 +677,79 @@ def test_rescore_drops_a_newly_rejected_opportunity_from_the_shortlist(
         opportunity = session.execute(select(models.Opportunity)).scalars().one()
         assert opportunity.status == JobStatus.REJECTED.value
         assert opportunity.shortlisted is False
+
+
+# ---------------------------------------------------------------------------
+# A posting that lists no requirements must not look better than one that was assessed
+# ---------------------------------------------------------------------------
+
+
+def _experienced_candidate() -> CandidateProfile:
+    return CandidateProfile(
+        candidate_id="cand_test",
+        employment=[
+            EmploymentEntry(
+                employer="Acme",
+                title="Territory Manager",
+                accomplishments=["Sold medical device and injectables capital equipment"],
+            )
+        ],
+        skills=[SkillEntry(name="Medical device sales"), SkillEntry(name="Injectables")],
+    )
+
+
+def test_a_posting_with_no_requirements_is_not_treated_as_a_pass() -> None:
+    from sabra_scoring.fit import (
+        NEUTRAL_QUALIFICATION,
+        NO_REQUIREMENTS_CONFIDENCE_FACTOR,
+        NO_REQUIREMENTS_RISK,
+    )
+
+    candidate = _experienced_candidate()
+    matched_job = make_job(
+        requirements="- 3+ years of medical device sales experience\n- Experience with injectables",
+        preferred_qualifications=None,
+    )
+    bare_job = make_job(requirements=None, preferred_qualifications=None)
+
+    matched = assess(matched_job, candidate=candidate)
+    bare = assess(bare_job, candidate=candidate)
+
+    components = bare.features["components"]
+    assert components["qualification_score"]["available"] is False
+    assert bare.qualification_score == 0.0, "the stored component stays honestly unavailable"
+    assert NO_REQUIREMENTS_RISK in bare.risks
+    assert NO_REQUIREMENTS_RISK not in matched.risks
+    assert bare.confidence < matched.confidence
+    # The confidence cut is material, not cosmetic.
+    unscaled = bare.features["available_weight"] * bare.features["posting_completeness"]
+    assert bare.confidence == pytest.approx(unscaled * NO_REQUIREMENTS_CONFIDENCE_FACTOR, abs=1e-3)
+
+    # The qualification weight stays in the composite at a neutral value rather than
+    # being renormalised away, so the thin posting cannot outscore the assessed one on
+    # the strength of its other components alone.
+    others = [
+        (FitWeights().career, bare.career_score, components["career_score"]["available"]),
+        (FitWeights().compensation, bare.compensation_score, components["compensation_score"]["available"]),
+        (FitWeights().location, bare.location_score, components["location_score"]["available"]),
+        (FitWeights().industry, bare.industry_score, components["industry_score"]["available"]),
+        (FitWeights().trajectory, bare.trajectory_score, components["trajectory_score"]["available"]),
+    ]
+    weighted = sum(w * s for w, s, ok in others if ok) + FitWeights().qualification * NEUTRAL_QUALIFICATION
+    total = sum(w for w, _s, ok in others if ok) + FitWeights().qualification
+    assert bare.fit_score == pytest.approx(weighted / total, abs=1e-3)
+    renormalised = sum(w * s for w, s, ok in others if ok) / sum(w for w, _s, ok in others if ok)
+    assert renormalised > NEUTRAL_QUALIFICATION
+    assert bare.fit_score < renormalised
+    assert bare.fit_score < matched.fit_score
+
+
+def test_confidence_does_not_fall_for_other_missing_qualification_evidence() -> None:
+    """The cut is only for a posting with nothing to assess, not a candidate with no data."""
+
+    job = make_job()
+    empty_candidate = assess(job, candidate=CandidateProfile(candidate_id="c"))
+    assert "qualification" in " ".join(empty_candidate.gaps)
+    from sabra_scoring.fit import NO_REQUIREMENTS_RISK
+
+    assert NO_REQUIREMENTS_RISK not in empty_candidate.risks

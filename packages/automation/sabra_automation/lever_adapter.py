@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from sabra_documents.answers import classify_question
-from sabra_domain.enums import SafetyStopKind, SourceKind, SubmissionMethod
+from sabra_domain.enums import SafetyStopKind, SourceKind
 from sabra_domain.errors import SafetyStop
 from sabra_domain.identity import sha256_text
 from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
 
+from .answer_match import is_typable, option_problem, write_value
 from .base import (
     ApplicationForm,
     FormField,
@@ -29,7 +30,7 @@ from .base import (
 from .greenhouse_adapter import (
     ENUMERATE_FIELDS_JS,
     GreenhouseApplicationAdapter,
-    _matching_option,
+    describe_field,
 )
 from .playwright_driver import (
     CAPTCHA_SELECTORS,
@@ -89,109 +90,112 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         return "lever.co" in url
 
     def inspect(self, job: CanonicalJob | Any) -> ApplicationForm:
-        url = self._application_url(job)
-        page, session = self._open(url)
+        url = self.application_url(job)
+        with self._page_for(url) as page:
+            return self._inspect_lever_page(page, url)
+
+    def _inspect_lever_page(self, page: FormPage, url: str) -> ApplicationForm:
+        title = page.title()
+        body = page.body_text()
+        if looks_like_bot_wall(title, body):
+            raise SafetyStop(
+                SafetyStopKind.CAPTCHA,
+                f"the posting is behind a bot-protection interstitial ({title!r}); "
+                "a human must open and complete this application",
+                {"url": url, "title": title},
+            )
+        if looks_like_login_wall(body):
+            raise SafetyStop(
+                SafetyStopKind.IDENTITY_VERIFICATION,
+                "the application requires signing in or identity verification",
+                {"url": url},
+            )
+        raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
+        fields = [self._to_field(entry) for entry in raw_fields]
+        captcha_script = (
+            "() => { try { return "
+            f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
+            "; } catch (e) { return true; } }"
+        )
+        detection_failed = False
         try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"the posting is behind a bot-protection interstitial ({title!r}); "
-                    "a human must open and complete this application",
-                    {"url": url, "title": title},
-                )
-            if looks_like_login_wall(body):
-                raise SafetyStop(
-                    SafetyStopKind.IDENTITY_VERIFICATION,
-                    "the application requires signing in or identity verification",
-                    {"url": url},
-                )
-            raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
-            fields = [self._to_field(entry) for entry in raw_fields]
-            captcha_script = (
-                "() => { try { return "
-                f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
-                "; } catch (e) { return true; } }"
+            captcha_present = bool(page.evaluate(captcha_script))
+        except Exception:  # noqa: BLE001
+            captcha_present = True
+            detection_failed = True
+        submit_selector = self._find_submit_selector(page, fields)
+        if not _looks_like_lever_form(title, fields, submit_selector):
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "the page could not be confirmed as a Lever application form "
+                f"(title {title!r}, {len(fields)} field(s))",
+                {"url": page.current_url() or url, "title": title},
             )
-            detection_failed = False
-            try:
-                captcha_present = bool(page.evaluate(captcha_script))
-            except Exception:  # noqa: BLE001
-                captcha_present = True
-                detection_failed = True
-            submit_selector = self._find_submit_selector(page, fields)
-            if not _looks_like_lever_form(title, fields, submit_selector):
-                raise SafetyStop(
-                    SafetyStopKind.MATERIAL_AMBIGUITY,
-                    "the page could not be confirmed as a Lever application form "
-                    f"(title {title!r}, {len(fields)} field(s))",
-                    {"url": page.current_url() or url, "title": title},
-                )
-            self._last_page = page
-            return ApplicationForm(
-                url=page.current_url() or url,
-                fields=fields,
-                has_captcha=captcha_present,
-                challenge_detection_failed=detection_failed,
-                has_file_upload=any(f.kind == "file" for f in fields),
-                submit_selector=submit_selector,
-                page_hash=sha256_text(title + "|" + str(len(fields))),
-                title=title,
-                inspected_at=datetime.now(UTC),
-            )
-        finally:
-            if session is not None:
-                self._close(session)
-                self._last_page = None
+        return ApplicationForm(
+            url=page.current_url() or url,
+            fields=fields,
+            has_captcha=captcha_present,
+            challenge_detection_failed=detection_failed,
+            has_file_upload=any(f.kind == "file" for f in fields),
+            submit_selector=submit_selector,
+            page_hash=sha256_text(title + "|" + str(len(fields))),
+            title=title,
+            inspected_at=datetime.now(UTC),
+        )
 
     def apply_to_page(
         self,
         page: FormPage,
         package: ApplicationPackageSchema,
         form: ApplicationForm,
+        *,
+        documents: dict[str, Path] | None = None,
     ) -> tuple[dict[str, str], list[str]]:
         filled: dict[str, str] = {}
         skipped: list[str] = []
+        if documents is None:
+            documents = self._prepare_documents(package, skipped, {})
         values = _lever_values(package)
         for name, value in values.items():
             if not value:
                 continue
+            field = next((f for f in form.fields if _lever_field_key(f) == name), None)
             selector = self._existing_selector(page, LEVER_IDENTITY.get(name, ()))
+            if selector is None and field is not None:
+                selector = field.selector
             if selector is None:
                 skipped.append(name)
                 continue
-            page.fill(selector, value)
+            target = field or FormField(name=name, kind="text")
+            if not write_value(page, target, selector, value):
+                skipped.append(name)
+                continue
             filled[name] = value
+            if field is not None:
+                filled[field.name] = value
 
-        for answer in package.answers:
-            if answer.requires_user_input or not answer.answer:
-                continue
-            selector = self._question_selector(form, answer.question_key)
-            if selector is None:
-                skipped.append(f"question:{answer.question_key}")
-                continue
-            page.fill(selector, str(answer.answer))
-            filled[answer.question_key] = str(answer.answer)
+        self._fill_answers(page, package, form, filled, skipped)
 
         for field in form.fields:
-            if field.name in filled or (field.question_key and field.question_key in filled):
-                continue
-            bridged = self._bridged_answer(package, field)
-            if bridged is None or not field.selector or not bridged.answer:
-                continue
-            if field.kind == "select":
-                page.select_option(field.selector, _matching_option(field.options, bridged.answer) or bridged.answer)
-            else:
-                page.fill(field.selector, bridged.answer)
-            filled[field.name] = bridged.answer
-
-        for field in form.fields:
-            if field.required and field.kind != "file" and field.name not in filled:
+            if (
+                field.required
+                and field.kind != "file"
+                and field.name not in filled
+                and field.name not in skipped
+            ):
                 skipped.append(field.name)
 
-        self._upload_documents(page, form, package, filled, skipped)
+        self._upload_documents(page, form, package, documents, filled, skipped)
         return filled, skipped
+
+    def _is_structural_field(self, field: FormField, package: ApplicationPackageSchema) -> bool:
+        """Lever's own identity inputs and file inputs are not questions."""
+
+        return field.kind == "file" or _lever_field_key(field) is not None
+
+    def _filled_aliases(self, field: FormField) -> list[str]:
+        key = _lever_field_key(field)
+        return [key] if key else []
 
     def validate(
         self, package: ApplicationPackageSchema, form: ApplicationForm
@@ -206,29 +210,25 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
             if field.kind == "file":
                 if not (package.tailored_resume_markdown or "").strip():
                     unknown_required.append(
-                        f"{field.label or field.name}: no tailored résumé is available to upload"
+                        f"{describe_field(field)}: no tailored résumé is available to upload"
                     )
                 else:
                     mapped[field.name] = "resume"
                 continue
             lever_key = _lever_field_key(field)
             if lever_key and values.get(lever_key):
+                problem = option_problem(field, values[lever_key])
+                if problem:
+                    unknown_required.append(f"{describe_field(field)}: {problem}")
+                    continue
                 mapped[field.name] = lever_key
                 continue
             if lever_key:
                 unknown_required.append(
-                    f"{field.label or field.name}: no verified candidate value"
+                    f"{describe_field(field)}: no verified candidate value"
                 )
                 continue
-            key = field.question_key or classify_question(field.label or "")
-            answer = self._answer_text(package, key) if key else None
-            if key and answer:
-                mapped[field.name] = key
-                continue
-            if key:
-                unanswered.append(field.label or field.name)
-                continue
-            unknown_required.append(field.label or field.name)
+            self._classify_question(package, field, mapped, unknown_required, unanswered)
 
         if unanswered:
             stops.append(
@@ -257,53 +257,17 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
             notes=["answers were drawn only from candidate-verified data"],
         )
 
-    def _application_url(self, job: Any) -> str:
+    def application_url(self, job: Any) -> str:
         url = str(getattr(job, "source_url", "") or "")
         if "lever.co" in url:
             return url if url.rstrip("/").endswith("/apply") else url.rstrip("/") + "/apply"
         return url
 
     def submit(self, prepared: PreparedSubmission) -> SubmissionReceipt:
-        self.require_opt_in()
-        if not prepared.filled and not prepared.files:
-            raise SafetyStop(SafetyStopKind.MATERIAL_AMBIGUITY, "refusing to submit an empty form")
-        page, session = self._open(prepared.url)
-        try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"bot-protection interstitial appeared at submission time ({title!r})",
-                    {"url": prepared.url},
-                )
-            page.click(SUBMIT_SELECTORS[0])
-            page.wait(1000)
-            after_body = page.body_text()
-            confirmed = any(
-                signal in after_body.lower()
-                for signal in ("thank you", "application submitted", "we received", "submitted")
-            )
-            return SubmissionReceipt(
-                submitted=confirmed,
-                method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
-                external_confirmation={
-                    "url": page.current_url(),
-                    "page_title": page.title(),
-                    "confirmation_detected": confirmed,
-                    "form_url": prepared.url,
-                },
-                confirmation_text=after_body[:2000] if confirmed else None,
-                submitted_at=datetime.now(UTC) if confirmed else None,
-                error=None
-                if confirmed
-                else "no confirmation was detected on the page after submitting; "
-                "the application is NOT recorded as submitted",
-                dry_run=False,
-            )
-        finally:
-            if session is not None:
-                self._close(session)
+        """Click submit on the page `prepare` filled. Confirmation is the Lever
+        `/thanks` page, decided by `detect_confirmation`, never by body keywords."""
+
+        return self._submit_live(prepared, settle_ms=4000, capture_evidence=True)
 
 
 def _looks_like_lever_form(title: str, fields: list[FormField], submit_selector: str | None) -> bool:
@@ -343,6 +307,13 @@ def _lever_values(package: ApplicationPackageSchema) -> dict[str, str]:
         values["org"] = package.employment[0].employer
     if package.cover_letter:
         values["comments"] = package.cover_letter
+    # Verified answers may supply identity the package fields lack. Nothing is read
+    # out of the résumé text.
+    for answer in package.answers:
+        if not is_typable(answer):
+            continue
+        if answer.question_key in {"name", "email", "phone"}:
+            values.setdefault(answer.question_key, str(answer.answer))
     return values
 
 

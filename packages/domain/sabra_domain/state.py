@@ -12,7 +12,8 @@ from .errors import InvalidTransition
 
 # Job/opportunity lifecycle. Ordering follows requirement 10; the extra edges are
 # documented implementation refinements:
-#   * any pre-submission state may expire when the posting disappears;
+#   * any pre-submission state, FAILED included (nothing was submitted), may expire when
+#     the posting disappears;
 #   * research is optional, so SHORTLISTED may go straight to PREPARED (req 15
 #     says not every job requires every artifact);
 #   * FAILED returns to APPLYING so a blocked submission can be retried after
@@ -62,7 +63,9 @@ JOB_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
         {JobStatus.OFFER, JobStatus.REJECTED_BY_EMPLOYER, JobStatus.WITHDRAWN}
     ),
     JobStatus.OFFER: frozenset({JobStatus.WITHDRAWN}),
-    JobStatus.FAILED: frozenset({JobStatus.APPLYING, JobStatus.REJECTED, JobStatus.WITHDRAWN}),
+    JobStatus.FAILED: frozenset(
+        {JobStatus.APPLYING, JobStatus.REJECTED, JobStatus.WITHDRAWN, JobStatus.EXPIRED}
+    ),
     JobStatus.REJECTED: frozenset({JobStatus.EXPIRED}),
     JobStatus.REJECTED_BY_EMPLOYER: frozenset(),
     JobStatus.WITHDRAWN: frozenset(),
@@ -101,17 +104,29 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
     ApplicationStatus.AWAITING_APPROVAL: frozenset(
         {ApplicationStatus.APPROVED, ApplicationStatus.DRAFT, ApplicationStatus.WITHDRAWN}
     ),
+    # APPROVED -> BLOCKED is a direct edge for a refusal before any claim (the posting
+    # is gone, no adapter supports it): the application was never APPLYING, and walking
+    # through APPLYING would claim an approval-gated state that nothing claimed.
     ApplicationStatus.APPROVED: frozenset(
-        {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN}
+        {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN, ApplicationStatus.BLOCKED}
     ),
     ApplicationStatus.APPLYING: frozenset(
         {ApplicationStatus.APPLIED, ApplicationStatus.FAILED, ApplicationStatus.BLOCKED}
     ),
-    # BLOCKED is recoverable: a human resolved the blocker and the attempt resumes.
+    # BLOCKED is recoverable: a human resolved the blocker and the attempt resumes
+    # (BLOCKED -> APPLYING, re-authorised and claimed again). An abandoned or timed-out
+    # human handoff lands here, never in WITHDRAWN. There is deliberately no plain
+    # BLOCKED -> AWAITING_APPROVAL edge: with it `application_path` would find
+    # APPROVED -> APPLYING -> BLOCKED -> AWAITING_APPROVAL, a way back into the
+    # approval queue that does not pass through `revoke=True`. The way back for a
+    # blocked or failed application whose package must change is the package refresh,
+    # which revokes the approval (see REVOKE_APPLICATION_EDGES).
     ApplicationStatus.BLOCKED: frozenset(
         {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN, ApplicationStatus.FAILED}
     ),
-    ApplicationStatus.FAILED: frozenset({ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN}),
+    ApplicationStatus.FAILED: frozenset(
+        {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN, ApplicationStatus.BLOCKED}
+    ),
     ApplicationStatus.APPLIED: frozenset({ApplicationStatus.WITHDRAWN}),
     ApplicationStatus.WITHDRAWN: frozenset(),
 }
@@ -122,11 +137,22 @@ APPROVAL_GATED_STATUSES = frozenset({ApplicationStatus.APPROVED, ApplicationStat
 # Returning an approved application to the approval queue is not a normal edge.
 # `application_path` and a plain `set_status` must not take it. Only the package
 # refresh command passes `revoke=True`, and only for an application that has not
-# been submitted.
+# been submitted: APPROVED, or a BLOCKED / FAILED attempt that never reached the
+# employer. The refresh clears the bound approval hash, so the application must be
+# approved again on the new package revision.
 REVOKE_APPLICATION_EDGES = frozenset(
-    {(ApplicationStatus.APPROVED, ApplicationStatus.AWAITING_APPROVAL)}
+    {
+        (ApplicationStatus.APPROVED, ApplicationStatus.AWAITING_APPROVAL),
+        (ApplicationStatus.BLOCKED, ApplicationStatus.AWAITING_APPROVAL),
+        (ApplicationStatus.FAILED, ApplicationStatus.AWAITING_APPROVAL),
+    }
 )
-REVOKE_JOB_EDGES = frozenset({(JobStatus.APPROVED, JobStatus.AWAITING_APPROVAL)})
+REVOKE_JOB_EDGES = frozenset(
+    {
+        (JobStatus.APPROVED, JobStatus.AWAITING_APPROVAL),
+        (JobStatus.FAILED, JobStatus.AWAITING_APPROVAL),
+    }
+)
 
 
 def can_transition_job(current: JobStatus, target: JobStatus) -> bool:
