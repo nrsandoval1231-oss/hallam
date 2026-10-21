@@ -35,6 +35,7 @@ from sabra_domain.enums import (
     PackageStatus,
     SafetyStopKind,
     SubmissionMethod,
+    TruthLevel,
 )
 from sabra_domain.errors import (
     ApprovalRequired,
@@ -154,7 +155,10 @@ def _package_stub(**overrides: Any):
         cover_letter="Dear Hiring Team,",
         answers=[
             ApplicationAnswerSchema(
-                question_key="work_authorization", question_text="Authorized?", answer="Yes"
+                question_key="work_authorization",
+                question_text="Are you legally authorized to work in the United States?",
+                answer="Yes",
+                level=TruthLevel.VERIFIED,
             ),
             ApplicationAnswerSchema(
                 question_key="sponsorship",

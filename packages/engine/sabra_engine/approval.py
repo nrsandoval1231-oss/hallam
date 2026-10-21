@@ -35,7 +35,7 @@ from sabra_domain.errors import (
 from sabra_domain.identity import content_hash
 from sabra_domain.schemas import ApplicationPackageSchema, ApprovalRecord
 
-from .attempt_events import unresolved_unconfirmed
+from .attempt_events import submission_evidence, unresolved_unconfirmed
 from .context import EngineContext
 
 
@@ -242,6 +242,10 @@ class ApprovalService:
         Refuses when: the package is not truth-clean; the caller's expected hash does
         not match the stored content; or unresolved questions exist and the approver
         has not explicitly acknowledged them.
+
+        `acknowledge_unresolved=True` approves an INCOMPLETE package. It exists for tests
+        and scripted setups only: neither the API nor the CLI passes it, and using it
+        records a WARNING_RECORDED event.
         """
 
         with self.ctx.repos() as repos:
@@ -313,6 +317,21 @@ class ApprovalService:
                 repos.opportunities.set_status(package_row.opportunity_id, JobStatus.APPROVED)
 
             payload = record.model_dump(mode="json")
+            if acknowledge_unresolved and unresolved:
+                # The batch approval used by the dashboard never passes this flag. It
+                # exists for tests and scripted setups, so using it leaves a trail.
+                repos.events.append(
+                    EntityType.APPLICATION,
+                    application.id,
+                    EventType.WARNING_RECORDED,
+                    {
+                        "warning": "approved_with_unresolved_questions",
+                        "package_id": package_row.id,
+                        "content_hash": package_row.content_hash,
+                        "approved_by": approved_by,
+                        "unresolved_questions": unresolved,
+                    },
+                )
             repos.events.append(
                 EntityType.APPLICATION, application.id, EventType.PACKAGE_APPROVED, payload
             )
@@ -343,27 +362,52 @@ class ApprovalService:
         with self.ctx.repos() as repos:
             package_row = repos.packages.get(package_id)
             decided_at = datetime.now(UTC)
+            application = repos.applications.for_opportunity(package_row.opportunity_id)
+            # A BLOCKED or FAILED application is the owner giving up on a role that was
+            # approved. That is allowed only when nothing can have reached the employer.
+            giving_up = application is not None and application.status in {
+                ApplicationStatus.BLOCKED.value,
+                ApplicationStatus.FAILED.value,
+            }
+            if giving_up:
+                evidence = submission_evidence(
+                    application,
+                    repos.events.for_entity(EntityType.APPLICATION, application.id),
+                )
+                if evidence is not None:
+                    raise ValidationFailure(
+                        f"{evidence}; this application was not withdrawn"
+                    )
             repos.packages.set_status(package_row.id, PackageStatus.SUPERSEDED)
 
             opportunity = repos.opportunities.get(package_row.opportunity_id)
             repos.opportunities.set_shortlist(
                 opportunity.id, False, reason=reason or "passed by the candidate"
             )
-            repos.opportunities.set_status(
-                opportunity.id,
-                JobStatus.REJECTED,
-                rejection={
-                    "reasons": ["DECLINED_BY_CANDIDATE"],
-                    "detail": {"reason": reason or ""},
-                },
-            )
+            rejection = {
+                "reasons": ["DECLINED_BY_CANDIDATE"],
+                "detail": {"reason": reason or ""},
+            }
+            if giving_up:
+                # APPROVED and FAILED both reach WITHDRAWN through the job graph. An
+                # EXPIRED posting is already terminal and stays as it is.
+                if JobStatus(opportunity.status) is not JobStatus.EXPIRED:
+                    repos.opportunities.set_status(
+                        opportunity.id, JobStatus.WITHDRAWN, rejection=rejection
+                    )
+            else:
+                repos.opportunities.set_status(
+                    opportunity.id, JobStatus.REJECTED, rejection=rejection
+                )
 
-            application = repos.applications.for_opportunity(package_row.opportunity_id)
             if application is not None and application.status not in {
                 ApplicationStatus.APPLIED.value,
                 ApplicationStatus.WITHDRAWN.value,
             }:
-                if application.status != ApplicationStatus.AWAITING_APPROVAL.value:
+                if (
+                    application.status != ApplicationStatus.AWAITING_APPROVAL.value
+                    and not giving_up
+                ):
                     repos.applications.set_status(
                         application.id, ApplicationStatus.AWAITING_APPROVAL
                     )

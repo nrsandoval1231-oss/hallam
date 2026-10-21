@@ -83,3 +83,19 @@ def db(settings: Settings) -> Iterator[Database]:
         yield database
     finally:
         database.dispose()
+
+
+@pytest.fixture(autouse=True)
+def no_live_posting_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real-submission path asks the provider whether the posting is still up.
+
+    That is a network call, so the default check is replaced for every test with one
+    that says the posting is live. A test that cares injects its own `verify_posting`.
+    """
+
+    from sabra_providers.base import VerifyResult
+
+    live = VerifyResult(available=True, changed=False, detail="live")
+    monkeypatch.setattr(
+        "sabra_engine.execution.default_posting_verifier", lambda _ctx: (lambda _job: live)
+    )

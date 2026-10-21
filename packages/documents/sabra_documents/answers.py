@@ -34,6 +34,7 @@ SENSITIVE_KEYS = frozenset(
         "gender",
         "race",
         "ethnicity",
+        "hispanic_ethnicity",
         "date_of_birth",
         "criminal_history",
         "background_check",
@@ -56,6 +57,18 @@ QUESTION_CATALOGUE: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("sponsorship", ("sponsorship", "require sponsorship", "visa sponsorship", "need a visa")),
+    (
+        "us_citizen",
+        ("u.s. citizen", "us citizen", "united states citizen", "citizen of the united states"),
+    ),
+    (
+        "spanish",
+        (
+            "speak spanish",
+            "fluent in spanish",
+            "proficient in spanish",
+        ),
+    ),
     ("relocation", ("willing to relocate", "relocation", "open to relocating")),
     (
         "travel",
@@ -93,7 +106,8 @@ QUESTION_CATALOGUE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("veteran_status", ("veteran status", "protected veteran")),
     ("disability_status", ("disability", "accommodation")),
     ("gender", ("gender", "sex ")),
-    ("race", ("race", "ethnicity", "hispanic")),
+    ("hispanic_ethnicity", ("hispanic", "latino", "latina", "latinx")),
+    ("race", ("race", "ethnicity")),
     (
         "commute",
         (
@@ -316,6 +330,71 @@ class AnswerResolver:
             if overlap >= 0.75 and (best is None or overlap > best[0]):
                 best = (overlap, key)
         return best[1] if best else None
+
+
+def norm_question_text(value: object) -> str:
+    """Question wording for comparison: NFKC, casefolded, whitespace collapsed.
+
+    Only the decoration a form adds around a question is stripped (a trailing `*`, `?`
+    or `:` and the spaces beside them). Symbols that change the meaning stay: "C++",
+    "C#" and "C" are different questions, as are "18+" and "18".
+    """
+
+    import unicodedata
+
+    text = " ".join(unicodedata.normalize("NFKC", str(value or "")).split()).casefold()
+    while text and text[-1] in "*?: ":
+        text = text[:-1]
+    return text
+
+
+def verified_memory_answers(
+    profile: CandidateProfile, *, resolved: dict[str, str | None] | None = None
+) -> list[ApplicationAnswerSchema]:
+    """Every VERIFIED answer-memory entry, as a package answer the adapters may type.
+
+    A package carries the whole of the owner's verified memory, not only the handful of
+    default questions, because a real application form asks board-specific questions
+    (citizenship, language, prior employment, address) that only memory can answer. The
+    package hash covers these answers, so each stays bound to the approval.
+
+    Only verified entries are included. A recorded but unverified answer, sensitive or
+    not, is never a fillable answer: it surfaces only as an unresolved question when a
+    form asks for it. Order is by key so the same memory always produces the same package
+    content.
+
+    `resolved` maps each key the resolver already answered for this package to the
+    wording the resolver used (our default question). That answer carries OUR wording, so
+    a memory entry for the same key is skipped only when it has no wording of its own or
+    its wording is the same; when the owner recorded the board's own wording it is emitted
+    as well, under the same key, so a form that asks it that way can be answered.
+    """
+
+    resolved = resolved or {}
+    answers: list[ApplicationAnswerSchema] = []
+    for key in sorted(profile.answer_memory):
+        record = profile.answer_memory[key]
+        if key in resolved:
+            own = norm_question_text(record.question_text)
+            if not own or own == norm_question_text(resolved[key]):
+                continue
+        if record.level is not TruthLevel.VERIFIED or record.value in (None, ""):
+            continue
+        text = str(record.value)
+        if not text.strip():
+            continue
+        answers.append(
+            ApplicationAnswerSchema(
+                question_key=key,
+                question_text=record.question_text,
+                answer=text,
+                level=TruthLevel.VERIFIED,
+                evidence=list(record.evidence) or ["candidate_profile.answer_memory"],
+                requires_user_input=False,
+                sensitive=key in SENSITIVE_KEYS or record.sensitive,
+            )
+        )
+    return answers
 
 
 def unresolved_questions(resolutions: list[Resolution]) -> list[str]:

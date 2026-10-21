@@ -299,6 +299,14 @@ class AnswerWrite(BaseModel):
     question_text: str | None = None
 
 
+class AnswerVerify(BaseModel):
+    key: str
+    # The value the owner saw. Required: it must equal the stored value, so the owner
+    # verifies exactly what was on the page and not a value that changed since. (The CLI
+    # calls the service directly and may omit it.)
+    value: str
+
+
 class PackageSelection(BaseModel):
     package_id: str
     content_hash: str
@@ -349,7 +357,9 @@ def _annotate_package(repos: Any, row: Any, *, dry_run: bool) -> dict[str, Any]:
         )
         summary["next_step"] = (
             f"{application.last_error or 'The last attempt did not finish.'} "
-            "Nothing is recorded as submitted. Fix the cause, then Apply again."
+            "Nothing is recorded as submitted. Fix the cause, then Apply again. If the cause is a "
+            "missing or wrong answer, record and verify it on the Answers page, then press "
+            "Refresh package and approve the new revision."
         )
     elif application is not None and application.status == ApplicationStatus.APPLYING.value:
         summary["review_label"] = "Applying"
@@ -547,10 +557,10 @@ def answer_record(body: AnswerWrite) -> dict[str, Any]:
 
 
 @app.post("/api/answers/verify")
-def answer_verify(body: AnswerWrite) -> dict[str, Any]:
+def answer_verify(body: AnswerVerify) -> dict[str, Any]:
     ctx = EngineContext.create()
     try:
-        return AnswerMemoryService(ctx).verify(body.key)
+        return AnswerMemoryService(ctx).verify(body.key, expected_value=body.value)
     except SabraError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
@@ -608,7 +618,7 @@ def applications_page() -> str:
 <p>Select complete packages and approve them together. Each approval is stored against that package's content hash, so a later edit invalidates it. The list shows the latest revision of each application.</p>
 <form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button> <button type="button" id="refresh-all">Refresh all unsubmitted</button></form>
 <dialog id="confirm-refresh">
-<p>Refresh every approved application that has not been submitted? Each approval is revoked. You will need to approve the new packages.</p>
+<p>Refresh every approved, blocked or failed application that has not been submitted? Each approval is revoked. You will need to approve the new packages.</p>
 <form method="dialog">
 <button type="submit" value="cancel">Cancel</button>
 <button type="submit" id="confirm-refresh-yes" value="refresh">Refresh packages</button>
@@ -632,7 +642,7 @@ async function load(){
     const label=p.review_label||(p.approvable?'ready to approve':'not approvable');
     const next=p.next_step?`<span class="why">${esc(p.next_step)}</span>`:'';
     const appId=p.application_id||'';
-    const refresh=p.application_status==='APPROVED'?`<button type="button" class="refresh-one" data-id="${esc(appId)}">Refresh package</button>`:'';
+    const refresh=['APPROVED','BLOCKED','FAILED'].includes(p.application_status)?`<button type="button" class="refresh-one" data-id="${esc(appId)}">Refresh package</button>`:'';
     const canApply=['APPROVED','BLOCKED','FAILED'].includes(p.application_status);
     const apply=canApply?`<button type="button" class="apply" data-id="${esc(appId)}" data-dry="${dry?'1':'0'}" ${dry?'disabled':''}>Apply</button>${dry?'<span class="why">Dry run is on, so Apply is off. Set SABRA_AUTOMATION_DRY_RUN=false and restart the dashboard.</span>':''}`:'';
     const handoff=p.application_status==='APPLYING'?`<div class="handoff" data-id="${esc(appId)}">Checking the handoff...</div>`:'';
@@ -802,9 +812,9 @@ async function load(){
   const ul=document.querySelector('#saved');
   if(!body.ok){ul.textContent=body.d.detail||'Answers could not be loaded.';return;}
   const d=body.d;
-  ul.innerHTML=(d.answers||[]).map(a=>`<li><strong>${esc(a.question_key)}</strong> · ${esc(a.level)}${a.sensitive?' · sensitive':''}<br>${esc(a.value??'')} ${a.verified?'':`<button type="button" data-key="${esc(a.question_key)}">Verify</button>`}</li>`).join('')||'<li>No answers recorded.</li>';
+  ul.innerHTML=(d.answers||[]).map(a=>`<li><strong>${esc(a.question_key)}</strong> · ${esc(a.level)}${a.sensitive?' · sensitive':''}<br>${esc(a.value??'')} ${a.verified?'':`<button type="button" data-key="${esc(a.question_key)}" data-value="${esc(a.value??'')}">Verify</button>`}</li>`).join('')||'<li>No answers recorded.</li>';
   ul.querySelectorAll('button[data-key]').forEach(btn=>btn.addEventListener('click',async()=>{
-    const response=await fetch('/api/answers/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:btn.dataset.key,value:''})});
+    const response=await fetch('/api/answers/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:btn.dataset.key,value:btn.dataset.value})});
     const verified=await readBody(response);
     document.querySelector('#line').textContent=verified.ok?`${verified.d.question_key} verified.`:(verified.d.detail||'Verify failed');
     load();

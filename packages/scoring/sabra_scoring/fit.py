@@ -5,6 +5,12 @@ component carries a rationale, components that cannot be assessed from available
 evidence are marked unavailable and excluded from the weighting (rather than
 being filled in with a neutral guess), and `confidence` reports how much of the
 assessment actually rested on data.
+
+One exception, deliberately: a posting that lists no requirements at all. Dropping the
+qualification component there would renormalise the remaining weights, so a thin advert
+could outscore a fully assessed one (one such posting scored 0.97). Such a posting keeps
+the qualification weight in the composite at a neutral 0.5, which is never a pass,
+confidence is cut by `NO_REQUIREMENTS_CONFIDENCE_FACTOR`, and a risk says so.
 """
 
 from __future__ import annotations
@@ -71,6 +77,13 @@ _STOPWORDS = frozenset(
 )
 
 
+# Qualification score used in the composite when the posting lists nothing to assess.
+NEUTRAL_QUALIFICATION = 0.5
+# Confidence multiplier for the same case: the fit rests on far less than it appears to.
+NO_REQUIREMENTS_CONFIDENCE_FACTOR = 0.6
+NO_REQUIREMENTS_RISK = "the posting lists no requirements; fit may be overstated"
+
+
 @dataclass(slots=True)
 class FitWeights:
     """Weights for the composite fit score. Sum should be 1.0."""
@@ -132,7 +145,7 @@ class HeuristicFitEngine:
                 0.0,
                 False,
                 "the posting lists no requirements or preferred qualifications to assess",
-                {"items": 0},
+                {"items": 0, "reason": "no_requirements"},
             )
         if not candidate.populated:
             return Component(
@@ -392,18 +405,27 @@ class HeuristicFitEngine:
         }
         available = [c for c in components if c.available]
         available_weight = sum(weights[c.name] for c in available)
-        if available_weight > 0:
-            fit = sum(weights[c.name] * c.score for c in available) / available_weight
-        else:
-            fit = 0.0
+        scored = [(weights[c.name], c.score) for c in available]
+        qualification = components[0]
+        no_requirements = (
+            not qualification.available
+            and qualification.details.get("reason") == "no_requirements"
+        )
+        if no_requirements:
+            scored.append((weights[qualification.name], NEUTRAL_QUALIFICATION))
+        total_weight = sum(weight for weight, _score in scored)
+        fit = sum(weight * score for weight, score in scored) / total_weight if total_weight else 0.0
 
         by_name = {c.name: c for c in components}
         posting_completeness = _posting_completeness(job)
-        confidence = round(
-            min(1.0, (available_weight / sum(weights.values())) * posting_completeness), 4
-        )
+        confidence_raw = min(1.0, (available_weight / sum(weights.values())) * posting_completeness)
+        if no_requirements:
+            confidence_raw *= NO_REQUIREMENTS_CONFIDENCE_FACTOR
+        confidence = round(confidence_raw, 4)
 
         strengths, gaps, risks = _narrate(components, job, available)
+        if no_requirements:
+            risks.append(NO_REQUIREMENTS_RISK)
         why = _why_this_job(job, by_name, strengths, gaps, fit)
 
         return FitAssessmentSchema(

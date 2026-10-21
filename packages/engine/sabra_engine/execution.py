@@ -19,6 +19,7 @@ reported outcome.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -47,7 +48,9 @@ from sabra_domain.enums import (
     EventType,
     JobStatus,
     SafetyStopKind,
+    SourceKind,
     SubmissionMethod,
+    TruthLevel,
 )
 from sabra_domain.errors import (
     ApprovalRequired,
@@ -57,7 +60,7 @@ from sabra_domain.errors import (
     TruthBoundaryViolation,
     ValidationFailure,
 )
-from sabra_domain.state import application_path
+from sabra_domain.state import application_path, can_transition_job
 
 from .approval import ApprovalService
 from .attempt_events import attempt_has_unconfirmed, waiting_for_person
@@ -142,7 +145,9 @@ def fill_plan(package: Any, job: Any) -> dict[str, Any]:
     answers = [
         answer.question_key
         for answer in getattr(package, "answers", []) or []
-        if getattr(answer, "answer", None) and not getattr(answer, "requires_user_input", False)
+        if getattr(answer, "answer", None)
+        and not getattr(answer, "requires_user_input", False)
+        and getattr(answer, "level", None) == TruthLevel.VERIFIED
     ]
     return {
         "navigated": False,
@@ -177,6 +182,81 @@ def default_registry(*, dry_run: bool = True, settings: Any = None) -> AdapterRe
     )
 
 
+BLOCKED_POSTING_GONE = "posting no longer available"
+
+
+def default_posting_verifier(ctx: EngineContext) -> Callable[[Any], Any]:
+    """The check that a posting is still live: the provider's own `verify`.
+
+    Used only on the real-submission path, so a dry run and the whole test suite never
+    reach it. It returns the provider's `VerifyResult`, or None when no provider can be
+    built for the job. It may raise (network down); the caller treats that as "could not
+    check", never as "gone".
+    """
+
+    def verify(job: Any) -> Any:
+        from sabra_providers.base import ProviderRef
+        from sabra_providers.http import HttpClient
+        from sabra_providers.registry import PROVIDER_TYPES
+
+        try:
+            kind = SourceKind(str(getattr(job, "source", "")).upper())
+        except ValueError:
+            return None
+        token = getattr(job, "board_token", None)
+        job_id = getattr(job, "source_job_id", None)
+        if not token or not job_id:
+            return None
+        ref = ProviderRef(
+            kind=kind,
+            token=str(token),
+            source_job_id=str(job_id),
+            url=str(getattr(job, "source_url", "") or ""),
+        )
+        # One attempt with the discovery timeout and no retries: this runs inside a
+        # dashboard request, and a hung network must not hold it for a minute.
+        http = HttpClient(
+            timeout=ctx.settings.discovery_timeout_seconds,
+            max_attempts=1,
+            user_agent=ctx.settings.discovery_user_agent,
+        )
+        try:
+            provider = None
+            for definition in ctx.registry:
+                if definition.entry.kind is kind and definition.entry.token == token:
+                    provider = ctx.registry.build_provider(
+                        definition.id, http=http, settings=ctx.settings
+                    )
+                    break
+            if provider is None:
+                provider_type = PROVIDER_TYPES.get(kind)
+                if provider_type is None:
+                    return None
+                provider = provider_type(str(token), http=http, settings=ctx.settings)
+            return provider.verify(ref)
+        finally:
+            http.close()
+
+    return verify
+
+
+def posting_is_gone(result: Any) -> bool:
+    """Whether a provider's `VerifyResult` says the posting was taken down.
+
+    Only a clear answer counts: not available AND either an HTTP 404 / 410 or a detail
+    that says the posting is closed. An unavailable result for any other reason (a
+    timeout, a 5xx, a refused connection) is "could not check" and never expires a job.
+    """
+
+    if result is None or getattr(result, "available", True):
+        return False
+    status = getattr(result, "http_status", None)
+    if status in {404, 410}:
+        return True
+    detail = str(getattr(result, "detail", "") or "").lower()
+    return "posting closed" in detail or "no longer on" in detail
+
+
 def _advance_opportunity(repos: Any, opportunity_id: str, target: JobStatus) -> None:
     """Move the opportunity toward APPLIED/FAILED along legal edges only.
 
@@ -207,8 +287,14 @@ class ExecutionService:
         background_handoff: bool = False,
         ctx_factory: Any = None,
         handoffs: HandoffManager | None = None,
+        verify_posting: Callable[[Any], Any] | None = None,
     ) -> None:
         """`handoff` is injectable (tests use a fake that needs no Playwright).
+
+        `verify_posting(job)` checks that the posting is still live before a real
+        submission is claimed. It is injectable so tests never touch the network; the
+        default asks the job's provider. It returns a `VerifyResult` (or None), and a
+        raise means "could not check".
 
         `background_handoff=True` is the dashboard path: a challenge starts the headed
         browser in a thread and `submit` returns at once. `ctx_factory` builds the
@@ -226,6 +312,7 @@ class ExecutionService:
         self.background_handoff = background_handoff
         self.ctx_factory = ctx_factory
         self.handoffs = handoffs or HANDOFFS
+        self.verify_posting = verify_posting
 
     # -- submission ------------------------------------------------------
 
@@ -248,6 +335,7 @@ class ExecutionService:
             application, package = self.approval.assert_submission_authorised(application_id)
         except (ApprovalRequired, ApprovalScopeMismatch, TruthBoundaryViolation) as exc:
             return self._authorisation_refused(application_id, exc)
+        authorised_status = ApplicationStatus(application.status)
 
         job = self._job_for(application)
         opportunity_id = application.opportunity_id
@@ -296,11 +384,22 @@ class ExecutionService:
         # deciding what happened. Then re-authorise and claim in one transaction, before
         # any browser opens. Whoever loses the claim is refused, not queued.
         self.handoffs.begin_run(application_id)
+        claimed = False
         try:
+            # The posting must still exist. This runs under the run registration, so no
+            # second run or report can start meanwhile, and a closed posting is decided
+            # by a compare-and-set from the status that was authorised.
+            gone = self._check_posting_live(
+                application_id, opportunity_id, adapter, job, authorised_status
+            )
+            if gone is not None:
+                return gone
+
             try:
                 _claimed, package = self._claim(application_id, adapter, job)
             except (ApprovalRequired, ApprovalScopeMismatch, TruthBoundaryViolation) as exc:
                 return self._authorisation_refused(application_id, exc)
+            claimed = True
 
             try:
                 outcome = self._drive(application_id, opportunity_id, adapter, package, job)
@@ -320,10 +419,155 @@ class ExecutionService:
         except BaseException as exc:
             # Ctrl+C, SystemExit or a failure while recording: the claim is held and no
             # outcome is known. Leave a mark the report path recognises, then re-raise.
-            self._record_interrupted(application_id, exc)
+            # Before the claim there is nothing of ours to mark.
+            if claimed:
+                self._record_interrupted(application_id, exc)
             raise
         finally:
             self.handoffs.end_run(application_id)
+
+    def _check_posting_live(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        job: Any,
+        authorised_status: ApplicationStatus,
+    ) -> ExecutionResult | None:
+        """Ask the provider whether the posting is still up, before any claim or browser.
+
+        Gone (a clear 404 / 410 or "closed"): the opportunity moves to EXPIRED through the
+        graph and the application is BLOCKED with reason "posting no longer available",
+        by a compare-and-set from the status that was authorised, never by walking the
+        graph (a walk could pass through an approval-gated state, or move a row another
+        process now owns). If the row moved while the network was being asked, only
+        JOB_EXPIRED and a warning are recorded and the attempt is refused. Anything else,
+        including a verify that raises because the network is down, proceeds with a
+        WARNING_RECORDED event: a failed check is not evidence that the posting is gone.
+        """
+
+        verifier = self.verify_posting or default_posting_verifier(self.ctx)
+        try:
+            result = verifier(job)
+        except Exception as exc:  # noqa: BLE001 - "could not check" is not "gone"
+            self._record(
+                application_id,
+                EventType.WARNING_RECORDED,
+                {
+                    "warning": "posting_check_failed",
+                    "message": (
+                        "could not confirm the posting is still live: "
+                        f"{type(exc).__name__}: {exc}"
+                    )[:500],
+                    "proceeding": True,
+                },
+            )
+            return None
+        if result is None:
+            self._record(
+                application_id,
+                EventType.WARNING_RECORDED,
+                {
+                    "warning": "posting_check_unavailable",
+                    "message": "no provider could check that the posting is still live",
+                    "proceeding": True,
+                },
+            )
+            return None
+        if not posting_is_gone(result):
+            return None
+
+        detail = str(getattr(result, "detail", "") or "")
+        status = getattr(result, "http_status", None)
+        with self.ctx.repos() as repos:
+            if authorised_status is ApplicationStatus.BLOCKED:
+                # Already where it needs to be; confirm it is still there.
+                held = repos.applications.confirm_status(
+                    application_id, expected=ApplicationStatus.BLOCKED
+                )
+            else:
+                held = repos.applications.claim_status(
+                    application_id,
+                    expected=authorised_status,
+                    target=ApplicationStatus.BLOCKED,
+                )
+            moved_to = None if held else repos.applications.get(application_id).status
+            # Another process that holds the claim may be about to submit: leave the job
+            # alone, or it would sit EXPIRED beside an APPLIED application. Any other move
+            # (a refresh, a withdrawal) leaves nothing in flight, so the job still expires.
+            if moved_to != ApplicationStatus.APPLYING.value:
+                opportunity = repos.opportunities.get(opportunity_id)
+                current = JobStatus(opportunity.status)
+                if can_transition_job(current, JobStatus.EXPIRED):
+                    repos.opportunities.set_status(opportunity_id, JobStatus.EXPIRED)
+                repos.events.append(
+                    EntityType.OPPORTUNITY,
+                    opportunity_id,
+                    EventType.JOB_EXPIRED,
+                    {
+                        "reason": BLOCKED_POSTING_GONE,
+                        "from": str(current),
+                        "http_status": status,
+                        "detail": detail,
+                        "application_id": application_id,
+                    },
+                )
+            if not held:
+                repos.events.append(
+                    EntityType.APPLICATION,
+                    application_id,
+                    EventType.WARNING_RECORDED,
+                    {
+                        "warning": "posting_gone_status_moved",
+                        "message": (
+                            f"{BLOCKED_POSTING_GONE}, but the application was {moved_to} "
+                            f"when the check finished (it was {authorised_status} when "
+                            "authorised); nothing was changed on it"
+                        ),
+                        "detail": detail,
+                    },
+                )
+                return ExecutionResult(
+                    application_id=application_id,
+                    opportunity_id=opportunity_id,
+                    outcome="CONFLICT",
+                    adapter=adapter.kind,
+                    detail=(
+                        f"{BLOCKED_POSTING_GONE}; the application is now {moved_to}, so "
+                        "this attempt was refused and nothing was opened"
+                    ),
+                )
+            application = repos.applications.get(application_id)
+            application.blocked_reason = BLOCKED_POSTING_GONE
+            application.last_error = (BLOCKED_POSTING_GONE + (": " + detail if detail else ""))[
+                :2000
+            ]
+            repos.session.flush()
+            repos.events.append(
+                EntityType.APPLICATION,
+                application_id,
+                EventType.APPLICATION_BLOCKED,
+                {
+                    "stage": "posting_check",
+                    "reason": BLOCKED_POSTING_GONE,
+                    "from": str(authorised_status),
+                    "http_status": status,
+                    "detail": detail,
+                },
+            )
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id=opportunity_id,
+            outcome="BLOCKED",
+            adapter=adapter.kind,
+            detail=f"{BLOCKED_POSTING_GONE}; no browser was opened",
+            stops=[
+                {
+                    "kind": str(SafetyStopKind.MATERIAL_AMBIGUITY),
+                    "message": BLOCKED_POSTING_GONE,
+                }
+            ],
+        )
 
     def _record_interrupted(self, application_id: str, exc: BaseException) -> None:
         with suppress(Exception):
@@ -412,6 +656,12 @@ class ExecutionService:
         """One browser session for the whole run; closed on every path out."""
 
         url = adapter.application_url(job)
+        # Render the files first: a document that cannot be produced stops the run before
+        # the employer's page is even opened.
+        try:
+            adapter.prepare_documents(package)
+        except SafetyStop as stop:
+            return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
         with adapter.session(url):
             # Checked inside the adapter immediately before the click: if a report (or
             # anything else) moved the application off APPLYING, nothing is clicked.

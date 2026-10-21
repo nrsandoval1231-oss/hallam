@@ -48,6 +48,8 @@ class FormField:
     # Text near an unlabelled control. Shown to a human by `describe_field`; never used
     # to classify the field, because container text is not the field's own question.
     context: str | None = None
+    # The control's `autocomplete` attribute (e.g. "address-level2"), when it has one.
+    autocomplete: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +62,7 @@ class FormField:
             "question_key": self.question_key,
             "value_source": self.value_source,
             "context": self.context,
+            "autocomplete": self.autocomplete,
         }
 
 
@@ -147,6 +150,9 @@ class PreparedSubmission:
     submit_selector: str | None = None
     # Required, non-file fields that prepare could not fill. Any entry blocks the click.
     unfilled_required: list[str] = field(default_factory=list)
+    # What was rendered for upload: per document the file name, sha256 and byte count,
+    # the number of characters with no safe mapping, and the renderer version.
+    documents: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -158,6 +164,7 @@ class PreparedSubmission:
             "dry_run": self.dry_run,
             "submit_selector": self.submit_selector,
             "unfilled_required": self.unfilled_required,
+            "documents": self.documents,
         }
 
 
@@ -218,6 +225,16 @@ class ApplicationAdapter(ABC):
         # Set by the execution service for a run: called immediately before the click,
         # returns False if the application is no longer the caller's to submit.
         self.pre_click_check: Callable[[], bool] | None = None
+
+    def prepare_documents(self, package: ApplicationPackageSchema) -> Any:
+        """Produce the files this adapter will upload, before any browser opens.
+
+        The default has nothing to produce. An adapter that renders documents overrides
+        this and raises `SafetyStop` if one cannot be made, so the failure is found
+        before the employer's page is touched.
+        """
+
+        return None
 
     # -- browser session ------------------------------------------------
 

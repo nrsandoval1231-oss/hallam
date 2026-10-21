@@ -125,6 +125,8 @@ class EventType(StrEnum):
     RESUME_INGESTED = "RESUME_INGESTED"
     SEARCH_PROFILE_CREATED = "SEARCH_PROFILE_CREATED"
     MODEL_ANSWER_DRAFTED = "MODEL_ANSWER_DRAFTED"
+    # A non-blocking caution worth keeping in the audit trail (see `payload["warning"]`).
+    WARNING_RECORDED = "WARNING_RECORDED"
 
 
 class EntityType(StrEnum):

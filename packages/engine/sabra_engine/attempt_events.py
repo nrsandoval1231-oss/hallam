@@ -70,3 +70,24 @@ def waiting_for_person(events: Sequence[Any]) -> bool:
         last.event_type == EventType.HANDED_TO_HUMAN.value
         and (last.payload or {}).get("state") in WAITING_STATES
     )
+
+
+def submission_evidence(application: Any, events: Sequence[Any]) -> str | None:
+    """Why this application may have reached the employer, or None when it cannot have.
+
+    Used wherever an owner may rebuild or give up on a BLOCKED or FAILED application:
+    that is only safe when nothing was submitted. Evidence is any of a recorded
+    submission time, an APPLICATION_SUBMITTED event, or an UNCONFIRMED click in the
+    latest attempt that no person has reported on since.
+    """
+
+    if getattr(application, "submission_time", None) is not None:
+        return "already submitted"
+    if any(e.event_type == EventType.APPLICATION_SUBMITTED.value for e in events):
+        return "already submitted"
+    if unresolved_unconfirmed(events):
+        return (
+            "a submit click is unconfirmed and may have reached the employer; "
+            "report its outcome first"
+        )
+    return None

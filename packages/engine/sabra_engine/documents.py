@@ -340,6 +340,15 @@ class DocumentService:
             ApplicationStatus.APPLIED.value,
         }
         locked_job = {JobStatus.APPROVED, JobStatus.APPLYING, JobStatus.APPLIED}
+        if existing is not None and existing.status in {
+            ApplicationStatus.BLOCKED.value,
+            ApplicationStatus.FAILED.value,
+        }:
+            raise ValidationFailure(
+                f"already approved; this application is {existing.status} and was not prepared "
+                "again. Use Refresh package (or `sabra packages refresh`) to rebuild it, "
+                "which revokes the old approval so you can approve the new package"
+            )
         if (existing is not None and existing.status in locked_application) or JobStatus(
             opportunity.status
         ) in locked_job:

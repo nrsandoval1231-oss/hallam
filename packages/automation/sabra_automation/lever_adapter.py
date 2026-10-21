@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from sabra_documents.answers import classify_question
 from sabra_domain.enums import SafetyStopKind, SourceKind
 from sabra_domain.errors import SafetyStop
 from sabra_domain.identity import sha256_text
 from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
 
+from .answer_match import is_typable, option_problem, write_value
 from .base import (
     ApplicationForm,
     FormField,
@@ -29,7 +30,6 @@ from .base import (
 from .greenhouse_adapter import (
     ENUMERATE_FIELDS_JS,
     GreenhouseApplicationAdapter,
-    _matching_option,
     describe_field,
 )
 from .playwright_driver import (
@@ -148,48 +148,54 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         page: FormPage,
         package: ApplicationPackageSchema,
         form: ApplicationForm,
+        *,
+        documents: dict[str, Path] | None = None,
     ) -> tuple[dict[str, str], list[str]]:
         filled: dict[str, str] = {}
         skipped: list[str] = []
+        if documents is None:
+            documents = self._prepare_documents(package, skipped, {})
         values = _lever_values(package)
         for name, value in values.items():
             if not value:
                 continue
+            field = next((f for f in form.fields if _lever_field_key(f) == name), None)
             selector = self._existing_selector(page, LEVER_IDENTITY.get(name, ()))
+            if selector is None and field is not None:
+                selector = field.selector
             if selector is None:
                 skipped.append(name)
                 continue
-            page.fill(selector, value)
+            target = field or FormField(name=name, kind="text")
+            if not write_value(page, target, selector, value):
+                skipped.append(name)
+                continue
             filled[name] = value
+            if field is not None:
+                filled[field.name] = value
 
-        for answer in package.answers:
-            if answer.requires_user_input or not answer.answer:
-                continue
-            selector = self._question_selector(form, answer.question_key)
-            if selector is None:
-                skipped.append(f"question:{answer.question_key}")
-                continue
-            page.fill(selector, str(answer.answer))
-            filled[answer.question_key] = str(answer.answer)
+        self._fill_answers(page, package, form, filled, skipped)
 
         for field in form.fields:
-            if field.name in filled or (field.question_key and field.question_key in filled):
-                continue
-            bridged = self._bridged_answer(package, field)
-            if bridged is None or not field.selector or not bridged.answer:
-                continue
-            if field.kind == "select":
-                page.select_option(field.selector, _matching_option(field.options, bridged.answer) or bridged.answer)
-            else:
-                page.fill(field.selector, bridged.answer)
-            filled[field.name] = bridged.answer
-
-        for field in form.fields:
-            if field.required and field.kind != "file" and field.name not in filled:
+            if (
+                field.required
+                and field.kind != "file"
+                and field.name not in filled
+                and field.name not in skipped
+            ):
                 skipped.append(field.name)
 
-        self._upload_documents(page, form, package, filled, skipped)
+        self._upload_documents(page, form, package, documents, filled, skipped)
         return filled, skipped
+
+    def _is_structural_field(self, field: FormField, package: ApplicationPackageSchema) -> bool:
+        """Lever's own identity inputs and file inputs are not questions."""
+
+        return field.kind == "file" or _lever_field_key(field) is not None
+
+    def _filled_aliases(self, field: FormField) -> list[str]:
+        key = _lever_field_key(field)
+        return [key] if key else []
 
     def validate(
         self, package: ApplicationPackageSchema, form: ApplicationForm
@@ -211,6 +217,10 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
                 continue
             lever_key = _lever_field_key(field)
             if lever_key and values.get(lever_key):
+                problem = option_problem(field, values[lever_key])
+                if problem:
+                    unknown_required.append(f"{describe_field(field)}: {problem}")
+                    continue
                 mapped[field.name] = lever_key
                 continue
             if lever_key:
@@ -218,15 +228,7 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
                     f"{describe_field(field)}: no verified candidate value"
                 )
                 continue
-            key = field.question_key or classify_question(field.label or "")
-            answer = self._answer_text(package, key) if key else None
-            if key and answer:
-                mapped[field.name] = key
-                continue
-            if key:
-                unanswered.append(field.label or field.name)
-                continue
-            unknown_required.append(describe_field(field))
+            self._classify_question(package, field, mapped, unknown_required, unanswered)
 
         if unanswered:
             stops.append(
@@ -308,7 +310,7 @@ def _lever_values(package: ApplicationPackageSchema) -> dict[str, str]:
     # Verified answers may supply identity the package fields lack. Nothing is read
     # out of the résumé text.
     for answer in package.answers:
-        if not answer.answer or answer.requires_user_input:
+        if not is_typable(answer):
             continue
         if answer.question_key in {"name", "email", "phone"}:
             values.setdefault(answer.question_key, str(answer.answer))

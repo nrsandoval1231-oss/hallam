@@ -30,7 +30,13 @@ from sabra_automation.handoff import (
     PlaywrightHandoff,
 )
 from sabra_automation.lever_adapter import LeverApplicationAdapter
-from sabra_domain.enums import ApplicationStatus, EventType, JobStatus, SafetyStopKind
+from sabra_domain.enums import (
+    ApplicationStatus,
+    EventType,
+    JobStatus,
+    SafetyStopKind,
+    TruthLevel,
+)
 from sabra_domain.errors import (
     ApprovalRequired,
     ApprovalScopeMismatch,
@@ -113,6 +119,7 @@ def _pkg(**overrides: Any) -> ApplicationPackageSchema:
                 question_key="work_authorization",
                 question_text="Are you legally authorized to work in the United States?",
                 answer="Yes",
+                level=TruthLevel.VERIFIED,
             )
         ],
         employment=[
@@ -1107,7 +1114,12 @@ def test_verified_answers_still_supply_identity_and_unverified_ones_do_not() -> 
     package = _pkg(
         applicant_email=None,
         answers=[
-            ApplicationAnswerSchema(question_key="email", question_text="Email", answer="v@x.test"),
+            ApplicationAnswerSchema(
+                question_key="email",
+                question_text="Email",
+                answer="v@x.test",
+                level=TruthLevel.VERIFIED,
+            ),
             ApplicationAnswerSchema(
                 question_key="phone",
                 question_text="Phone",
