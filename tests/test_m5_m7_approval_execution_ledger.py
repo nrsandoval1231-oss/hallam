@@ -7,7 +7,7 @@ The tests that matter most here are the refusal paths:
 * an approval must not survive the package changing underneath it;
 * a CAPTCHA must stop the attempt rather than being worked around.
 
-`FakeFormPage` substitutes for Playwright and is driven by the *real* field inventory
+`FakeFormPage` (tests/fake_pages.py) substitutes for Playwright and is driven by the *real* field inventory
 captured from a live Greenhouse board (`tests/fixtures/greenhouse_application_form.json`),
 so the adapter's field handling is exercised against the shape Greenhouse actually
 serves.
@@ -19,15 +19,13 @@ from typing import Any
 
 import pytest
 from conftest_app import build_job
+from fake_pages import GH_URL, FakeFormPage, answerable_capture, make_adapter
 from sabra_automation.base import (
     ApplicationForm,
     PreparedSubmission,
     SourceNotSupported,
 )
-from sabra_automation.greenhouse_adapter import (
-    ENUMERATE_FIELDS_JS,
-    GreenhouseApplicationAdapter,
-)
+from sabra_automation.greenhouse_adapter import GreenhouseApplicationAdapter
 from sabra_automation.playwright_driver import looks_like_bot_wall, looks_like_login_wall
 from sabra_domain import models
 from sabra_domain.enums import (
@@ -43,140 +41,10 @@ from sabra_domain.errors import (
     ApprovalScopeMismatch,
     SafetyStop,
 )
+from sabra_domain.schemas import EmploymentEntry
 from sabra_engine.approval import ApprovalService
 from sabra_engine.execution import AdapterRegistry, ExecutionService
 from sabra_engine.ledger import LedgerService
-
-# ---------------------------------------------------------------------------
-# Test double for the browser
-# ---------------------------------------------------------------------------
-
-
-class FakeFormPage:
-    """A `FormPage` driven by the real captured field inventory."""
-
-    def __init__(
-        self,
-        capture: dict,
-        *,
-        title: str | None = None,
-        body: str | None = None,
-        captcha: bool | None = None,
-        submit_selector: str | None = "button[type='submit']",
-        confirm_after_submit: bool = True,
-    ) -> None:
-        self.capture = capture
-        self._title = title or capture.get("title") or "Job Application"
-        self._body = body if body is not None else "Apply for this job"
-        self._captcha = capture.get("captcha", False) if captcha is None else captcha
-        self._submit_selector = submit_selector
-        self._confirm = confirm_after_submit
-        self._url = "https://job-boards.greenhouse.io/revance/jobs/9001"
-        self.filled: dict[str, str] = {}
-        self.files: dict[str, str] = {}
-        self.clicked: list[str] = []
-        self.screenshots: list[str] = []
-        self.closed = False
-
-    # -- FormPage ------------------------------------------------------
-
-    def open(self, url: str) -> None:
-        self._url = url
-
-    def title(self) -> str:
-        return self._title
-
-    def current_url(self) -> str:
-        return self._url
-
-    def evaluate(self, script: str) -> Any:
-        if script.strip() == ENUMERATE_FIELDS_JS.strip():
-            return [
-                {
-                    "id": field.get("id"),
-                    "tag": field.get("tag"),
-                    "type": field.get("type"),
-                    "required": field.get("required"),
-                    "label": field.get("label"),
-                    "placeholder": field.get("placeholder"),
-                    "value": field.get("value"),
-                    "options": field.get("options") or [],
-                }
-                for field in self.capture["fields"]
-            ]
-        if ".some(s => !!document.querySelector(s))" in script:
-            return self._captcha
-        if ".length" in script:
-            selector = script.split("querySelectorAll(")[-1].split(")")[0].strip().strip("'\"")
-            return self._count(selector)
-        if "querySelectorAll" in script:
-            return self._count(
-                script.split("querySelectorAll(")[-1].split(")")[0].strip().strip("'\"")
-            )
-        return None
-
-    def _count(self, selector: str) -> int:
-        # Normalize quote style: the adapter builds selectors in either style and the
-        # real DOM does not care, but a naive comparison does.
-        normalized = selector.replace("'", '"')
-        if normalized.replace("'", '"') == (self._submit_selector or "").replace("'", '"'):
-            return 1
-        if selector.startswith("#"):
-            identifier = selector[1:]
-            return sum(1 for f in self.capture["fields"] if f.get("id") == identifier)
-        if "type=" in normalized and "file" in normalized:
-            return sum(1 for f in self.capture["fields"] if f.get("type") == "file")
-        if "recaptcha" in selector or "captcha" in selector or "sitekey" in selector:
-            return 1 if self._captcha else 0
-        if selector.startswith('input[name="'):
-            name = selector.split('"')[1]
-            return sum(1 for f in self.capture["fields"] if f.get("id") == name)
-        return 0
-
-    def body_text(self) -> str:
-        return self._body
-
-    def fill(self, selector: str, value: str) -> None:
-        self.filled[selector] = value
-
-    def select_option(self, selector: str, value: str) -> None:
-        self.filled[selector] = value
-
-    def check(self, selector: str) -> None:
-        self.filled[selector] = "checked"
-
-    def set_input_files(self, selector: str, path: str) -> None:
-        self.files[selector] = path
-
-    def click(self, selector: str) -> None:
-        self.clicked.append(selector)
-
-    def wait(self, milliseconds: int) -> None:
-        pass
-
-    def screenshot(self, path: str) -> str | None:
-        self.screenshots.append(path)
-        return path
-
-    def close(self) -> None:
-        self.closed = True
-
-
-def make_adapter(
-    capture: dict, **page_kwargs: Any
-) -> tuple[GreenhouseApplicationAdapter, FakeFormPage, list]:
-    """Adapter whose page factory yields one scripted fake page per call."""
-
-    pages: list[FakeFormPage] = []
-
-    def factory(_url: str) -> FakeFormPage:
-        page = FakeFormPage(capture, **page_kwargs)
-        pages.append(page)
-        return page
-
-    adapter = GreenhouseApplicationAdapter(dry_run=True, page_factory=factory)
-    return adapter, pages, pages  # `pages` is populated lazily, so it is the same list
-
 
 # ---------------------------------------------------------------------------
 # M6: bot protection and inspection
@@ -280,6 +148,8 @@ def _package_stub(**overrides: Any):
         candidate_id="cand_1",
         job_id="job_1",
         master_resume_id="res_master",
+        applicant_name="JORDAN A. RIVERA",
+        applicant_email="jordan.rivera@example.test",
         tailored_resume_markdown="# JORDAN A. RIVERA\njordan.rivera@example.test | Dallas, TX\n",
         cover_letter="Dear Hiring Team,",
         answers=[
@@ -368,13 +238,29 @@ def test_submit_refuses_an_empty_form(greenhouse_form_capture: dict) -> None:
 def test_submit_requires_confirmation_to_claim_success(greenhouse_form_capture: dict) -> None:
     """A click that produces no confirmation must not be recorded as submitted."""
 
-    adapter, pages, _ = make_adapter(greenhouse_form_capture, confirm_after_submit=False)
+    adapter, pages, _ = make_adapter(answerable_capture(greenhouse_form_capture), captcha=False)
     adapter.dry_run = False
-    prepared = PreparedSubmission(url="https://example.test", filled={"#email": "a@b.c"})
+    job = build_job()
 
-    # The fake returns a generic page after the click, so no confirmation is found.
-    pages.clear()
-    receipt = adapter.submit(prepared)
+    # The fake keeps the form on screen after the click, so no confirmation is found.
+    with adapter.session(adapter.application_url(job)):
+        form = adapter.inspect(job)
+        package = _package_stub(
+            applicant_phone="(214) 555-0142",
+            applicant_country="United States",
+            employment=[
+                EmploymentEntry(
+                    employer="Meridian Aesthetics",
+                    title="Regional Sales Manager",
+                    start_date="Mar 2019",
+                    end_date="Present",
+                    is_current=True,
+                )
+            ],
+        )
+        prepared = adapter.prepare(package, form)
+        receipt = adapter.submit(prepared)
+    assert receipt.clicked is True
     assert receipt.submitted is False
     assert receipt.submitted_at is None
     assert receipt.error and "NOT recorded as submitted" in receipt.error
@@ -491,34 +377,6 @@ def test_approved_application_reaches_dry_run_and_does_not_claim_submission(
         assert application.submission_time is None
 
 
-def answerable_capture(capture: dict, *, answerable_keys: set[str] | None = None) -> dict:
-    """The captured form reduced to the fields this test can actually answer.
-
-    Derived from the real inventory rather than invented: the real Natera form asks
-    board-specific required questions ("Have you previously worked at Natera?") that
-    no memory can answer, so a submission-path test needs a form whose required
-    questions are all resolvable. Everything the adapter recognizes as a known
-    section (identity, employment, education) is kept.
-    """
-
-    from sabra_documents.answers import classify_question
-
-    answerable = answerable_keys or {"work_authorization"}
-    keep = []
-    for field in capture["fields"]:
-        identifier = (field.get("id") or "").lower()
-        label = field.get("label") or ""
-        if identifier.startswith("question_"):
-            if classify_question(label) in answerable:
-                keep.append(field)
-            continue
-        # Keep identity/file/employment/education fields, drop the phone-country
-        # widget and any unnamed inputs the enumerator could not identify.
-        if identifier and not identifier.startswith("iti-"):
-            keep.append(field)
-    return {**capture, "fields": keep, "captcha": False}
-
-
 def test_global_dry_run_lock_overrides_a_per_call_opt_in(
     prepared, greenhouse_form_capture: dict
 ) -> None:
@@ -580,8 +438,12 @@ def test_real_submission_on_a_captcha_form_is_handed_to_a_human_not_bypassed(pre
 
     with prepared.ctx.read_repos() as repos:
         application = repos.applications.get(prepared.application_id)
-        assert application.status == ApplicationStatus.WITHDRAWN.value
+        # Retryable, never terminal: an abandoned handoff is BLOCKED, not WITHDRAWN.
+        assert application.status == ApplicationStatus.BLOCKED.value
+        assert application.blocked_reason == "HANDOFF_ABANDONED"
         assert application.submission_time is None
+        opportunity = repos.opportunities.get(prepared.opportunity_id)
+        assert opportunity.status == JobStatus.APPROVED.value
         events = [
             e.event_type for e in repos.events.for_entity("application", prepared.application_id)
         ]
@@ -686,14 +548,14 @@ def test_a_confirmed_submission_is_recorded_with_its_confirmation(
         prepared.package_id, approved_by="test", acknowledge_unresolved=True
     )
 
-    class ConfirmingPage(FakeFormPage):
-        def body_text(self) -> str:
-            return "Thank you! Your application has been submitted."
-
+    # The employer confirms by leaving the form for its confirmation page.
     adapter = GreenhouseApplicationAdapter(
         dry_run=False,
-        page_factory=lambda _url: ConfirmingPage(
-            answerable_capture(greenhouse_form_capture), captcha=False
+        page_factory=lambda _url: FakeFormPage(
+            answerable_capture(greenhouse_form_capture),
+            captcha=False,
+            confirmation_url=GH_URL + "/confirmation",
+            confirmation_body="Thank you! Your application has been submitted.",
         ),
     )
     result = ExecutionService(prepared.ctx, registry=AdapterRegistry([adapter])).submit(

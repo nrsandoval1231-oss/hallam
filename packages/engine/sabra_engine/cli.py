@@ -8,6 +8,7 @@ JSON with `--json` so a run can be audited from a log.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -337,6 +338,27 @@ def packages_refresh(
         ctx.close()
 
 
+HANDOFF_ANSWERS = ("submitted", "abandoned", "failed")
+
+
+def prompt_for_outcome(ask: Any = None) -> str:
+    """Ask until the answer is one of submitted / abandoned / failed ('q' = abandoned).
+
+    A typo is asked again; it is never recorded as an outcome.
+    """
+
+    ask = ask or typer.prompt
+    while True:
+        raw = str(
+            ask("Outcome after you submit or leave the form (submitted/abandoned/failed, q)")
+        ).strip().lower()
+        if raw == "q":
+            return "abandoned"
+        if raw in HANDOFF_ANSWERS:
+            return raw
+        typer.echo("Please type submitted, abandoned, failed, or q (the same as abandoned).")
+
+
 @app.command("apply")
 def apply_command(
     application_id: str = typer.Argument(..., help="Approved application to submit or hand off"),
@@ -349,22 +371,71 @@ def apply_command(
 ) -> None:
     """Submit an approved application, or hand a challenged form to the person here.
 
-    Dry-run is the default: the form is filled and nothing is submitted. A CAPTCHA
-    is never solved by this process. With --real, a challenged form opens in a
-    visible browser for the person to solve and submit.
+    Dry-run is the default: nothing is opened, typed, uploaded or submitted, and the
+    result is a plan of what a real run would fill. A CAPTCHA is never solved by this
+    process. With --real, a challenged form opens in a visible browser for the person
+    to solve and submit, and you are asked for the outcome.
     """
 
     from .execution import ExecutionService
 
-    def prompt() -> str:
-        return typer.prompt("Outcome after you submit or leave the form (submitted/abandoned/failed)")
-
     ctx = _context()
     try:
-        result = ExecutionService(ctx, handoff_prompt=prompt).submit(
+        result = ExecutionService(ctx, handoff_prompt=prompt_for_outcome).submit(
             application_id, allow_real_submission=real
         )
         _emit(result.as_dict(), as_json, "Submission")
+    finally:
+        ctx.close()
+
+
+def prompt_for_forced_confirmation(application_id: str, ask: Any = None) -> str:
+    """Make the person type the application id back. `--yes` does not stand in for it."""
+
+    ask = ask or typer.prompt
+    return str(
+        ask(
+            "A forced report records an outcome without Sabra seeing it. "
+            f"Type the application id to confirm ({application_id})"
+        )
+    ).strip()
+
+
+@app.command("handoff-outcome")
+def handoff_outcome_command(
+    application_id: str = typer.Argument(..., help="Application left APPLYING after a handoff"),
+    outcome: str = typer.Argument(..., help="submitted, abandoned, or failed"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "For an attempt stuck APPLYING after a hard kill, when nothing will ever write "
+            "the event a normal report waits for. You must type the application id back. "
+            "Recorded as forced."
+        ),
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Report how a human handoff or an unconfirmed click ended.
+
+    This is the only way an application leaves APPLYING without the employer's
+    confirmation page. `abandoned` returns it to BLOCKED so it can be retried.
+    """
+
+    from .execution import ExecutionService
+
+    ctx = _context()
+    try:
+        service = ExecutionService(ctx)
+        if force:
+            status = service.force_report_handoff_outcome(
+                application_id,
+                outcome.strip().lower(),
+                confirm_id=prompt_for_forced_confirmation(application_id),
+            )
+        else:
+            status = service.report_handoff_outcome(application_id, outcome.strip().lower())
+        _emit(status, as_json, "Handoff")
     finally:
         ctx.close()
 
@@ -385,7 +456,9 @@ def main() -> None:
         # typer.echo, not Rich: a non-interactive capture still has to show the
         # database path instead of a traceback.
         typer.echo(f"{type(exc).__name__}: {text}")
-        raise typer.Exit(code=1) from exc
+        # sys.exit, not typer.Exit: this runs outside Click, where typer.Exit would
+        # surface as a second traceback.
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -12,8 +12,9 @@ import pytest
 from conftest_app import build_job
 from html_form import HtmlFormPage
 from sabra_automation.base import ApplicationForm, FormField
+from sabra_automation.confirmation import PageSnapshot, detect_confirmation
 from sabra_automation.greenhouse_adapter import GreenhouseApplicationAdapter
-from sabra_automation.handoff import HandoffResult, confirmation_in
+from sabra_automation.handoff import HandoffResult
 from sabra_automation.lever_adapter import LeverApplicationAdapter
 from sabra_domain.enums import (
     ApplicationStatus,
@@ -200,8 +201,35 @@ def test_captcha_fixture_is_not_submitted_and_a_failed_probe_is_a_challenge(prep
 
 
 def test_confirmation_page_counts_as_submitted_without_the_adapter_clicking() -> None:
-    assert confirmation_in("Thank you. Your application has been submitted.")
-    assert not confirmation_in("Please solve the puzzle")
+    """The person submitted; the page left the form for the employer's confirmation URL."""
+
+    class Page:
+        def __init__(self, url: str, body: str) -> None:
+            self._url, self._body = url, body
+
+        def current_url(self) -> str:
+            return self._url
+
+        def body_text(self) -> str:
+            return self._body
+
+        def evaluate(self, _script: str) -> int:
+            return 0  # no submit control and no form on the page any more
+
+    before = PageSnapshot(url_key="https://job-boards.greenhouse.io/acme/jobs/1", form_present=True)
+    confirmed = detect_confirmation(
+        Page("https://job-boards.greenhouse.io/acme/jobs/1/confirmation?x=1", "Thank you."),
+        "greenhouse",
+        before,
+    )
+    assert confirmed.confirmed
+    # A solve-the-puzzle page that happens to be a different URL is not a confirmation.
+    other = detect_confirmation(
+        Page("https://job-boards.greenhouse.io/acme/jobs/1/verify", "Please solve the puzzle"),
+        "greenhouse",
+        before,
+    )
+    assert not other.confirmed
 
 
 def test_unknown_required_field_blocks_with_a_named_reason() -> None:

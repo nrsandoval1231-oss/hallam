@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sabra_documents.answers import classify_question
-from sabra_domain.enums import SafetyStopKind, SourceKind, SubmissionMethod
+from sabra_domain.enums import SafetyStopKind, SourceKind
 from sabra_domain.errors import SafetyStop
 from sabra_domain.identity import sha256_text
 from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
@@ -30,6 +30,7 @@ from .greenhouse_adapter import (
     ENUMERATE_FIELDS_JS,
     GreenhouseApplicationAdapter,
     _matching_option,
+    describe_field,
 )
 from .playwright_driver import (
     CAPTCHA_SELECTORS,
@@ -89,61 +90,58 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         return "lever.co" in url
 
     def inspect(self, job: CanonicalJob | Any) -> ApplicationForm:
-        url = self._application_url(job)
-        page, session = self._open(url)
+        url = self.application_url(job)
+        with self._page_for(url) as page:
+            return self._inspect_lever_page(page, url)
+
+    def _inspect_lever_page(self, page: FormPage, url: str) -> ApplicationForm:
+        title = page.title()
+        body = page.body_text()
+        if looks_like_bot_wall(title, body):
+            raise SafetyStop(
+                SafetyStopKind.CAPTCHA,
+                f"the posting is behind a bot-protection interstitial ({title!r}); "
+                "a human must open and complete this application",
+                {"url": url, "title": title},
+            )
+        if looks_like_login_wall(body):
+            raise SafetyStop(
+                SafetyStopKind.IDENTITY_VERIFICATION,
+                "the application requires signing in or identity verification",
+                {"url": url},
+            )
+        raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
+        fields = [self._to_field(entry) for entry in raw_fields]
+        captcha_script = (
+            "() => { try { return "
+            f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
+            "; } catch (e) { return true; } }"
+        )
+        detection_failed = False
         try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"the posting is behind a bot-protection interstitial ({title!r}); "
-                    "a human must open and complete this application",
-                    {"url": url, "title": title},
-                )
-            if looks_like_login_wall(body):
-                raise SafetyStop(
-                    SafetyStopKind.IDENTITY_VERIFICATION,
-                    "the application requires signing in or identity verification",
-                    {"url": url},
-                )
-            raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
-            fields = [self._to_field(entry) for entry in raw_fields]
-            captcha_script = (
-                "() => { try { return "
-                f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
-                "; } catch (e) { return true; } }"
+            captcha_present = bool(page.evaluate(captcha_script))
+        except Exception:  # noqa: BLE001
+            captcha_present = True
+            detection_failed = True
+        submit_selector = self._find_submit_selector(page, fields)
+        if not _looks_like_lever_form(title, fields, submit_selector):
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "the page could not be confirmed as a Lever application form "
+                f"(title {title!r}, {len(fields)} field(s))",
+                {"url": page.current_url() or url, "title": title},
             )
-            detection_failed = False
-            try:
-                captcha_present = bool(page.evaluate(captcha_script))
-            except Exception:  # noqa: BLE001
-                captcha_present = True
-                detection_failed = True
-            submit_selector = self._find_submit_selector(page, fields)
-            if not _looks_like_lever_form(title, fields, submit_selector):
-                raise SafetyStop(
-                    SafetyStopKind.MATERIAL_AMBIGUITY,
-                    "the page could not be confirmed as a Lever application form "
-                    f"(title {title!r}, {len(fields)} field(s))",
-                    {"url": page.current_url() or url, "title": title},
-                )
-            self._last_page = page
-            return ApplicationForm(
-                url=page.current_url() or url,
-                fields=fields,
-                has_captcha=captcha_present,
-                challenge_detection_failed=detection_failed,
-                has_file_upload=any(f.kind == "file" for f in fields),
-                submit_selector=submit_selector,
-                page_hash=sha256_text(title + "|" + str(len(fields))),
-                title=title,
-                inspected_at=datetime.now(UTC),
-            )
-        finally:
-            if session is not None:
-                self._close(session)
-                self._last_page = None
+        return ApplicationForm(
+            url=page.current_url() or url,
+            fields=fields,
+            has_captcha=captcha_present,
+            challenge_detection_failed=detection_failed,
+            has_file_upload=any(f.kind == "file" for f in fields),
+            submit_selector=submit_selector,
+            page_hash=sha256_text(title + "|" + str(len(fields))),
+            title=title,
+            inspected_at=datetime.now(UTC),
+        )
 
     def apply_to_page(
         self,
@@ -206,7 +204,7 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
             if field.kind == "file":
                 if not (package.tailored_resume_markdown or "").strip():
                     unknown_required.append(
-                        f"{field.label or field.name}: no tailored résumé is available to upload"
+                        f"{describe_field(field)}: no tailored résumé is available to upload"
                     )
                 else:
                     mapped[field.name] = "resume"
@@ -217,7 +215,7 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
                 continue
             if lever_key:
                 unknown_required.append(
-                    f"{field.label or field.name}: no verified candidate value"
+                    f"{describe_field(field)}: no verified candidate value"
                 )
                 continue
             key = field.question_key or classify_question(field.label or "")
@@ -228,7 +226,7 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
             if key:
                 unanswered.append(field.label or field.name)
                 continue
-            unknown_required.append(field.label or field.name)
+            unknown_required.append(describe_field(field))
 
         if unanswered:
             stops.append(
@@ -257,53 +255,17 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
             notes=["answers were drawn only from candidate-verified data"],
         )
 
-    def _application_url(self, job: Any) -> str:
+    def application_url(self, job: Any) -> str:
         url = str(getattr(job, "source_url", "") or "")
         if "lever.co" in url:
             return url if url.rstrip("/").endswith("/apply") else url.rstrip("/") + "/apply"
         return url
 
     def submit(self, prepared: PreparedSubmission) -> SubmissionReceipt:
-        self.require_opt_in()
-        if not prepared.filled and not prepared.files:
-            raise SafetyStop(SafetyStopKind.MATERIAL_AMBIGUITY, "refusing to submit an empty form")
-        page, session = self._open(prepared.url)
-        try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"bot-protection interstitial appeared at submission time ({title!r})",
-                    {"url": prepared.url},
-                )
-            page.click(SUBMIT_SELECTORS[0])
-            page.wait(1000)
-            after_body = page.body_text()
-            confirmed = any(
-                signal in after_body.lower()
-                for signal in ("thank you", "application submitted", "we received", "submitted")
-            )
-            return SubmissionReceipt(
-                submitted=confirmed,
-                method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
-                external_confirmation={
-                    "url": page.current_url(),
-                    "page_title": page.title(),
-                    "confirmation_detected": confirmed,
-                    "form_url": prepared.url,
-                },
-                confirmation_text=after_body[:2000] if confirmed else None,
-                submitted_at=datetime.now(UTC) if confirmed else None,
-                error=None
-                if confirmed
-                else "no confirmation was detected on the page after submitting; "
-                "the application is NOT recorded as submitted",
-                dry_run=False,
-            )
-        finally:
-            if session is not None:
-                self._close(session)
+        """Click submit on the page `prepare` filled. Confirmation is the Lever
+        `/thanks` page, decided by `detect_confirmation`, never by body keywords."""
+
+        return self._submit_live(prepared, settle_ms=4000, capture_evidence=True)
 
 
 def _looks_like_lever_form(title: str, fields: list[FormField], submit_selector: str | None) -> bool:
@@ -343,6 +305,13 @@ def _lever_values(package: ApplicationPackageSchema) -> dict[str, str]:
         values["org"] = package.employment[0].employer
     if package.cover_letter:
         values["comments"] = package.cover_letter
+    # Verified answers may supply identity the package fields lack. Nothing is read
+    # out of the résumé text.
+    for answer in package.answers:
+        if not answer.answer or answer.requires_user_input:
+            continue
+        if answer.question_key in {"name", "email", "phone"}:
+            values.setdefault(answer.question_key, str(answer.answer))
     return values
 
 

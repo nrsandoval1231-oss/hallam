@@ -107,7 +107,12 @@ APPLICATION_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] =
     ApplicationStatus.APPLYING: frozenset(
         {ApplicationStatus.APPLIED, ApplicationStatus.FAILED, ApplicationStatus.BLOCKED}
     ),
-    # BLOCKED is recoverable: a human resolved the blocker and the attempt resumes.
+    # BLOCKED is recoverable: a human resolved the blocker and the attempt resumes
+    # (BLOCKED -> APPLYING, re-authorised and claimed again). An abandoned or timed-out
+    # human handoff lands here, never in WITHDRAWN. There is deliberately no
+    # BLOCKED -> AWAITING_APPROVAL edge: with it `application_path` would find
+    # APPROVED -> APPLYING -> BLOCKED -> AWAITING_APPROVAL, a way back into the
+    # approval queue that does not pass through `revoke=True`.
     ApplicationStatus.BLOCKED: frozenset(
         {ApplicationStatus.APPLYING, ApplicationStatus.WITHDRAWN, ApplicationStatus.FAILED}
     ),

@@ -1,27 +1,36 @@
 """Automation adapter contract (requirement 36).
 
-`supports / inspect / prepare / validate / submit / capture_confirmation`, with the
-browser isolated behind this interface.
+`supports / inspect / prepare / validate / submit`, with the browser isolated behind
+this interface.
 
-Two properties are enforced here rather than in the adapter implementations, so no
-individual adapter can weaken them:
+Properties enforced here rather than in the adapter implementations, so no individual
+adapter can weaken them:
 
-* `submit` takes an approval and re-verifies it against the live package hash. There
-  is no code path to a submission that skips this.
+* The adapter owns exactly one live browser page per run (`session`). Inspect, prepare,
+  validate and submit all act on that same page, and `submit` refuses unless that page
+  is the one `prepare` filled. A click can never land on a fresh, empty form.
 * A dry run is the default. `submit` refuses to act unless the caller has explicitly
   opted in, so the safe behaviour is the one you get by not asking.
+
+Approval is not checked here: an adapter never sees an approval. The execution service
+re-verifies the hash-bound approval and claims the application in one transaction
+before any adapter is touched.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from sabra_domain.enums import SafetyStopKind, SubmissionMethod
-from sabra_domain.errors import ApprovalRequired, ApprovalScopeMismatch, SafetyStop
+from sabra_domain.errors import ApprovalRequired, SafetyStop
 from sabra_domain.schemas import ApplicationPackageSchema, CanonicalJob
+
+from .confirmation import normalize_url
 
 
 @dataclass(slots=True)
@@ -36,6 +45,9 @@ class FormField:
     selector: str | None = None
     question_key: str | None = None
     value_source: str | None = None
+    # Text near an unlabelled control. Shown to a human by `describe_field`; never used
+    # to classify the field, because container text is not the field's own question.
+    context: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +59,7 @@ class FormField:
             "selector": self.selector,
             "question_key": self.question_key,
             "value_source": self.value_source,
+            "context": self.context,
         }
 
 
@@ -130,6 +143,10 @@ class PreparedSubmission:
     skipped: list[str] = field(default_factory=list)
     prepared_at: datetime | None = None
     dry_run: bool = True
+    # The control `inspect` found; the only thing `submit` will click.
+    submit_selector: str | None = None
+    # Required, non-file fields that prepare could not fill. Any entry blocks the click.
+    unfilled_required: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +156,8 @@ class PreparedSubmission:
             "skipped": self.skipped,
             "prepared_at": self.prepared_at.isoformat() if self.prepared_at else None,
             "dry_run": self.dry_run,
+            "submit_selector": self.submit_selector,
+            "unfilled_required": self.unfilled_required,
         }
 
 
@@ -148,6 +167,9 @@ class SubmissionReceipt:
 
     submitted: bool
     method: SubmissionMethod
+    # True once the submit control was clicked. A receipt that clicked but is not
+    # `submitted` is UNCONFIRMED: the employer may have received it.
+    clicked: bool = False
     external_confirmation: dict[str, Any] = field(default_factory=dict)
     confirmation_text: str | None = None
     evidence_paths: list[str] = field(default_factory=list)
@@ -158,6 +180,7 @@ class SubmissionReceipt:
     def as_dict(self) -> dict[str, Any]:
         return {
             "submitted": self.submitted,
+            "clicked": self.clicked,
             "method": str(self.method),
             "external_confirmation": self.external_confirmation,
             "confirmation_text": self.confirmation_text,
@@ -168,14 +191,146 @@ class SubmissionReceipt:
         }
 
 
+class ClaimLost(SafetyStop):
+    """The application stopped being APPLYING before the click; nothing was clicked."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(SafetyStopKind.MATERIAL_AMBIGUITY, message)
+
+
 class ApplicationAdapter(ABC):
     """One supported application workflow (requirement 36)."""
 
     kind: str = "base"
 
-    def __init__(self, *, dry_run: bool = True, settings: Any = None) -> None:
+    def __init__(
+        self, *, dry_run: bool = True, settings: Any = None, page_factory: Any = None
+    ) -> None:
         self.dry_run = dry_run
         self.settings = settings
+        # Test seam: `page_factory(url)` returns a ready `FormPage`. It is called once
+        # per `session`, never once per operation.
+        self._page_factory = page_factory
+        self._page: Any = None
+        self._page_closer: Callable[[], None] | None = None
+        self._filled_page: Any = None
+        self.click_attempted = False
+        # Set by the execution service for a run: called immediately before the click,
+        # returns False if the application is no longer the caller's to submit.
+        self.pre_click_check: Callable[[], bool] | None = None
+
+    # -- browser session ------------------------------------------------
+
+    @contextmanager
+    def session(self, url: str) -> Iterator[Any]:
+        """Open the one live page for this run and close it on exit.
+
+        Inside the block, `inspect`, `prepare` and `submit` reuse this page. Nothing
+        else opens a page for a submission, which is what makes "the form that was
+        filled is the form that is submitted" a property of the adapter and not of
+        its callers.
+        """
+
+        if self._page is not None:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "a browser session is already open for this adapter",
+                {"url": url},
+            )
+        # Reset first: a failed open must not inherit the last run's flag.
+        self.click_attempted = False
+        page, closer = self._open_page(url)
+        self._page = page
+        self._page_closer = closer
+        self._filled_page = None
+        try:
+            yield page
+        finally:
+            self._release_page()
+
+    def _release_page(self) -> None:
+        closer = self._page_closer
+        self._page = None
+        self._page_closer = None
+        self._filled_page = None
+        self.pre_click_check = None
+        if closer is not None:
+            # Teardown must not mask the error that ended the run.
+            with suppress(Exception):
+                closer()
+
+    @contextmanager
+    def _page_for(self, url: str) -> Iterator[Any]:
+        """The live session page if there is one, else a one-shot session for `url`."""
+
+        if self._page is not None:
+            yield self._page
+            return
+        with self.session(url) as page:
+            yield page
+
+    def _open_page(self, url: str) -> tuple[Any, Callable[[], None] | None]:
+        """Return `(page, closer)`. A failed open still releases the browser."""
+
+        if self._page_factory is not None:
+            page = self._page_factory(url)
+            return page, getattr(page, "close", None)
+        if self.dry_run:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "dry run will not open an employer form or type into it",
+                {"url": url},
+            )
+
+        from .playwright_driver import BrowserSession
+
+        headless = True
+        timeout_ms = 30_000
+        user_agent = None
+        if self.settings is not None:
+            headless = bool(getattr(self.settings, "playwright_headless", True))
+            timeout_ms = int(getattr(self.settings, "playwright_timeout_ms", 30_000))
+            user_agent = getattr(self.settings, "discovery_user_agent", None)
+        browser = BrowserSession(headless=headless, timeout_ms=timeout_ms, user_agent=user_agent)
+        browser.__enter__()
+        try:
+            page = browser.new_page()
+            page.open(url)
+        except BaseException:
+            browser.close()
+            raise
+
+        def close_all() -> None:
+            with suppress(Exception):
+                page.close()
+            browser.close()
+
+        return page, close_all
+
+    def application_url(self, job: CanonicalJob | Any) -> str:
+        """The URL of the application form for a posting."""
+
+        return str(getattr(job, "source_url", "") or "")
+
+    def _require_live_page(self, url: str) -> Any:
+        """The session page, refusing if it has moved off the form `url` names."""
+
+        page = self._page
+        if page is None:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "no live browser session is open; use `with adapter.session(url):`",
+                {"url": url},
+            )
+        current = page.current_url()
+        if current and normalize_url(current) != normalize_url(url):
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "the live page is no longer the form that was inspected "
+                f"({current!r} is not {url!r})",
+                {"url": url, "current_url": current},
+            )
+        return page
 
     # -- contract -------------------------------------------------------
 
@@ -195,11 +350,8 @@ class ApplicationAdapter(ABC):
 
     @abstractmethod
     def submit(self, prepared: PreparedSubmission) -> SubmissionReceipt:
-        """Submit. Only ever called with a validated, approved package."""
-
-    @abstractmethod
-    def capture_confirmation(self) -> dict[str, Any]:
-        """Read back whatever the employer showed after submission."""
+        """Submit. Only ever called with a validated, approved package, on the page
+        `prepare` filled in this session."""
 
     # -- shared safety --------------------------------------------------
 
@@ -251,21 +403,6 @@ class ApplicationAdapter(ABC):
             # recorded so the caller can see it was considered.
             pass
         return stops
-
-    def require_approval(
-        self, package: ApplicationPackageSchema, *, approved_hash: str | None
-    ) -> None:
-        """Refuse to proceed without an approval bound to this exact content."""
-
-        if not approved_hash:
-            raise ApprovalRequired(
-                "no approval is bound to this package; the adapter will not submit"
-            )
-        expected = package.content_hash
-        if approved_hash != expected:
-            raise ApprovalScopeMismatch(
-                f"approved hash {approved_hash} does not match package hash {expected}"
-            )
 
     def require_opt_in(self) -> None:
         """A dry run needs no opt-in; a real submission does, explicitly."""

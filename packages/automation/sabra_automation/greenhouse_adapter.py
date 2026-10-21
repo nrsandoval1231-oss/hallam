@@ -26,6 +26,7 @@ there deliberately.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,11 +39,13 @@ from sabra_domain.schemas import ApplicationAnswerSchema, ApplicationPackageSche
 from .base import (
     ApplicationAdapter,
     ApplicationForm,
+    ClaimLost,
     FormField,
     PreparedSubmission,
     SubmissionReceipt,
     ValidationReport,
 )
+from .confirmation import detect_confirmation, take_snapshot
 from .history import plan_greenhouse_field
 from .playwright_driver import (
     CAPTCHA_SELECTORS,
@@ -113,6 +116,7 @@ ENUMERATE_FIELDS_JS = """
     const key = id || (el.getAttribute('name') || '') + '|' + el.tagName + '|' + (el.getAttribute('type') || '');
     if (seen.has(key)) return;
     seen.add(key);
+    const index = out.length;
     let label = null;
     if (el.id) {
       const escaped = (window.CSS && CSS.escape) ? CSS.escape(el.id) : el.id;
@@ -129,8 +133,18 @@ ENUMERATE_FIELDS_JS = """
     if (tag === 'select') type = 'select';
     else if (tag === 'textarea') type = 'textarea';
     else if (!type) type = 'text';
+    let context = null;
+    const holder = el.closest('fieldset, [class*="field"], [class*="question"], div');
+    if (holder && holder.innerText) {
+      context = holder.innerText.replace(/\\s+/g, ' ').trim().slice(0, 120) || null;
+    }
     out.push({
       id: id,
+      name: el.getAttribute('name') || null,
+      ariaLabel: el.getAttribute('aria-label') || null,
+      autocomplete: el.getAttribute('autocomplete') || null,
+      index: index,
+      context: context,
       tag: tag,
       type: type,
       required: !!(el.required || el.getAttribute('aria-required') === 'true'),
@@ -143,6 +157,53 @@ ENUMERATE_FIELDS_JS = """
   return out;
 }
 """
+
+
+_PLAIN_ID = re.compile(r"^[A-Za-z_][\w-]*$")
+
+
+def _css_attr(value: str) -> str:
+    """Escape a value for a double-quoted CSS attribute selector.
+
+    A raw newline is a syntax error inside a CSS string; `\a ` is its escape.
+    """
+
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r", "")
+        .replace("\n", "\\a ")
+    )
+
+
+def _count_matches(page: Any, selector: str) -> int:
+    value = page.evaluate("() => document.querySelectorAll(" + repr(selector) + ").length")
+    return int(value or 0)
+
+
+def field_selector(entry: dict[str, Any]) -> str | None:
+    """A selector for an enumerated field: `#id`, else `[name]`, else `[aria-label]`."""
+
+    identifier = entry.get("id")
+    if identifier:
+        if _PLAIN_ID.match(str(identifier)):
+            return f"#{identifier}"
+        return f'[id="{_css_attr(str(identifier))}"]'
+    if entry.get("name"):
+        return f'[name="{_css_attr(str(entry["name"]))}"]'
+    if entry.get("ariaLabel"):
+        return f'[aria-label="{_css_attr(str(entry["ariaLabel"]))}"]'
+    return None
+
+
+def describe_field(field: FormField) -> str:
+    """How a blocked field is named in a report: always something findable."""
+
+    if field.label and field.label.strip() and field.label.strip() != field.name:
+        return f"{field.label.strip()} [{field.name}]"
+    if field.context and field.name.startswith("unnamed-"):
+        return f"{field.name} (near: {field.context.strip()[:80]})"
+    return field.name
 
 
 def _matching_option(options: list[str], value: str) -> str | None:
@@ -219,46 +280,8 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         page_factory: Any = None,
         evidence_dir: Any = None,
     ) -> None:
-        super().__init__(dry_run=dry_run, settings=settings)
-        self._page_factory = page_factory
+        super().__init__(dry_run=dry_run, settings=settings, page_factory=page_factory)
         self._evidence_dir = evidence_dir
-        self._last_page: FormPage | None = None
-        self._last_receipt: SubmissionReceipt | None = None
-
-    # -- session handling -----------------------------------------------
-
-    def _open(self, url: str) -> tuple[FormPage, Any]:
-        """Return `(page, closer)`. A page factory supplied by the caller (tests) is
-        not closed by the adapter, because the caller owns its lifetime."""
-
-        if self._page_factory is not None:
-            page = self._page_factory(url)
-            return page, None
-        if self.dry_run:
-            raise SafetyStop(
-                SafetyStopKind.MATERIAL_AMBIGUITY,
-                "dry run will not open an employer form or type into it",
-                {"url": url},
-            )
-
-        from .playwright_driver import BrowserSession
-
-        headless = True
-        timeout_ms = 30_000
-        user_agent = None
-        if self.settings is not None:
-            headless = bool(getattr(self.settings, "playwright_headless", True))
-            timeout_ms = int(getattr(self.settings, "playwright_timeout_ms", 30_000))
-            user_agent = getattr(self.settings, "discovery_user_agent", None)
-        session = BrowserSession(headless=headless, timeout_ms=timeout_ms, user_agent=user_agent)
-        session.__enter__()
-        page = session.new_page()
-        page.open(url)
-        return page, session
-
-    def _close(self, session: Any) -> None:
-        if session is not None:
-            session.close()
 
     # -- contract -------------------------------------------------------
 
@@ -269,104 +292,116 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         return "greenhouse.io" in url
 
     def inspect(self, job: CanonicalJob | Any) -> ApplicationForm:
-        url = self._application_url(job)
-        page, session = self._open(url)
+        url = self.application_url(job)
+        with self._page_for(url) as page:
+            return self._inspect_page(page, url)
+
+    def _inspect_page(self, page: FormPage, url: str) -> ApplicationForm:
+        title = page.title()
+        body = page.body_text()
+        if looks_like_bot_wall(title, body):
+            raise SafetyStop(
+                SafetyStopKind.CAPTCHA,
+                f"the posting is behind a bot-protection interstitial ({title!r}); "
+                "a human must open and complete this application",
+                {"url": url, "title": title},
+            )
+        if looks_like_login_wall(body):
+            raise SafetyStop(
+                SafetyStopKind.IDENTITY_VERIFICATION,
+                "the application requires signing in or identity verification",
+                {"url": url},
+            )
+
+        raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
+        fields = [self._to_field(entry) for entry in raw_fields]
+        # JSON-encoded, not hand-quoted: interpolating CSS selectors that contain
+        # double quotes produced `["iframe[src*="recaptcha"]", ...]`, which is a
+        # JavaScript syntax error. Playwright surfaced it as
+        # "SyntaxError: Unexpected identifier 'recaptcha'".
+        captcha_script = (
+            "() => { try { return "
+            f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
+            "; } catch (e) { return true; } }"
+        )
+        detection_failed = False
         try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"the posting is behind a bot-protection interstitial ({title!r}); "
-                    "a human must open and complete this application",
-                    {"url": url, "title": title},
-                )
-            if looks_like_login_wall(body):
-                raise SafetyStop(
-                    SafetyStopKind.IDENTITY_VERIFICATION,
-                    "the application requires signing in or identity verification",
-                    {"url": url},
-                )
+            captcha_present = bool(page.evaluate(captcha_script))
+        except Exception:  # noqa: BLE001 - a failed probe is a challenge, not a pass
+            captcha_present = True
+            detection_failed = True
+        attestations = [
+            f.label or ""
+            for f in fields
+            if f.label and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
+        ]
+        submit_selector = self._find_submit_selector(page, fields)
 
-            raw_fields = page.evaluate(ENUMERATE_FIELDS_JS) or []
-            fields = [self._to_field(entry) for entry in raw_fields]
-            # JSON-encoded, not hand-quoted: interpolating CSS selectors that contain
-            # double quotes produced `["iframe[src*="recaptcha"]", ...]`, which is a
-            # JavaScript syntax error. Playwright surfaced it as
-            # "SyntaxError: Unexpected identifier 'recaptcha'".
-            captcha_script = (
-                "() => { try { return "
-                f"{json.dumps(list(CAPTCHA_SELECTORS))}.some(s => !!document.querySelector(s))"
-                "; } catch (e) { return true; } }"
+        # Confirm we are actually looking at an application form before doing
+        # anything with it. Measured live: a board served a cookie-consent overlay
+        # whose only field was the consent widget, and the adapter accepted it as
+        # the form. A consent page has no required fields, so validation would
+        # have returned ok=True and the service would have proceeded to "prepare"
+        # — and with a real submission enabled, to click — something that is not
+        # the application form.
+        if not looks_like_application_form(title, fields, submit_selector):
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "the page could not be confirmed as an application form "
+                f"(title {title!r}, {len(fields)} field(s), "
+                f"submit control {'found' if submit_selector else 'not found'}); "
+                "a human must open this posting and complete it. The page is "
+                "usually a consent or bot interstitial in front of the form",
+                {
+                    "url": page.current_url() or url,
+                    "title": title,
+                    "field_names": [f.name for f in fields][:10],
+                },
             )
-            detection_failed = False
-            try:
-                captcha_present = bool(page.evaluate(captcha_script))
-            except Exception:  # noqa: BLE001 - a failed probe is a challenge, not a pass
-                captcha_present = True
-                detection_failed = True
-            attestations = [
-                f.label or ""
-                for f in fields
-                if f.label and any(signal in f.label.lower() for signal in ATTESTATION_SIGNALS)
-            ]
-            submit_selector = self._find_submit_selector(page, fields)
 
-            # Confirm we are actually looking at an application form before doing
-            # anything with it. Measured live: a board served a cookie-consent overlay
-            # whose only field was the consent widget, and the adapter accepted it as
-            # the form. A consent page has no required fields, so validation would
-            # have returned ok=True and the service would have proceeded to "prepare"
-            # — and with a real submission enabled, to click — something that is not
-            # the application form.
-            if not looks_like_application_form(title, fields, submit_selector):
-                raise SafetyStop(
-                    SafetyStopKind.MATERIAL_AMBIGUITY,
-                    "the page could not be confirmed as an application form "
-                    f"(title {title!r}, {len(fields)} field(s), "
-                    f"submit control {'found' if submit_selector else 'not found'}); "
-                    "a human must open this posting and complete it. The page is "
-                    "usually a consent or bot interstitial in front of the form",
-                    {
-                        "url": page.current_url() or url,
-                        "title": title,
-                        "field_names": [f.name for f in fields][:10],
-                    },
-                )
-
-            self._last_page = page
-            return ApplicationForm(
-                url=page.current_url() or url,
-                fields=fields,
-                has_captcha=captcha_present,
-                challenge_detection_failed=detection_failed,
-                requires_login=False,
-                has_file_upload=any(f.kind == "file" for f in fields),
-                attestations=attestations,
-                submit_selector=submit_selector,
-                page_hash=sha256_text(title + "|" + str(len(fields))),
-                title=title,
-                inspected_at=datetime.now(UTC),
-            )
-        finally:
-            if session is not None:
-                self._close(session)
-                self._last_page = None
+        return ApplicationForm(
+            url=page.current_url() or url,
+            fields=fields,
+            has_captcha=captcha_present,
+            challenge_detection_failed=detection_failed,
+            requires_login=False,
+            has_file_upload=any(f.kind == "file" for f in fields),
+            attestations=attestations,
+            submit_selector=submit_selector,
+            page_hash=sha256_text(title + "|" + str(len(fields))),
+            title=title,
+            inspected_at=datetime.now(UTC),
+        )
 
     def prepare(
         self, package: ApplicationPackageSchema, form: ApplicationForm
     ) -> PreparedSubmission:
-        """Fill recognised fields. Does not submit.
+        """Fill recognised fields on the live session page. Does not submit.
 
         Identity, employment, education, the résumé, and verified answers are typed.
-        A required field with no verified value is left blank and named.
+        A required field with no verified value is left blank and named. Inside
+        `session()` this is the page `inspect` read and the page `submit` will click;
+        outside a session it is a one-shot fill that is discarded and can never be
+        submitted.
         """
 
         url = form.url
-        page, session = self._open(url)
-        try:
+        in_session = self._page is not None
+        if not in_session and self._page_factory is None:
+            # Typing and uploading into a page that is then thrown away is never
+            # useful, and with a real browser it is a side effect on the employer's
+            # site. Reading (`inspect`) outside a session is allowed; filling is not.
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "prepare needs a live session: open one with `with adapter.session(url):`",
+                {"url": url},
+            )
+        with self._page_for(url) as page:
+            if in_session:
+                self._require_live_page(url)
             filled, skipped = self.apply_to_page(page, package, form)
-            self._last_page = page
+            if in_session:
+                self._filled_page = page
             return PreparedSubmission(
                 url=url,
                 filled=filled,
@@ -374,10 +409,31 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 skipped=skipped,
                 prepared_at=datetime.now(UTC),
                 dry_run=self.dry_run,
+                submit_selector=form.submit_selector,
+                unfilled_required=self._unfilled_required(package, form, filled),
             )
-        finally:
-            if session is not None:
-                self._close(session)
+
+    @staticmethod
+    def _unfilled_required(
+        package: ApplicationPackageSchema, form: ApplicationForm, filled: dict[str, str]
+    ) -> list[str]:
+        """Required non-file fields that were left empty and are not empty on purpose.
+
+        A history field the plan deliberately leaves blank (the end date of a current
+        role) is covered; anything else that is required and untouched blocks the click.
+        """
+
+        missing: list[str] = []
+        for field in form.fields:
+            if not field.required or field.kind == "file":
+                continue
+            if field.name in filled or (field.question_key and field.question_key in filled):
+                continue
+            plan = plan_greenhouse_field(field.name, package.employment, package.education)
+            if plan is not None and plan.covered and plan.action == "blank":
+                continue
+            missing.append(describe_field(field))
+        return missing
 
     def apply_to_page(
         self,
@@ -466,7 +522,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             if field.kind == "file":
                 if "resume" in field.name.lower() and not (package.tailored_resume_markdown or "").strip():
                     unknown_required.append(
-                        f"{field.label or field.name}: no tailored résumé is available to upload"
+                        f"{describe_field(field)}: no tailored résumé is available to upload"
                     )
                 elif (package.tailored_resume_markdown or "").strip() and "resume" in field.name.lower():
                     mapped[field.name] = "resume"
@@ -482,7 +538,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                     mapped[field.name] = "identity"
                 else:
                     unknown_required.append(
-                        f"{field.label or field.name}: no verified candidate value"
+                        f"{describe_field(field)}: no verified candidate value"
                     )
                 continue
             plan = plan_greenhouse_field(field.name, package.employment, package.education)
@@ -490,7 +546,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 if plan.covered:
                     mapped[field.name] = plan.section
                 else:
-                    unknown_required.append(plan.reason or field.label or field.name)
+                    unknown_required.append(plan.reason or describe_field(field))
                 continue
             key = field.question_key or classify_question(field.label or "")
             answer = self._answer_text(package, key) if key else None
@@ -500,7 +556,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             if key:
                 unanswered.append(field.label or field.name)
                 continue
-            unknown_required.append(field.label or field.name)
+            unknown_required.append(describe_field(field))
 
         if unanswered:
             stops.append(
@@ -534,7 +590,26 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         )
 
     def submit(self, prepared: PreparedSubmission) -> SubmissionReceipt:
-        """Click submit. Only reachable with a validated, approved, opt-in submission."""
+        """Click submit on the page `prepare` filled. Only reachable with a validated,
+        approved, opt-in submission."""
+
+        return self._submit_live(prepared, settle_ms=6000, capture_evidence=True)
+
+    def _submit_live(
+        self,
+        prepared: PreparedSubmission,
+        *,
+        settle_ms: int,
+        capture_evidence: bool,
+    ) -> SubmissionReceipt:
+        """Shared by the Greenhouse and Lever adapters.
+
+        Refuses unless the live session page is the one `prepare` filled, every
+        required field was filled, and the control `inspect` found matches exactly one
+        element. Whether the employer confirmed is decided by `detect_confirmation`,
+        never by body keywords. A click with no confirmation is returned as
+        `clicked=True, submitted=False`.
+        """
 
         self.require_opt_in()
         if not prepared.filled and not prepared.files:
@@ -542,69 +617,114 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 SafetyStopKind.MATERIAL_AMBIGUITY,
                 "refusing to submit an empty form",
             )
+        page = self._page
+        if page is None or self._filled_page is not page:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "refusing to submit: there is no live browser page that prepare filled in "
+                "this session, so there is no form to click",
+                {"url": prepared.url},
+            )
+        self._require_live_page(prepared.url)
+        if prepared.unfilled_required:
+            raise SafetyStop(
+                SafetyStopKind.UNKNOWN_REQUIRED_QUESTION,
+                "refusing to submit: required fields were left empty: "
+                + "; ".join(prepared.unfilled_required[:8]),
+                {"fields": prepared.unfilled_required},
+            )
+        submit_selector = prepared.submit_selector
+        if not submit_selector:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "refusing to submit: inspect did not find a submit control",
+                {"url": prepared.url},
+            )
+        matches = _count_matches(page, submit_selector)
+        if matches != 1:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                f"refusing to submit: {submit_selector!r} matches {matches} elements, not one",
+                {"url": prepared.url, "selector": submit_selector, "matches": matches},
+            )
 
-        page, session = self._open(prepared.url)
         evidence: list[str] = []
-        try:
-            title = page.title()
-            body = page.body_text()
-            if looks_like_bot_wall(title, body):
-                raise SafetyStop(
-                    SafetyStopKind.CAPTCHA,
-                    f"bot-protection interstitial appeared at submission time ({title!r})",
-                    {"url": prepared.url},
-                )
+        title = page.title()
+        body = page.body_text()
+        if looks_like_bot_wall(title, body):
+            raise SafetyStop(
+                SafetyStopKind.CAPTCHA,
+                f"bot-protection interstitial appeared at submission time ({title!r})",
+                {"url": prepared.url},
+            )
+        before = take_snapshot(page, self.kind)
+        if not before.form_present:
+            raise SafetyStop(
+                SafetyStopKind.MATERIAL_AMBIGUITY,
+                "refusing to submit: the application form is not on the page",
+                {"url": prepared.url},
+            )
+        if capture_evidence:
             screenshot = self._capture(page, "before_submit")
             if screenshot:
                 evidence.append(screenshot)
 
-            page.click(SUBMIT_SELECTORS[0])
-            page.wait(6000)
-
-            after_title = page.title()
-            after_url = page.current_url()
-            after_body = page.body_text()
-            screenshot = self._capture(page, "after_submit")
-            if screenshot:
-                evidence.append(screenshot)
-
-            confirmed = any(
-                signal in after_body.lower()
-                for signal in ("thank you", "application submitted", "we received", "submitted")
+        if self.pre_click_check is not None and not self.pre_click_check():
+            raise ClaimLost(
+                "the application is no longer APPLYING under this run, so nothing was clicked"
             )
-            self._last_page = page
-            receipt = SubmissionReceipt(
-                submitted=confirmed,
+
+        # From here the employer may have received the application, so nothing below
+        # may raise: any failure is reported as an unconfirmed click.
+        self.click_attempted = True
+        try:
+            page.click(submit_selector)
+            page.wait(settle_ms)
+            confirmation = detect_confirmation(page, self.kind, before)
+            after_url = page.current_url()
+            after_title = page.title()
+            if capture_evidence:
+                screenshot = self._capture(page, "after_submit")
+                if screenshot:
+                    evidence.append(screenshot)
+        except Exception as exc:  # noqa: BLE001 - the click may have gone through
+            return SubmissionReceipt(
+                submitted=False,
+                clicked=True,
                 method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
-                external_confirmation={
-                    "url": after_url,
-                    "page_title": after_title,
-                    "confirmation_detected": confirmed,
-                    "form_url": prepared.url,
-                },
-                confirmation_text=after_body[:2000] if confirmed else None,
+                external_confirmation={"form_url": prepared.url, "confirmation_detected": False},
                 evidence_paths=evidence,
-                submitted_at=datetime.now(UTC) if confirmed else None,
-                error=None
-                if confirmed
-                else "no confirmation was detected on the page after submitting; "
-                "the application is NOT recorded as submitted",
+                error=f"the submit click was attempted but the result could not be read ({exc}); "
+                "the application is NOT recorded as submitted and must be checked by a person",
                 dry_run=False,
             )
-            self._last_receipt = receipt
-            return receipt
-        finally:
-            if session is not None:
-                self._close(session)
 
-    def capture_confirmation(self) -> dict[str, Any]:
-        if self._last_receipt is None:
-            return {"captured": False, "reason": "no submission has been performed in this session"}
-        return {"captured": True, **self._last_receipt.as_dict()}
+        confirmed = confirmation.confirmed
+        return SubmissionReceipt(
+            submitted=confirmed,
+            clicked=True,
+            method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
+            external_confirmation={
+                "url": after_url,
+                "page_title": after_title,
+                "confirmation_detected": confirmed,
+                "confirmation_reason": confirmation.reason,
+                "confirmation_marker": confirmation.marker,
+                "form_url": prepared.url,
+            },
+            confirmation_text=confirmation.text if confirmed else None,
+            evidence_paths=evidence,
+            submitted_at=datetime.now(UTC) if confirmed else None,
+            error=None
+            if confirmed
+            else "the submit control was clicked but no confirmation was detected "
+            f"({confirmation.reason}); the application is NOT recorded as submitted",
+            dry_run=False,
+        )
 
     # -- helpers --------------------------------------------------------
 
-    def _application_url(self, job: Any) -> str:
+    def application_url(self, job: Any) -> str:
         url = str(getattr(job, "source_url", "") or "")
         if "greenhouse.io" in url or "revance.com" in url or "?gh_jid=" in url:
             return url
@@ -616,31 +736,53 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
     @staticmethod
     def _to_field(entry: dict[str, Any]) -> FormField:
-        identifier = entry.get("id") or (entry.get("placeholder") or "unnamed")
-        label = entry.get("label")
+        """Name and address a field so a human can find it on the page.
+
+        Name: id, else `name` attribute, else label, else aria-label, else placeholder,
+        else `unnamed-<tag>-<position>`. Selector: `#id`, else `[name="..."]`, else
+        `[aria-label="..."]`.
+        """
+
+        identifier = (
+            entry.get("id")
+            or entry.get("name")
+            or entry.get("label")
+            or entry.get("ariaLabel")
+            or entry.get("placeholder")
+            or f"unnamed-{entry.get('tag') or 'input'}-{entry.get('index', 0)}"
+        )
+        label = entry.get("label") or entry.get("ariaLabel")
         kind = str(entry.get("type") or "text").lower()
         return FormField(
-            name=str(identifier),
+            name=" ".join(str(identifier).split()),
             label=label,
             kind=kind,
             required=bool(entry.get("required")),
             options=list(entry.get("options") or []),
-            selector=f"#{entry['id']}" if entry.get("id") else None,
-            question_key=classify_question(label or "") or None,
+            selector=field_selector(entry),
+            question_key=classify_question(entry.get("label") or "") or None,
+            context=entry.get("context") or None,
         )
 
     @staticmethod
     def _find_submit_selector(page: FormPage, fields: list[FormField]) -> str | None:
+        """The submit control to click: the first selector matching exactly one element.
+
+        If none matches exactly one, the first that matches anything is returned, and
+        `submit` then refuses because the match is ambiguous.
+        """
+
+        first_any: str | None = None
         for selector in SUBMIT_SELECTORS:
             try:
-                found = page.evaluate(
-                    "() => document.querySelectorAll(" + repr(selector) + ").length"
-                )
+                found = _count_matches(page, selector)
             except Exception:  # noqa: BLE001
                 continue
-            if found:
+            if found == 1:
                 return selector
-        return None
+            if found and first_any is None:
+                first_any = selector
+        return first_any
 
     @staticmethod
     def _existing_selector(page: FormPage, selectors: tuple[str, ...]) -> str | None:
@@ -731,10 +873,12 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
     @staticmethod
     def _identity_values(package: ApplicationPackageSchema) -> dict[str, str]:
-        """Identity values from the package. Résumé text is only a fallback for the
-        name and email already printed on the tailored résumé header.
+        """Identity values from verified sources only.
 
-        Nothing is guessed. A missing phone stays missing.
+        Sources: the package's `applicant_*` fields, and package answers that are
+        verified (`not requires_user_input`). Nothing is parsed out of the résumé text
+        and nothing is inferred: a name, an e-mail address or a country that is not on
+        the package is simply absent, and validation then blocks on the field.
         """
 
         values: dict[str, str] = {}
@@ -758,23 +902,6 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             key = answer.question_key
             if key in {"first_name", "last_name", "email", "phone", "country", "preferred_name"}:
                 values[key] = str(answer.answer)
-        resume = package.tailored_resume_markdown or ""
-        for line in resume.splitlines():
-            if line.startswith("# "):
-                full = line[2:].strip()
-                if full and "last_name" not in values:
-                    parts = full.split()
-                    values.setdefault("first_name", parts[0] if parts else "")
-                    values.setdefault("last_name", " ".join(parts[1:]) if len(parts) > 1 else "")
-            if "@" in line and "email" not in values:
-                for token in line.replace("|", " ").split():
-                    if "@" in token:
-                        values["email"] = token.strip(" ,;")
-                        break
-            if "country" not in values and any(
-                marker in line for marker in ("USA", "United States")
-            ):
-                values["country"] = "United States"
         return values
 
     @staticmethod

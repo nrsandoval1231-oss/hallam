@@ -146,6 +146,14 @@ class PlaywrightPage:
         except Exception:  # noqa: BLE001 - evidence capture must not fail the run
             return None
 
+    def is_closed(self) -> bool:
+        """Whether the person (or the browser) closed this page."""
+
+        try:
+            return bool(self._page.is_closed())
+        except Exception:  # noqa: BLE001 - a page that cannot answer is gone
+            return True
+
     def close(self) -> None:
         with suppress(Exception):
             self._page.close()

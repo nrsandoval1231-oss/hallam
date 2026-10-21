@@ -1,14 +1,25 @@
 """Execution service: the only path from an approved package to an external submission.
 
-Order of operations is the safety property. Authorisation is checked first, then the
-live form is inspected for conditions requiring a human, then the form is filled and
-validated, and only then is anything submitted. Every step that can refuse does
-refuse, and a refusal leaves the application at a state that says what happened
-rather than at one that implies a submission occurred.
+Order of operations is the safety property:
+
+1. Authorise and claim, in ONE write transaction: the hash-bound approval is re-checked,
+   the application moves to APPLYING, and APPLICATION_STARTED is recorded. Only one
+   caller can win the claim, and it happens before any browser opens.
+2. One browser session for the whole run (`adapter.session`). The live form is
+   inspected, validated, filled and submitted on that same page.
+3. A challenge is never solved: the pre-filled form is handed to a person in a headed
+   browser, and the application stays APPLYING until an outcome is known.
+
+A refusal leaves the application at a state that says what happened rather than at one
+that implies a submission occurred. Nothing below raises out of a browser or handoff
+failure: it is recorded and returned as an `ExecutionResult`. A click that nothing
+confirms is UNCONFIRMED, never FAILED and never SUBMITTED, and it is resolved only by a
+reported outcome.
 """
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -16,11 +27,20 @@ from typing import Any
 from sabra_automation.base import (
     ApplicationAdapter,
     ApplicationForm,
+    ClaimLost,
     SourceNotSupported,
     SubmissionReceipt,
     ValidationReport,
 )
-from sabra_automation.handoff import HandoffResult, PlaywrightHandoff
+from sabra_automation.handoff import (
+    HANDOFF_OUTCOMES,
+    OUTCOME_CLOSED,
+    OUTCOME_SUPERSEDED,
+    OUTCOME_TIMEOUT,
+    HandoffControl,
+    HandoffResult,
+    PlaywrightHandoff,
+)
 from sabra_domain.enums import (
     ApplicationStatus,
     EntityType,
@@ -33,27 +53,38 @@ from sabra_domain.errors import (
     ApprovalRequired,
     ApprovalScopeMismatch,
     NotFound,
-    SabraError,
     SafetyStop,
     TruthBoundaryViolation,
+    ValidationFailure,
 )
 from sabra_domain.state import application_path
 
 from .approval import ApprovalService
+from .attempt_events import attempt_has_unconfirmed, waiting_for_person
 from .context import EngineContext
+from .handoff_manager import (
+    HANDOFFS,
+    STATE_NEEDS_REPORT,
+    STATE_OPEN,
+    HandoffManager,
+    HandoffRecord,
+)
 
 
 @dataclass(slots=True)
 class ExecutionResult:
     application_id: str
     opportunity_id: str
-    outcome: str  # DRY_RUN | SUBMITTED | BLOCKED | FAILED | NOT_SUPPORTED
+    # DRY_RUN | SUBMITTED | BLOCKED | FAILED | NOT_SUPPORTED | UNCONFIRMED | ABANDONED
+    # | HANDED_TO_HUMAN | CONFLICT (the application moved under this run; see detail)
+    outcome: str
     receipt: SubmissionReceipt | None = None
     validation: ValidationReport | None = None
     stops: list[dict[str, Any]] = field(default_factory=list)
     adapter: str | None = None
     detail: str | None = None
     plan: dict[str, Any] | None = None
+    url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -62,11 +93,21 @@ class ExecutionResult:
             "outcome": self.outcome,
             "adapter": self.adapter,
             "detail": self.detail,
+            "url": self.url,
             "stops": self.stops,
             "plan": self.plan,
             "validation": self.validation.as_dict() if self.validation else None,
             "receipt": self.receipt.as_dict() if self.receipt else None,
         }
+
+
+@dataclass(slots=True)
+class _HandoffRequest:
+    """The run met a challenge: hand the form to a person after the session closes."""
+
+    form: ApplicationForm | None
+    url: str
+    detail: str
 
 
 class AdapterRegistry:
@@ -136,6 +177,24 @@ def default_registry(*, dry_run: bool = True, settings: Any = None) -> AdapterRe
     )
 
 
+def _advance_opportunity(repos: Any, opportunity_id: str, target: JobStatus) -> None:
+    """Move the opportunity toward APPLIED/FAILED along legal edges only.
+
+    APPROVED and FAILED (a retry) pass through APPLYING. Any other state is left
+    alone: this never invents a lifecycle step that did not happen.
+    """
+
+    opportunity = repos.opportunities.get(opportunity_id)
+    current = JobStatus(opportunity.status)
+    if current is target:
+        return
+    if current in {JobStatus.APPROVED, JobStatus.FAILED}:
+        repos.opportunities.set_status(opportunity_id, JobStatus.APPLYING)
+        current = JobStatus.APPLYING
+    if current is JobStatus.APPLYING:
+        repos.opportunities.set_status(opportunity_id, target)
+
+
 class ExecutionService:
     def __init__(
         self,
@@ -145,7 +204,18 @@ class ExecutionService:
         approval: ApprovalService | None = None,
         handoff: Any = None,
         handoff_prompt: Any = None,
+        background_handoff: bool = False,
+        ctx_factory: Any = None,
+        handoffs: HandoffManager | None = None,
     ) -> None:
+        """`handoff` is injectable (tests use a fake that needs no Playwright).
+
+        `background_handoff=True` is the dashboard path: a challenge starts the headed
+        browser in a thread and `submit` returns at once. `ctx_factory` builds the
+        thread's own engine context, because the request's context is closed when the
+        request ends.
+        """
+
         self.ctx = ctx
         self.registry = registry or default_registry(
             dry_run=ctx.settings.automation_dry_run, settings=ctx.settings
@@ -153,27 +223,9 @@ class ExecutionService:
         self.approval = approval or ApprovalService(ctx)
         self.handoff = handoff
         self.handoff_prompt = handoff_prompt
-
-    # -- read-only operations -------------------------------------------
-
-    def inspect_application(self, application_id: str) -> ApplicationForm:
-        application, package = self.approval.assert_submission_authorised(application_id)
-        job = self._job_for(application)
-        adapter = self.registry.for_job(job)
-        return adapter.inspect(job)
-
-    def validate_application(self, application_id: str) -> ValidationReport:
-        application, package = self.approval.assert_submission_authorised(application_id)
-        job = self._job_for(application)
-        adapter = self.registry.for_job(job)
-        form = adapter.inspect(job)
-        stops = adapter.detect_stops(form, package)
-        report = adapter.validate(package, form) if hasattr(adapter, "validate") else None
-        if report is None:
-            report = ValidationReport(ok=not stops)
-        report.stops = list(report.stops) + [s for s in stops if s not in report.stops]
-        report.ok = report.ok and not report.stops
-        return report
+        self.background_handoff = background_handoff
+        self.ctx_factory = ctx_factory
+        self.handoffs = handoffs or HANDOFFS
 
     # -- submission ------------------------------------------------------
 
@@ -191,30 +243,11 @@ class ExecutionService:
         would type the résumé into an ATS that can store the upload immediately.
         """
 
+        self._refuse_if_in_progress(application_id)
         try:
             application, package = self.approval.assert_submission_authorised(application_id)
         except (ApprovalRequired, ApprovalScopeMismatch, TruthBoundaryViolation) as exc:
-            self._record(
-                application_id,
-                EventType.APPLICATION_BLOCKED,
-                {
-                    "stage": "authorisation",
-                    "reason": type(exc).__name__,
-                    "message": str(exc),
-                },
-            )
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id="",
-                outcome="BLOCKED",
-                detail=str(exc),
-                stops=[
-                    {
-                        "kind": str(SafetyStopKind.APPROVAL_MISSING),
-                        "message": str(exc),
-                    }
-                ],
-            )
+            return self._authorisation_refused(application_id, exc)
 
         job = self._job_for(application)
         opportunity_id = application.opportunity_id
@@ -232,18 +265,21 @@ class ExecutionService:
             )
 
         adapter.dry_run = not allow_real_submission or self.ctx.settings.automation_dry_run
-        plan = fill_plan(package, job) if adapter.dry_run else None
-        attempted = {
-            "adapter": adapter.kind,
-            "dry_run": adapter.dry_run,
-            "url": str(getattr(job, "source_url", "") or ""),
-        }
         if adapter.dry_run:
-            attempted.update(
-                {"navigated": False, "typed": False, "uploaded": False, "plan": plan}
+            plan = fill_plan(package, job)
+            self._record(
+                application_id,
+                EventType.APPLICATION_ATTEMPTED,
+                {
+                    "adapter": adapter.kind,
+                    "dry_run": True,
+                    "url": str(getattr(job, "source_url", "") or ""),
+                    "navigated": False,
+                    "typed": False,
+                    "uploaded": False,
+                    "plan": plan,
+                },
             )
-        self._record(application_id, EventType.APPLICATION_ATTEMPTED, attempted)
-        if adapter.dry_run:
             return ExecutionResult(
                 application_id=application_id,
                 opportunity_id=opportunity_id,
@@ -255,46 +291,165 @@ class ExecutionService:
                 plan=plan,
             )
 
+        # Real submission. The run is registered as in flight for its whole length, so
+        # no outcome can be reported (and no second run started) while it is still
+        # deciding what happened. Then re-authorise and claim in one transaction, before
+        # any browser opens. Whoever loses the claim is refused, not queued.
+        self.handoffs.begin_run(application_id)
+        try:
+            try:
+                _claimed, package = self._claim(application_id, adapter, job)
+            except (ApprovalRequired, ApprovalScopeMismatch, TruthBoundaryViolation) as exc:
+                return self._authorisation_refused(application_id, exc)
+
+            try:
+                outcome = self._drive(application_id, opportunity_id, adapter, package, job)
+                if isinstance(outcome, _HandoffRequest):
+                    return self._hand_to_human(
+                        application_id,
+                        opportunity_id,
+                        adapter,
+                        package,
+                        form=outcome.form,
+                        url=outcome.url,
+                        detail=outcome.detail,
+                    )
+                return outcome
+            except Exception as exc:  # noqa: BLE001 - nothing may escape with the claim held
+                return self._unexpected(application_id, opportunity_id, adapter, exc)
+        except BaseException as exc:
+            # Ctrl+C, SystemExit or a failure while recording: the claim is held and no
+            # outcome is known. Leave a mark the report path recognises, then re-raise.
+            self._record_interrupted(application_id, exc)
+            raise
+        finally:
+            self.handoffs.end_run(application_id)
+
+    def _record_interrupted(self, application_id: str, exc: BaseException) -> None:
+        with suppress(Exception):
+            if self._status_of(application_id) == ApplicationStatus.APPLYING.value:
+                self._record(
+                    application_id,
+                    EventType.HANDED_TO_HUMAN,
+                    {
+                        "state": "interrupted",
+                        "exception": type(exc).__name__,
+                        "message": str(exc)[:300],
+                    },
+                )
+
+    def _refuse_if_in_progress(self, application_id: str) -> None:
+        with self.ctx.read_repos() as repos:
+            status = repos.applications.get(application_id).status
+        if status == ApplicationStatus.APPLYING.value:
+            raise ValidationFailure(
+                f"a submission is already in progress for application {application_id}; "
+                "wait for it to finish, or report its outcome if a person already handled it"
+            )
+
+    def _authorisation_refused(self, application_id: str, exc: Exception) -> ExecutionResult:
+        self._record(
+            application_id,
+            EventType.APPLICATION_BLOCKED,
+            {"stage": "authorisation", "reason": type(exc).__name__, "message": str(exc)},
+        )
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id="",
+            outcome="BLOCKED",
+            detail=str(exc),
+            stops=[{"kind": str(SafetyStopKind.APPROVAL_MISSING), "message": str(exc)}],
+        )
+
+    def _claim(
+        self, application_id: str, adapter: ApplicationAdapter, job: Any
+    ) -> tuple[Any, Any]:
+        """Authorise, move to APPLYING and record APPLICATION_STARTED: one transaction.
+
+        The move is a compare-and-set through the transition graph, so two callers
+        cannot both claim the same application. If the authorisation fails, nothing
+        is written. Returns the application and the package that THIS authorisation
+        verified: the run must type that content, not whatever an earlier unlocked
+        read saw.
+        """
+
+        url = str(getattr(job, "source_url", "") or "")
+        with self.ctx.repos() as repos:
+            if repos.applications.get(application_id).status == ApplicationStatus.APPLYING.value:
+                raise ValidationFailure(
+                    f"a submission is already in progress for application {application_id}"
+                )
+            application, package = self.approval.assert_submission_authorised(
+                application_id, repos=repos
+            )
+            prior = ApplicationStatus(application.status)
+            if not repos.applications.claim_status(
+                application_id, expected=prior, target=ApplicationStatus.APPLYING
+            ):
+                raise ValidationFailure(
+                    f"a submission is already in progress for application {application_id}"
+                )
+            application = repos.applications.get(application_id)
+            application.blocked_reason = None
+            repos.session.flush()
+            payload = {"adapter": adapter.kind, "dry_run": False, "url": url, "from": str(prior)}
+            repos.events.append(
+                EntityType.APPLICATION, application_id, EventType.APPLICATION_ATTEMPTED, payload
+            )
+            repos.events.append(
+                EntityType.APPLICATION, application_id, EventType.APPLICATION_STARTED, payload
+            )
+            return application, package
+
+    def _drive(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        package: Any,
+        job: Any,
+    ) -> ExecutionResult | _HandoffRequest:
+        """One browser session for the whole run; closed on every path out."""
+
+        url = adapter.application_url(job)
+        with adapter.session(url):
+            # Checked inside the adapter immediately before the click: if a report (or
+            # anything else) moved the application off APPLYING, nothing is clicked.
+            adapter.pre_click_check = lambda: self._still_claimed(application_id)
+            return self._drive_session(application_id, opportunity_id, adapter, package, job, url)
+
+    def _still_claimed(self, application_id: str) -> bool:
+        """Compare-and-set: the row is still APPLYING, checked under the write lock."""
+
+        with self.ctx.repos() as repos:
+            return repos.applications.confirm_status(
+                application_id, expected=ApplicationStatus.APPLYING
+            )
+
+    def _status_of(self, application_id: str) -> str:
+        with self.ctx.read_repos() as repos:
+            return str(repos.applications.get(application_id).status)
+
+    def _drive_session(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        package: Any,
+        job: Any,
+        url: str,
+    ) -> ExecutionResult | _HandoffRequest:
         # 1. Inspect the live form. A challenge, including a probe that failed,
         # is handed to a person. It is never submitted by the adapter.
         try:
             form = adapter.inspect(job)
         except SafetyStop as stop:
             if stop.kind == SafetyStopKind.CAPTCHA:
-                return self._hand_to_human(
-                    application_id,
-                    opportunity_id,
-                    adapter,
-                    package,
-                    form=None,
-                    url=str(getattr(job, "source_url", "") or ""),
-                    detail=stop.message,
-                )
-            self._mark_blocked(application_id, stop.kind, stop.message)
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id=opportunity_id,
-                outcome="BLOCKED",
-                adapter=adapter.kind,
-                detail=stop.message,
-                stops=[{"kind": str(stop.kind), "message": stop.message, "details": stop.details}],
-            )
-        except SabraError as exc:
-            self._mark_failed(application_id, str(exc))
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id=opportunity_id,
-                outcome="FAILED",
-                adapter=adapter.kind,
-                detail=str(exc),
-            )
+                return _HandoffRequest(form=None, url=url, detail=stop.message)
+            return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
 
         if form.has_captcha or form.challenge_detection_failed:
-            return self._hand_to_human(
-                application_id,
-                opportunity_id,
-                adapter,
-                package,
+            return _HandoffRequest(
                 form=form,
                 url=form.url,
                 detail=(
@@ -333,54 +488,21 @@ class ExecutionService:
                 ],
             )
 
-        # 3. Fill and validate. An unknown required field blocks this application.
+        # 3. Validate BEFORE typing anything: an unknown required field blocks this
+        # application, and a form we are not going to submit is not filled or uploaded to.
         try:
-            prepared = adapter.prepare(package, form)
             report = adapter.validate(package, form)
         except SafetyStop as stop:
             if stop.kind == SafetyStopKind.CAPTCHA:
-                return self._hand_to_human(
-                    application_id,
-                    opportunity_id,
-                    adapter,
-                    package,
-                    form=form,
-                    url=form.url,
-                    detail=stop.message,
-                )
-            self._set_application_blocked(application_id, stop.kind, stop.message)
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id=opportunity_id,
-                outcome="BLOCKED",
-                adapter=adapter.kind,
-                detail=stop.message,
-                stops=[{"kind": str(stop.kind), "message": stop.message}],
-            )
-        except SabraError as exc:
-            self._mark_failed(application_id, str(exc))
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id=opportunity_id,
-                outcome="FAILED",
-                adapter=adapter.kind,
-                detail=str(exc),
-            )
+                return _HandoffRequest(form=form, url=form.url, detail=stop.message)
+            return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
 
         if not report.ok:
             captcha_only = report.stops and all(
                 stop.kind == SafetyStopKind.CAPTCHA for stop in report.stops
             )
             if captcha_only:
-                return self._hand_to_human(
-                    application_id,
-                    opportunity_id,
-                    adapter,
-                    package,
-                    form=form,
-                    url=form.url,
-                    detail=report.stops[0].message,
-                )
+                return _HandoffRequest(form=form, url=form.url, detail=report.stops[0].message)
             self._set_application_blocked(
                 application_id,
                 str(report.stops[0].kind)
@@ -401,34 +523,112 @@ class ExecutionService:
                 ],
             )
 
-        # 4. Submit, or stop short. Dry-run never clicks.
+        # 4. Fill the live page. This is the page `submit` will click.
+        try:
+            prepared = adapter.prepare(package, form)
+        except SafetyStop as stop:
+            if stop.kind == SafetyStopKind.CAPTCHA:
+                return _HandoffRequest(form=form, url=form.url, detail=stop.message)
+            return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
+
         self._record(
             application_id,
-            EventType.APPLICATION_STARTED,
+            EventType.APPLICATION_ATTEMPTED,
             {
+                "stage": "prepared",
                 "adapter": adapter.kind,
                 "url": form.url,
-                "dry_run": adapter.dry_run,
+                "dry_run": False,
                 "form": form.as_dict(),
                 "prepared": prepared.as_dict(),
             },
         )
 
-        if adapter.dry_run:
+        # 5. Submit on that same page.
+        try:
+            receipt = adapter.submit(prepared)
+        except ClaimLost as lost:
+            self._record(
+                application_id,
+                EventType.APPLICATION_BLOCKED,
+                {"stage": "claim_lost", "message": lost.message},
+            )
             return ExecutionResult(
                 application_id=application_id,
                 opportunity_id=opportunity_id,
-                outcome="DRY_RUN",
+                outcome="CONFLICT",
                 adapter=adapter.kind,
-                validation=report,
-                detail=(
-                    "form inspected, filled and validated; submit deliberately not clicked "
-                    "(dry run)"
-                ),
+                detail=lost.message,
             )
-
-        receipt = adapter.submit(prepared)
+        except SafetyStop as stop:
+            if stop.kind == SafetyStopKind.CAPTCHA:
+                return _HandoffRequest(form=form, url=form.url, detail=stop.message)
+            return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
         return self._record_receipt(application_id, opportunity_id, adapter, receipt)
+
+    def _blocked_by_stop(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        stop: SafetyStop,
+    ) -> ExecutionResult:
+        self._mark_blocked(application_id, stop.kind, stop.message)
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id=opportunity_id,
+            outcome="BLOCKED",
+            adapter=adapter.kind,
+            detail=stop.message,
+            stops=[{"kind": str(stop.kind), "message": stop.message, "details": stop.details}],
+        )
+
+    def _unexpected(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        exc: Exception,
+    ) -> ExecutionResult:
+        """Record any exception from a browser or handoff call and return a result.
+
+        If the submit control was clicked, the employer may have the application, so
+        the state stays APPLYING with an UNCONFIRMED event. Otherwise nothing was
+        sent and the attempt FAILED.
+        """
+
+        message = f"{type(exc).__name__}: {exc}"
+        status = self._status_of(application_id)
+        if status != ApplicationStatus.APPLYING.value:
+            self._record(
+                application_id,
+                EventType.APPLICATION_BLOCKED,
+                {"stage": "conflict", "conflicting_status": status, "message": message},
+            )
+            return ExecutionResult(
+                application_id=application_id,
+                opportunity_id=opportunity_id,
+                outcome="CONFLICT",
+                adapter=adapter.kind,
+                detail=f"the application was {status} when this run failed: {message}",
+            )
+        if getattr(adapter, "click_attempted", False):
+            return self._mark_unconfirmed(
+                application_id,
+                opportunity_id,
+                adapter,
+                message=f"an error followed the submit click: {message}",
+            )
+        self._mark_failed(application_id, message)
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id=opportunity_id,
+            outcome="FAILED",
+            adapter=adapter.kind,
+            detail=message,
+        )
+
+    # -- human handoff ---------------------------------------------------
 
     def _hand_to_human(
         self,
@@ -441,81 +641,202 @@ class ExecutionService:
         url: str,
         detail: str,
     ) -> ExecutionResult:
-        """Do not submit. In a real run, open the pre-filled form headed."""
+        """Do not submit. Open the form in a headed browser for the person.
+
+        The form is filled only inside that headed session. The application stays
+        APPLYING until a person reports an outcome or the page confirms.
+        """
 
         self._record(
             application_id,
             EventType.CHALLENGE_DETECTED,
-            {
-                "adapter": adapter.kind,
-                "url": url,
-                "detail": detail,
-                "dry_run": adapter.dry_run,
-            },
+            {"adapter": adapter.kind, "url": url, "detail": detail, "dry_run": False},
         )
-        if adapter.dry_run:
-            self._record(
-                application_id,
-                EventType.HANDED_TO_HUMAN,
-                {
-                    "opened": False,
-                    "dry_run": True,
-                    "detail": "dry-run does not open a browser and does not submit",
-                },
-            )
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id=opportunity_id,
-                outcome="DRY_RUN",
-                adapter=adapter.kind,
-                detail=(
-                    "a challenge was detected; dry-run did not submit and did not open a browser. "
-                    + detail
-                ),
-                stops=[{"kind": str(SafetyStopKind.CAPTCHA), "message": detail}],
-            )
-
-        if form is not None:
-            try:
-                adapter.prepare(package, form)
-            except SabraError as exc:
-                self._mark_failed(application_id, str(exc))
-                return ExecutionResult(
-                    application_id=application_id,
-                    opportunity_id=opportunity_id,
-                    outcome="FAILED",
-                    adapter=adapter.kind,
-                    detail=str(exc),
-                )
-
         self._record(
             application_id,
             EventType.HANDED_TO_HUMAN,
-            {"opened": True, "headed": True, "url": url, "dry_run": False},
+            {
+                "headed": True,
+                "url": url,
+                "dry_run": False,
+                "state": "starting",
+                "background": self.background_handoff,
+            },
         )
         handoff = self.handoff or PlaywrightHandoff(prompt=self.handoff_prompt)
-        result = handoff.run(
-            adapter=adapter,
-            package=package,
-            form=form,
-            url=url,
-            settings=self.ctx.settings,
-        )
-        return self._record_handoff(application_id, opportunity_id, adapter, result)
+        if self.background_handoff:
+            return self._start_background_handoff(
+                application_id, opportunity_id, adapter, package, handoff, form=form, url=url
+            )
+        control = HandoffControl(self.ctx.settings.handoff_timeout_seconds)
+        try:
+            result = handoff.run(
+                adapter=adapter,
+                package=package,
+                form=form,
+                url=url,
+                settings=self.ctx.settings,
+                control=control,
+                on_event=self._event_sink(application_id),
+            )
+        except Exception as exc:  # noqa: BLE001 - the person never got the form
+            return self._handoff_error(application_id, opportunity_id, adapter.kind, exc)
+        return self._finish_handoff(application_id, opportunity_id, adapter.kind, result)
 
-    def _record_handoff(
+    def _start_background_handoff(
         self,
         application_id: str,
         opportunity_id: str,
         adapter: ApplicationAdapter,
-        result: HandoffResult,
+        package: Any,
+        handoff: Any,
+        *,
+        form: ApplicationForm | None,
+        url: str,
     ) -> ExecutionResult:
-        outcome = result.outcome if result.outcome in {"submitted", "abandoned", "failed"} else "failed"
-        event = {
-            "submitted": EventType.APPLICATION_SUBMITTED,
-            "abandoned": EventType.APPLICATION_ABANDONED,
-            "failed": EventType.APPLICATION_FAILED,
-        }[outcome]
+        adapter_kind = adapter.kind
+        settings = self.ctx.settings
+
+        def target(record: HandoffRecord) -> None:
+            worker: ExecutionService | None = None
+            result: HandoffResult | None = None
+            close: Any = lambda: None  # noqa: E731
+            try:
+                worker, close = self._worker()
+                running = worker
+                # The window closes itself once the application is resolved elsewhere.
+                record.control.superseded = (
+                    lambda: running._status_of(application_id)
+                    != ApplicationStatus.APPLYING.value
+                )
+                try:
+                    result = handoff.run(
+                        adapter=adapter,
+                        package=package,
+                        form=form,
+                        url=url,
+                        settings=settings,
+                        control=record.control,
+                        on_event=running._event_sink(application_id, record),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    record.state = "error"
+                    record.detail = str(exc)
+                    running._handoff_error(application_id, opportunity_id, adapter_kind, exc)
+                    return
+                record.outcome = result.outcome
+                record.detail = result.error
+                if result.outcome == OUTCOME_SUPERSEDED:
+                    record.state = "superseded"
+                    return
+                record.state = (
+                    STATE_NEEDS_REPORT if result.outcome == OUTCOME_CLOSED else result.outcome
+                )
+                # A confirmation that arrives after the row moved on is still recorded.
+                running._finish_handoff(application_id, opportunity_id, adapter_kind, result)
+            except Exception as exc:  # noqa: BLE001 - never die silently at "starting"
+                record.state = "error"
+                record.detail = f"{record.detail or ''} {type(exc).__name__}: {exc}".strip()
+                with suppress(Exception):
+                    (worker or self)._record(
+                        application_id,
+                        EventType.HANDED_TO_HUMAN,
+                        {
+                            "state": "error",
+                            "error": f"{type(exc).__name__}: {exc}",
+                            # What the page had already shown, so a person can tell
+                            # "confirmed but not recorded" from "never opened".
+                            "outcome": result.outcome if result else None,
+                            "source": result.source if result else None,
+                            "url": result.url if result else None,
+                        },
+                    )
+            finally:
+                with suppress(Exception):
+                    close()
+
+        self.handoffs.start(
+            application_id,
+            url=url,
+            timeout_seconds=settings.handoff_timeout_seconds,
+            target=target,
+        )
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id=opportunity_id,
+            outcome="HANDED_TO_HUMAN",
+            adapter=adapter_kind,
+            url=url,
+            detail=(
+                "a challenge was detected. The pre-filled form is open in a browser window for "
+                "you to solve and submit; then report the result on the Applications page"
+            ),
+            stops=[{"kind": str(SafetyStopKind.CAPTCHA), "message": "handed to a person"}],
+        )
+
+    def _worker(self) -> tuple[ExecutionService, Any]:
+        """A service with its own engine context, for use on a handoff thread."""
+
+        if self.ctx_factory is None:
+            return self, lambda: None
+        ctx = self.ctx_factory()
+        worker = ExecutionService(
+            ctx,
+            registry=self.registry,
+            approval=ApprovalService(ctx),
+            handoff=self.handoff,
+            handoffs=self.handoffs,
+        )
+        return worker, ctx.close
+
+    def _event_sink(self, application_id: str, record: HandoffRecord | None = None) -> Any:
+        """Callback the handoff uses to log each step as an HANDED_TO_HUMAN event."""
+
+        def sink(state: str, payload: dict[str, Any]) -> None:
+            if record is not None:
+                if state == "opened":
+                    record.state = STATE_OPEN
+                elif state in {"browser_closed", "no_valid_answer"}:
+                    record.state = STATE_NEEDS_REPORT
+                elif state == "fill_failed":
+                    record.detail = f"form fill failed: {payload.get('error')}"
+            # Logging must never close the person's browser.
+            with suppress(Exception):
+                self._record(
+                    application_id, EventType.HANDED_TO_HUMAN, {"state": state, **payload}
+                )
+
+        return sink
+
+    def _handoff_error(
+        self, application_id: str, opportunity_id: str, adapter_kind: str | None, exc: Exception
+    ) -> ExecutionResult:
+        message = f"the headed handoff failed: {type(exc).__name__}: {exc}"
+        self._mark_failed(application_id, message)
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id=opportunity_id,
+            outcome="FAILED",
+            adapter=adapter_kind,
+            detail=message,
+        )
+
+    def _finish_handoff(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter_kind: str | None,
+        result: HandoffResult,
+        extra: dict[str, Any] | None = None,
+    ) -> ExecutionResult:
+        """Record how a handoff ended.
+
+        submitted -> APPLIED. abandoned or timeout -> BLOCKED (retryable, never
+        WITHDRAWN). failed -> FAILED. closed -> stays APPLYING and waits for a report.
+        Every move goes through the transition graph and appends an event.
+        """
+
+        outcome = result.outcome
         payload = {
             "outcome": outcome,
             "source": result.source,
@@ -523,14 +844,46 @@ class ExecutionService:
             "confirmation_text": result.confirmation_text,
             "opened_headed": result.opened_headed,
             "error": result.error,
-            "adapter": adapter.kind,
+            "adapter": adapter_kind,
+            **(extra or {}),
         }
+        if outcome == OUTCOME_CLOSED:
+            self._record(
+                application_id,
+                EventType.HANDED_TO_HUMAN,
+                {"state": "needs_report", **payload},
+            )
+            return ExecutionResult(
+                application_id=application_id,
+                opportunity_id=opportunity_id,
+                outcome="HANDED_TO_HUMAN",
+                adapter=adapter_kind,
+                url=result.url,
+                detail=(
+                    "the browser closed before an outcome was reported; the application stays "
+                    "APPLYING until you report whether it was submitted"
+                ),
+            )
+        if outcome not in HANDOFF_OUTCOMES and outcome != OUTCOME_TIMEOUT:
+            outcome = "failed"
+
         with self.ctx.repos() as repos:
             application = repos.applications.get(application_id)
+            if application.status != ApplicationStatus.APPLYING.value:
+                return self._outcome_after_move(
+                    repos, application, opportunity_id, adapter_kind, outcome, result, payload
+                )
+            events = repos.events.for_entity(EntityType.APPLICATION, application_id)
+            was_unconfirmed = attempt_has_unconfirmed(events)
             application.attempts = (application.attempts or 0) + 1
+            result_label = outcome.upper()
             if outcome == "submitted":
                 application.submission_time = datetime.now(UTC)
-                application.submission_method = str(SubmissionMethod.HEADED_HUMAN)
+                application.submission_method = str(
+                    SubmissionMethod.PLAYWRIGHT_ADAPTER
+                    if was_unconfirmed
+                    else SubmissionMethod.HEADED_HUMAN
+                )
                 merged = dict(application.external_confirmation or {})
                 merged.update(
                     {
@@ -541,43 +894,306 @@ class ExecutionService:
                 )
                 application.external_confirmation = merged
                 repos.session.flush()
-                for step in application_path(
-                    ApplicationStatus(application.status), ApplicationStatus.APPLIED
-                ):
-                    repos.applications.set_status(application_id, step)
-                opportunity = repos.opportunities.get(opportunity_id)
-                if JobStatus(opportunity.status) is JobStatus.APPROVED:
-                    repos.opportunities.set_status(opportunity_id, JobStatus.APPLYING)
-                    repos.opportunities.set_status(opportunity_id, JobStatus.APPLIED)
-            elif outcome == "abandoned":
-                application.last_error = result.error or "the person left the form without submitting"
-                repos.session.flush()
-                for step in application_path(
-                    ApplicationStatus(application.status), ApplicationStatus.WITHDRAWN
-                ):
-                    repos.applications.set_status(application_id, step)
-                opportunity = repos.opportunities.get(opportunity_id)
-                if JobStatus(opportunity.status) is JobStatus.APPROVED:
-                    repos.opportunities.set_status(opportunity_id, JobStatus.WITHDRAWN)
-            else:
+                self._walk(repos, application_id, ApplicationStatus.APPLIED)
+                _advance_opportunity(repos, opportunity_id, JobStatus.APPLIED)
+                event = EventType.APPLICATION_SUBMITTED
+            elif outcome == "failed" and not was_unconfirmed:
                 application.last_error = result.error or "the headed attempt failed"
                 repos.session.flush()
-                for step in application_path(
-                    ApplicationStatus(application.status), ApplicationStatus.FAILED
-                ):
-                    repos.applications.set_status(application_id, step)
-                opportunity = repos.opportunities.get(opportunity_id)
-                if JobStatus(opportunity.status) is JobStatus.APPROVED:
-                    repos.opportunities.set_status(opportunity_id, JobStatus.APPLYING)
-                    repos.opportunities.set_status(opportunity_id, JobStatus.FAILED)
+                self._walk(repos, application_id, ApplicationStatus.FAILED)
+                _advance_opportunity(repos, opportunity_id, JobStatus.FAILED)
+                event = EventType.APPLICATION_FAILED
+            else:
+                # abandoned, timed out, or a person reporting that an unconfirmed click
+                # did not go through: retryable, so BLOCKED with the reason.
+                if outcome == "abandoned":
+                    reason, event = "HANDOFF_ABANDONED", EventType.APPLICATION_ABANDONED
+                    message = result.error or "the person left the form without submitting"
+                elif outcome == OUTCOME_TIMEOUT:
+                    reason, event = "HANDOFF_TIMEOUT", EventType.APPLICATION_BLOCKED
+                    message = result.error or "the handoff timed out with no reported outcome"
+                    result_label = "BLOCKED"
+                else:
+                    reason, event = "HANDOFF_NOT_SUBMITTED", EventType.APPLICATION_BLOCKED
+                    message = result.error or "the person reported the attempt did not go through"
+                    result_label = "BLOCKED"
+                application.blocked_reason = reason
+                application.last_error = message[:2000]
+                repos.session.flush()
+                self._walk(repos, application_id, ApplicationStatus.BLOCKED)
+                payload["blocked_reason"] = reason
             repos.events.append(EntityType.APPLICATION, application_id, event, payload)
         return ExecutionResult(
             application_id=application_id,
             opportunity_id=opportunity_id,
-            outcome=outcome.upper(),
-            adapter=adapter.kind,
+            outcome=result_label,
+            adapter=adapter_kind,
+            url=result.url,
             detail=result.error or result.source,
         )
+
+    @staticmethod
+    def _walk(repos: Any, application_id: str, target: ApplicationStatus) -> None:
+        application = repos.applications.get(application_id)
+        for step in application_path(ApplicationStatus(application.status), target):
+            repos.applications.set_status(application_id, step)
+
+    def _outcome_after_move(
+        self,
+        repos: Any,
+        application: Any,
+        opportunity_id: str,
+        adapter_kind: str | None,
+        outcome: str,
+        result: HandoffResult,
+        payload: dict[str, Any],
+    ) -> ExecutionResult:
+        """A handoff ended after the application had already left APPLYING.
+
+        Nothing is silently dropped. A confirmed submission is written to the ledger as
+        a late confirmation (and, from BLOCKED or FAILED, the row is walked to APPLIED
+        through the graph, since the employer's page is the evidence). Any other outcome
+        is only noted: the row already says something else, and that stands.
+        """
+
+        status = application.status
+        if outcome == "submitted":
+            self._late_confirmation(
+                repos,
+                application,
+                opportunity_id,
+                {**payload, "late_confirmation": True, "conflicting_status": status},
+                method=SubmissionMethod.HEADED_HUMAN,
+                confirmation={
+                    "source": result.source,
+                    "url": result.url,
+                    "confirmation_detected": result.source == "confirmation_page",
+                },
+            )
+        else:
+            repos.events.append(
+                EntityType.APPLICATION,
+                application.id,
+                EventType.HANDED_TO_HUMAN,
+                {"state": "result_ignored", "conflicting_status": status, **payload},
+            )
+        return ExecutionResult(
+            application_id=application.id,
+            opportunity_id=opportunity_id,
+            outcome="CONFLICT",
+            adapter=adapter_kind,
+            url=result.url,
+            detail=(
+                f"the application was already {status} when the handoff ended ({outcome})"
+            ),
+        )
+
+    def _late_confirmation(
+        self,
+        repos: Any,
+        application: Any,
+        opportunity_id: str,
+        payload: dict[str, Any],
+        *,
+        method: SubmissionMethod,
+        confirmation: dict[str, Any],
+    ) -> None:
+        repos.events.append(
+            EntityType.APPLICATION, application.id, EventType.APPLICATION_SUBMITTED, payload
+        )
+        if application.status not in {
+            ApplicationStatus.BLOCKED.value,
+            ApplicationStatus.FAILED.value,
+        }:
+            return
+        application.submission_time = datetime.now(UTC)
+        application.submission_method = str(method)
+        merged = dict(application.external_confirmation or {})
+        merged.update(confirmation)
+        application.external_confirmation = merged
+        repos.session.flush()
+        self._walk(repos, application.id, ApplicationStatus.APPLIED)
+        _advance_opportunity(repos, opportunity_id, JobStatus.APPLIED)
+
+    def report_handoff_outcome(self, application_id: str, outcome: str) -> dict[str, Any]:
+        """A person reports how a handoff, or an unconfirmed click, ended.
+
+        This is how an application leaves APPLYING without an automatic confirmation.
+        It is refused while a run is still in flight, and accepted only when the
+        application is actually waiting for a person. A running handoff thread is woken
+        and records the result itself; otherwise the report is recorded directly.
+        """
+
+        if outcome not in HANDOFF_OUTCOMES:
+            raise ValidationFailure(
+                f"outcome must be one of {', '.join(sorted(HANDOFF_OUTCOMES))}; got {outcome!r}"
+            )
+        with self.ctx.read_repos() as repos:
+            application = repos.applications.get(application_id)
+            status = application.status
+            opportunity_id = application.opportunity_id
+        if status != ApplicationStatus.APPLYING.value:
+            raise ValidationFailure(
+                f"application {application_id} is {status}; there is no submission waiting "
+                "for an outcome"
+            )
+        if self.handoffs.run_in_progress(application_id):
+            raise ValidationFailure(
+                f"a submission is already in progress for application {application_id}: the "
+                "run is still going, so no outcome can be reported yet"
+            )
+        if self.handoffs.report(application_id, outcome):
+            status = self._status_of(application_id)
+        # A running handoff records its own result. Record directly only when no thread
+        # is left to do it (the browser was closed, or the server restarted), and only
+        # if the attempt really stopped waiting for a person.
+        if status == ApplicationStatus.APPLYING.value and not self.handoffs.active(
+            application_id
+        ):
+            with self.ctx.read_repos() as repos:
+                events = list(repos.events.for_entity(EntityType.APPLICATION, application_id))
+            if not waiting_for_person(events):
+                raise ValidationFailure(
+                    f"there is no submission waiting for your report on application "
+                    f"{application_id}: its browser window may still be open (in this or "
+                    "another process). Finish or close the window first"
+                )
+            self._finish_handoff(
+                application_id,
+                opportunity_id,
+                None,
+                HandoffResult(
+                    outcome=outcome,
+                    source="user_report",
+                    error=None if outcome == "submitted" else f"person reported: {outcome}",
+                ),
+            )
+        return self.handoff_status(application_id)
+
+    def force_report_handoff_outcome(
+        self,
+        application_id: str,
+        outcome: str,
+        *,
+        confirm_id: str,
+        require_stale: bool = False,
+    ) -> dict[str, Any]:
+        """Record a person's report for an attempt that is stuck APPLYING.
+
+        For the hard-kill case: the process that held the window or the run is gone, so
+        nothing will ever write the event that makes a normal report acceptable. This
+        fails closed. It needs the application id typed back, it is refused while this
+        process still has a run or window registered, and the report is recorded with
+        `forced: true` and the event that was last in the log. `require_stale` (the
+        dashboard) additionally demands that the attempt has been silent for longer than
+        the handoff timeout.
+        """
+
+        if outcome not in HANDOFF_OUTCOMES:
+            raise ValidationFailure(
+                f"outcome must be one of {', '.join(sorted(HANDOFF_OUTCOMES))}; got {outcome!r}"
+            )
+        if confirm_id != application_id:
+            raise ValidationFailure(
+                "a forced report must be confirmed by typing the application id exactly "
+                f"({application_id}); nothing was recorded"
+            )
+        with self.ctx.read_repos() as repos:
+            application = repos.applications.get(application_id)
+            status = application.status
+            opportunity_id = application.opportunity_id
+            events = list(repos.events.for_entity(EntityType.APPLICATION, application_id))
+        if status != ApplicationStatus.APPLYING.value:
+            raise ValidationFailure(
+                f"application {application_id} is {status}; there is no submission waiting "
+                "for an outcome"
+            )
+        if self.handoffs.run_in_progress(application_id) or self.handoffs.active(application_id):
+            raise ValidationFailure(
+                f"a submission is already in progress for application {application_id} in "
+                "this process; it cannot be forced"
+            )
+        last = events[-1] if events else None
+        if require_stale and not self._is_stale(last):
+            raise ValidationFailure(
+                f"application {application_id} has not been silent for longer than "
+                f"{self.ctx.settings.handoff_timeout_seconds} seconds, so a forced report is "
+                "not offered yet"
+            )
+        previous = (
+            {
+                "event_type": last.event_type,
+                "state": (last.payload or {}).get("state"),
+                "seq": last.seq,
+                "occurred_at": last.occurred_at.isoformat() if last.occurred_at else None,
+            }
+            if last is not None
+            else None
+        )
+        self._finish_handoff(
+            application_id,
+            opportunity_id,
+            None,
+            HandoffResult(
+                outcome=outcome,
+                source="user_report",
+                error=None if outcome == "submitted" else f"person reported (forced): {outcome}",
+            ),
+            extra={"forced": True, "previous_event": previous},
+        )
+        return self.handoff_status(application_id)
+
+    def _is_stale(self, last_event: Any) -> bool:
+        if last_event is None or last_event.occurred_at is None:
+            return False
+        moment = last_event.occurred_at
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - moment).total_seconds()
+        return age > float(self.ctx.settings.handoff_timeout_seconds)
+
+    def handoff_status(self, application_id: str) -> dict[str, Any]:
+        """Live status of the human handoff, for the dashboard."""
+
+        with self.ctx.read_repos() as repos:
+            application = repos.applications.get(application_id)
+            status = application.status
+            summary = {
+                "application_id": application_id,
+                "application_status": status,
+                "blocked_reason": application.blocked_reason,
+                "last_error": application.last_error,
+                "submitted": application.submission_time is not None,
+            }
+            events = list(repos.events.for_entity(EntityType.APPLICATION, application_id))
+        record = self.handoffs.get(application_id)
+        info: dict[str, Any] = (
+            record.as_dict()
+            if record is not None
+            else {"active": False, "state": None, "url": None, "outcome": None}
+        )
+        applying = status == ApplicationStatus.APPLYING.value
+        running = applying and not info["active"] and self.handoffs.run_in_progress(application_id)
+        if running:
+            info["state"] = "running"
+        elif applying and not info["active"] and waiting_for_person(events):
+            info["state"] = STATE_NEEDS_REPORT
+        awaiting = applying and not running and (info["active"] or waiting_for_person(events))
+        # Offered only for a row that is APPLYING, has nothing registered in this process,
+        # and has been silent for longer than the handoff timeout.
+        can_force = (
+            applying
+            and not info["active"]
+            and not self.handoffs.run_in_progress(application_id)
+            and self._is_stale(events[-1] if events else None)
+        )
+        return {
+            **info,
+            **summary,
+            "awaiting_person": awaiting,
+            "running": running,
+            "can_force": can_force,
+        }
 
     # -- state recording -------------------------------------------------
 
@@ -588,8 +1204,48 @@ class ExecutionService:
         adapter: ApplicationAdapter,
         receipt: SubmissionReceipt,
     ) -> ExecutionResult:
+        if not receipt.submitted and receipt.clicked:
+            return self._mark_unconfirmed(
+                application_id,
+                opportunity_id,
+                adapter,
+                message=receipt.error or "the submit was clicked but nothing confirms it",
+                receipt=receipt,
+            )
         with self.ctx.repos() as repos:
             application = repos.applications.get(application_id)
+            if application.status != ApplicationStatus.APPLYING.value:
+                # The row moved while this run was clicking. Never overwrite it, and never
+                # lose a confirmation either.
+                status = application.status
+                if receipt.submitted:
+                    self._late_confirmation(
+                        repos,
+                        application,
+                        opportunity_id,
+                        {
+                            **receipt.as_dict(),
+                            "late_confirmation": True,
+                            "conflicting_status": status,
+                        },
+                        method=receipt.method,
+                        confirmation=dict(receipt.external_confirmation or {}),
+                    )
+                else:
+                    repos.events.append(
+                        EntityType.APPLICATION,
+                        application_id,
+                        EventType.APPLICATION_BLOCKED,
+                        {"stage": "conflict", "conflicting_status": status, **receipt.as_dict()},
+                    )
+                return ExecutionResult(
+                    application_id=application_id,
+                    opportunity_id=opportunity_id,
+                    outcome="CONFLICT",
+                    adapter=adapter.kind,
+                    receipt=receipt,
+                    detail=f"the application was already {status} when this run finished",
+                )
             application.attempts = (application.attempts or 0) + 1
 
             if receipt.submitted:
@@ -600,19 +1256,9 @@ class ExecutionService:
                     merged.update(receipt.external_confirmation)
                     application.external_confirmation = merged
                 repos.session.flush()
-                # Walk the graph rather than assuming the next hop: an APPROVED
-                # application has to pass through APPLYING, and jumping straight to
-                # APPLIED raised *after* the employer had received the application.
-                for step in application_path(
-                    ApplicationStatus(application.status), ApplicationStatus.APPLIED
-                ):
-                    repos.applications.set_status(application_id, step)
-                opportunity = repos.opportunities.get(opportunity_id)
-                if JobStatus(opportunity.status) is JobStatus.APPLYING:
-                    repos.opportunities.set_status(opportunity_id, JobStatus.APPLIED)
-                elif JobStatus(opportunity.status) is JobStatus.APPROVED:
-                    repos.opportunities.set_status(opportunity_id, JobStatus.APPLYING)
-                    repos.opportunities.set_status(opportunity_id, JobStatus.APPLIED)
+                # Walk the graph rather than assuming the next hop.
+                self._walk(repos, application_id, ApplicationStatus.APPLIED)
+                _advance_opportunity(repos, opportunity_id, JobStatus.APPLIED)
                 repos.events.append(
                     EntityType.APPLICATION,
                     application_id,
@@ -623,10 +1269,7 @@ class ExecutionService:
             else:
                 application.last_error = receipt.error or "submission did not confirm"
                 repos.session.flush()
-                for step in application_path(
-                    ApplicationStatus(application.status), ApplicationStatus.FAILED
-                ):
-                    repos.applications.set_status(application_id, step)
+                self._walk(repos, application_id, ApplicationStatus.FAILED)
                 repos.events.append(
                     EntityType.APPLICATION,
                     application_id,
@@ -644,6 +1287,68 @@ class ExecutionService:
                 detail=receipt.error,
             )
 
+    def _mark_unconfirmed(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        *,
+        message: str,
+        receipt: SubmissionReceipt | None = None,
+    ) -> ExecutionResult:
+        """The click happened and nothing confirms it. The application stays APPLYING.
+
+        Not FAILED (the employer may have it) and not SUBMITTED (nothing proves it).
+        It is resolved only by a reported outcome. If the row is no longer APPLYING the
+        row is left alone and the unconfirmed click is recorded as a conflict.
+        """
+
+        payload = {
+            "message": message,
+            "adapter": adapter.kind,
+            "receipt": receipt.as_dict() if receipt else None,
+        }
+        with self.ctx.repos() as repos:
+            application = repos.applications.get(application_id)
+            if application.status != ApplicationStatus.APPLYING.value:
+                repos.events.append(
+                    EntityType.APPLICATION,
+                    application_id,
+                    EventType.APPLICATION_UNCONFIRMED,
+                    {**payload, "conflict": True, "conflicting_status": application.status},
+                )
+                return ExecutionResult(
+                    application_id=application_id,
+                    opportunity_id=opportunity_id,
+                    outcome="CONFLICT",
+                    adapter=adapter.kind,
+                    receipt=receipt,
+                    detail=(
+                        f"the submit was clicked but the application was already "
+                        f"{application.status}; a person must check whether it went through"
+                    ),
+                )
+            application.attempts = (application.attempts or 0) + 1
+            application.last_error = message[:2000]
+            repos.session.flush()
+            repos.events.append(
+                EntityType.APPLICATION,
+                application_id,
+                EventType.APPLICATION_UNCONFIRMED,
+                payload,
+            )
+        return ExecutionResult(
+            application_id=application_id,
+            opportunity_id=opportunity_id,
+            outcome="UNCONFIRMED",
+            adapter=adapter.kind,
+            receipt=receipt,
+            detail=(
+                f"{message}. Check whether the employer received it, then report the outcome "
+                "(Applications page, or `sabra handoff-outcome`)"
+            ),
+        )
+
     def _mark_blocked(self, application_id: str, kind: Any, message: str) -> None:
         self._record(
             application_id,
@@ -655,13 +1360,23 @@ class ExecutionService:
     def _mark_failed(self, application_id: str, message: str) -> None:
         with self.ctx.repos() as repos:
             application = repos.applications.get(application_id)
+            if application.status != ApplicationStatus.APPLYING.value:
+                # The row moved under this run; leave it, and say so.
+                repos.events.append(
+                    EntityType.APPLICATION,
+                    application_id,
+                    EventType.APPLICATION_BLOCKED,
+                    {
+                        "stage": "conflict",
+                        "conflicting_status": application.status,
+                        "message": message,
+                    },
+                )
+                return
             application.last_error = message[:2000]
             application.attempts = (application.attempts or 0) + 1
             repos.session.flush()
-            for step in application_path(
-                ApplicationStatus(application.status), ApplicationStatus.FAILED
-            ):
-                repos.applications.set_status(application_id, step)
+            self._walk(repos, application_id, ApplicationStatus.FAILED)
             repos.events.append(
                 EntityType.APPLICATION,
                 application_id,
@@ -677,10 +1392,7 @@ class ExecutionService:
             repos.session.flush()
             # Same graph-derived path as the other state moves, so this cannot drift
             # out of step with APPLICATION_TRANSITIONS either.
-            for step in application_path(
-                ApplicationStatus(application.status), ApplicationStatus.BLOCKED
-            ):
-                repos.applications.set_status(application_id, step)
+            self._walk(repos, application_id, ApplicationStatus.BLOCKED)
 
     def _record(self, application_id: str, event_type: EventType, payload: dict[str, Any]) -> None:
         with self.ctx.repos() as repos:

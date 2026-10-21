@@ -105,7 +105,7 @@ Then, in the browser on this PC:
 1. http://127.0.0.1:8787/ — the overview lists the shortlisted queue.
 2. http://127.0.0.1:8787/opportunities — prepare a package for each role. Preparing an application that is already approved returns "already approved" and leaves the approved package in place.
 3. http://127.0.0.1:8787/applications — the list is the latest revision of each application. Open **Read package** before you approve. Copy the application id with **Copy**. Tick the complete packages and press **Approve selected**.
-4. An approved row says **Approved** and names the next step. **Apply** stays disabled while dry-run is on.
+4. An approved row says **Approved** and names the next step. **Apply** stays disabled while dry-run is on. A blocked or failed row can be applied to again once its cause is fixed.
 
 Each approval is stored against that package's content hash. If the package changes later, that approval no longer authorizes submission.
 
@@ -149,9 +149,29 @@ uv run sabra apply APPLICATION_ID --real
 
 Or, on http://127.0.0.1:8787/applications, press **Apply** and confirm the dialog. The dialog does not solve a CAPTCHA.
 
-- No CAPTCHA or bot challenge: the adapter submits, and the ledger records `APPLICATION_SUBMITTED`.
-- reCAPTCHA, hCaptcha, Turnstile, a similar challenge, or a probe that fails: nothing is submitted and nothing is solved. A visible Chromium window opens with the pre-filled form. You solve the check and press Submit yourself.
-- When the prompt asks, type `submitted`, `abandoned`, or `failed`. That outcome is written to the ledger. A confirmation page can also be detected and recorded as submitted.
+- No CAPTCHA or bot challenge: the adapter fills and submits the form in a single browser session. It counts the submission as confirmed only when the page has left the form and shows the employer's confirmation marker (Greenhouse: a `/confirmation` page or confirmation element; Lever: the `/thanks` page). Words such as "thank you" in the posting never count. If the button was clicked and nothing confirms it, the application stays **APPLYING** with an `APPLICATION_UNCONFIRMED` event; check with the employer or your email, then report the outcome (below).
+- reCAPTCHA, hCaptcha, Turnstile, a similar challenge, or a probe that fails: nothing is submitted and nothing is solved. A visible Chromium window opens with the pre-filled form. You solve the check and press Submit yourself. The form is filled only in that visible window.
+- The application stays **APPLYING** while the window is open. The window is not closed for you, and a timeout (`SABRA_HANDOFF_TIMEOUT_SECONDS`, default 2700) is the only thing that ends the wait on its own.
+  - From the CLI, type `submitted`, `abandoned`, or `failed` when asked (`q` means abandoned). Anything else is asked again.
+  - From the dashboard, **Apply** returns at once with `HANDED_TO_HUMAN`; the row then shows **I submitted it** and **I didn't submit**. **Apply** is disabled while a request is in flight and while a handoff is active.
+  - A report is accepted only when nothing is still running for that application. While the dashboard's window is open, or while a run is in progress, `sabra handoff-outcome` is refused: answer in the dashboard instead, or close the window first. If you close the browser, or the dashboard was stopped or restarted, the application stays APPLYING and the report is accepted. From PowerShell:
+
+    ```powershell
+    uv run sabra handoff-outcome APPLICATION_ID submitted
+    ```
+
+  - **Ctrl+C during `sabra apply --real`**, or any other interruption of a run, leaves the application APPLYING with an `interrupted` event. That event is what lets you report the outcome afterwards with `sabra handoff-outcome`. Nothing is guessed about whether the employer got it.
+  - The CLI prompt also times out: after `SABRA_HANDOFF_TIMEOUT_SECONDS` with no answer the application moves to **BLOCKED**, the same as the dashboard.
+  - **Hard-killed process** (the dashboard window or `sabra apply` was killed, or the PC lost power) while an application was APPLYING: no `interrupted` event could be written, so a normal report is refused and the dashboard keeps saying a submission is running. First check with the employer or your email whether it was submitted. Then force a report:
+
+    ```powershell
+    uv run sabra handoff-outcome APPLICATION_ID submitted --force
+    ```
+
+    You are asked to type the application id back; `--yes` does not exist and nothing else substitutes. It is refused while that same process still has a run or window for the application. The dashboard shows a separate **Force a report** control only for a row that has been APPLYING with no new activity for longer than the handoff timeout, and it also asks you to type the id. A forced report is recorded as `forced: true` together with the last event that was in the log, so the ledger shows it was a human override and not something Sabra observed. Use it only when you are sure nothing is still running.
+
+  - `abandoned` and a timeout move the application to **BLOCKED**, not WITHDRAWN. A blocked application can be applied to again: it is re-authorised against the same approval hash first. `failed` moves it to FAILED, which is also retryable. After an unconfirmed click, a report of `failed` or `abandoned` both move it to BLOCKED, because that click may have reached the employer until you say it did not.
+  - A confirmation page is detected from the page itself (same rule as above) and recorded as submitted without a report.
 
 Turn dry-run back on when you are done:
 
@@ -169,3 +189,5 @@ $env:SABRA_AUTOMATION_DRY_RUN = "true"
 - An unknown required field blocks that one application and names the field.
 - Only the first employment block and the first education block are filled. A form that requires a second block stays blocked until that block is handled.
 - Login walls and legal attestations still block; they are not handed to the headed browser.
+- Name, e-mail, phone and country are typed only from the verified package or verified answers. They are never read out of the résumé text; a required identity field with no verified value blocks and names the field.
+- Only one submission can run per application. A second Apply while one is in progress is refused.

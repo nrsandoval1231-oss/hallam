@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sabra_automation.form_keys import answer_key_choices
 from sabra_domain import models
-from sabra_domain.enums import ApplicationStatus, PackageStatus, TruthLevel
+from sabra_domain.enums import (
+    ApplicationStatus,
+    EntityType,
+    EventType,
+    PackageStatus,
+    TruthLevel,
+)
 from sabra_domain.errors import (
     ApprovalRequired,
     ApprovalScopeMismatch,
@@ -25,9 +33,48 @@ from sabra_engine.candidate_intake import ensure_candidate
 from sabra_engine.context import EngineContext
 from sabra_engine.documents import DocumentService, package_summary
 from sabra_engine.execution import ExecutionService
+from sabra_engine.handoff_manager import HANDOFFS
 from sabra_engine.refresh import PackageRefreshService
+from sqlalchemy.exc import OperationalError
 
-app = FastAPI(title="Sabra Job Engine", version="0.1.0")
+
+def record_server_stopped() -> int:
+    """Note on every application with a run or window in this process that the server stopped.
+
+    The thread or run dies with the process, so nothing will ever report for it. The
+    event is what lets a person report the outcome afterwards (`sabra handoff-outcome`).
+    """
+
+    recorded = 0
+    # Windows with a live thread, and synchronous runs that never got that far.
+    for application_id in dict.fromkeys([*HANDOFFS.active_ids(), *HANDOFFS.running_ids()]):
+        with suppress(Exception):
+            ctx = EngineContext.create()
+            try:
+                with ctx.repos() as repos:
+                    if (
+                        repos.applications.get(application_id).status
+                        == ApplicationStatus.APPLYING.value
+                    ):
+                        repos.events.append(
+                            EntityType.APPLICATION,
+                            application_id,
+                            EventType.HANDED_TO_HUMAN,
+                            {"state": "server_stopped"},
+                        )
+                        recorded += 1
+            finally:
+                ctx.close()
+    return recorded
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+    record_server_stopped()
+
+
+app = FastAPI(title="Sabra Job Engine", version="0.1.0", lifespan=_lifespan)
 
 
 @app.exception_handler(SabraError)
@@ -40,9 +87,36 @@ async def sabra_error_handler(_request: Request, exc: SabraError) -> JSONRespons
     elif isinstance(exc, NotFound):
         status = 404
     lowered = str(exc).lower()
-    if "already approved" in lowered or "was not refreshed" in lowered or "already submitted" in lowered:
+    if any(
+        phrase in lowered
+        for phrase in (
+            "already approved",
+            "was not refreshed",
+            "already submitted",
+            "already in progress",
+            "no submission waiting",
+            "already active",
+        )
+    ):
         status = 409
     return JSONResponse(status_code=status, content={"detail": str(exc)})
+
+
+@app.exception_handler(OperationalError)
+async def database_error_handler(_request: Request, exc: OperationalError) -> JSONResponse:
+    """A locked SQLite file is another Sabra process, not a server bug."""
+
+    if "database is locked" in str(exc).lower():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "The database is locked: another Sabra process holds it (a CLI command or "
+                    "a second dashboard). Wait for it to finish, or stop it, then retry."
+                )
+            },
+        )
+    return JSONResponse(status_code=500, content={"detail": "A database error occurred."})
 
 
 @app.get("/health")
@@ -266,6 +340,22 @@ def _annotate_package(repos: Any, row: Any, *, dry_run: bool) -> dict[str, Any]:
                 "A CAPTCHA opens in a headed browser for you to solve."
             )
         )
+    elif application is not None and application.status in {
+        ApplicationStatus.BLOCKED.value,
+        ApplicationStatus.FAILED.value,
+    }:
+        summary["review_label"] = (
+            "Blocked" if application.status == ApplicationStatus.BLOCKED.value else "Failed"
+        )
+        summary["next_step"] = (
+            f"{application.last_error or 'The last attempt did not finish.'} "
+            "Nothing is recorded as submitted. Fix the cause, then Apply again."
+        )
+    elif application is not None and application.status == ApplicationStatus.APPLYING.value:
+        summary["review_label"] = "Applying"
+        summary["next_step"] = (
+            "A submission is in progress or waiting for you to report its outcome."
+        )
     elif summary["approvable"]:
         summary["review_label"] = "ready to approve"
         summary["next_step"] = "Read the package, then approve it with the others you select."
@@ -313,6 +403,26 @@ class ApplyRequest(BaseModel):
     confirm: bool = False
 
 
+class HandoffOutcomeRequest(BaseModel):
+    outcome: Literal["submitted", "abandoned", "failed"]
+
+
+class ForcedHandoffRequest(BaseModel):
+    outcome: Literal["submitted", "abandoned", "failed"]
+    confirm_id: str
+
+
+def _execution_service(ctx: EngineContext) -> ExecutionService:
+    """The submission service for a request.
+
+    A challenge starts the headed browser on a background thread (the request must not
+    wait on a person), and that thread builds its own engine context because this
+    request's context is closed when the request ends.
+    """
+
+    return ExecutionService(ctx, background_handoff=True, ctx_factory=EngineContext.create)
+
+
 @app.post("/api/applications/refresh-unsubmitted")
 def refresh_unsubmitted(body: ApplyRequest) -> dict[str, Any]:
     """Revoke approval and rebuild every approved application that has not been submitted."""
@@ -343,7 +453,9 @@ def apply_application(application_id: str, body: ApplyRequest) -> dict[str, Any]
     """Run the same submission path as `sabra apply`.
 
     Refused while dry-run is on, and refused without an explicit confirm.
-    A CAPTCHA is never solved here.
+    A CAPTCHA is never solved here. When a challenge is detected the headed browser is
+    started in the background and this returns at once with outcome HANDED_TO_HUMAN;
+    the person then reports the result with `POST .../handoff/outcome`.
     """
 
     if not body.confirm:
@@ -361,8 +473,48 @@ def apply_application(application_id: str, body: ApplyRequest) -> dict[str, Any]
                     "Nothing was opened or submitted."
                 ),
             )
-        result = ExecutionService(ctx).submit(application_id, allow_real_submission=True)
+        result = _execution_service(ctx).submit(application_id, allow_real_submission=True)
         return result.as_dict()
+    finally:
+        ctx.close()
+
+
+@app.get("/api/applications/{application_id}/handoff")
+def handoff_status(application_id: str) -> dict[str, Any]:
+    """Live status of the human handoff for one application."""
+
+    ctx = EngineContext.create()
+    try:
+        return _execution_service(ctx).handoff_status(application_id)
+    finally:
+        ctx.close()
+
+
+@app.post("/api/applications/{application_id}/handoff/outcome")
+def handoff_outcome(application_id: str, body: HandoffOutcomeRequest) -> dict[str, Any]:
+    """The person reports how the handoff ended: submitted, abandoned or failed."""
+
+    ctx = EngineContext.create()
+    try:
+        return _execution_service(ctx).report_handoff_outcome(application_id, body.outcome)
+    finally:
+        ctx.close()
+
+
+@app.post("/api/applications/{application_id}/handoff/force")
+def handoff_force(application_id: str, body: ForcedHandoffRequest) -> dict[str, Any]:
+    """Record a report for a row stuck APPLYING after a hard kill.
+
+    Fail-closed: the id must be typed back, nothing may be registered for it in this
+    process, and the row must have been silent for longer than the handoff timeout. The
+    report is recorded as forced.
+    """
+
+    ctx = EngineContext.create()
+    try:
+        return _execution_service(ctx).force_report_handoff_outcome(
+            application_id, body.outcome, confirm_id=body.confirm_id, require_stale=True
+        )
     finally:
         ctx.close()
 
@@ -451,7 +603,7 @@ def applications_page() -> str:
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sabra | Applications</title>
-<style>body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}.row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:10px 0}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-weight:700}button.copy,button.apply,button.refresh-one{padding:6px 10px;margin-left:8px}button:disabled{background:#9aada6;cursor:not-allowed}code{font-size:12px}.why{color:#6c7f7a;display:block;margin-top:6px}dialog{border:1px solid #dce6df;border-radius:12px;padding:22px;max-width:440px;background:#fff;color:#18332f}dialog::backdrop{background:rgba(24,51,47,.45)}dialog p{margin:0 0 16px;color:#18332f}dialog button{margin-right:8px}</style></head>
+<style>body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}.row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:10px 0}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-weight:700}button.copy,button.apply,button.refresh-one{padding:6px 10px;margin-left:8px}button:disabled{background:#9aada6;cursor:not-allowed}button.outcome,button.force-report{padding:6px 10px;margin:6px 8px 0 0}.force{margin-top:10px;padding-top:8px;border-top:2px solid #b3261e}button.force-report{background:#b3261e}.handoff{margin-top:8px;padding:8px;border:1px dashed #9aada6;border-radius:8px}code{font-size:12px}.why{color:#6c7f7a;display:block;margin-top:6px}dialog{border:1px solid #dce6df;border-radius:12px;padding:22px;max-width:440px;background:#fff;color:#18332f}dialog::backdrop{background:rgba(24,51,47,.45)}dialog p{margin:0 0 16px;color:#18332f}dialog button{margin-right:8px}</style></head>
 <body><main><a href="/">Back to overview</a><h1>Applications</h1>
 <p>Select complete packages and approve them together. Each approval is stored against that package's content hash, so a later edit invalidates it. The list shows the latest revision of each application.</p>
 <form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button> <button type="button" id="refresh-all">Refresh all unsubmitted</button></form>
@@ -481,8 +633,10 @@ async function load(){
     const next=p.next_step?`<span class="why">${esc(p.next_step)}</span>`:'';
     const appId=p.application_id||'';
     const refresh=p.application_status==='APPROVED'?`<button type="button" class="refresh-one" data-id="${esc(appId)}">Refresh package</button>`:'';
-    const apply=p.application_status==='APPROVED'?`<button type="button" class="apply" data-id="${esc(appId)}" ${dry?'disabled':''}>Apply</button>${dry?'<span class="why">Dry run is on, so Apply is off. Set SABRA_AUTOMATION_DRY_RUN=false and restart the dashboard.</span>':''}`:'';
-    return `<div class="row"><label><input type="checkbox" name="package" value="${esc(p.package_id)}" data-hash="${esc(p.content_hash)}" ${p.approvable?'':'disabled'}></label><span><strong>${esc(p.title||'Package')} at ${esc(p.company||'the company')}</strong><br><a href="/packages/${esc(p.package_id)}">Read package</a><br>${esc(p.status)} · ${esc(label)}${next}<br>Application ID <code class="app-id">${esc(appId)}</code><button type="button" class="copy" data-copy="${esc(appId)}">Copy</button>${refresh}${apply}<br><code>${esc(p.content_hash)}</code></span></div>`;
+    const canApply=['APPROVED','BLOCKED','FAILED'].includes(p.application_status);
+    const apply=canApply?`<button type="button" class="apply" data-id="${esc(appId)}" data-dry="${dry?'1':'0'}" ${dry?'disabled':''}>Apply</button>${dry?'<span class="why">Dry run is on, so Apply is off. Set SABRA_AUTOMATION_DRY_RUN=false and restart the dashboard.</span>':''}`:'';
+    const handoff=p.application_status==='APPLYING'?`<div class="handoff" data-id="${esc(appId)}">Checking the handoff...</div>`:'';
+    return `<div class="row"><label><input type="checkbox" name="package" value="${esc(p.package_id)}" data-hash="${esc(p.content_hash)}" ${p.approvable?'':'disabled'}></label><span><strong>${esc(p.title||'Package')} at ${esc(p.company||'the company')}</strong><br><a href="/packages/${esc(p.package_id)}">Read package</a><br>${esc(p.status)} · ${esc(label)}${next}<br>Application ID <code class="app-id">${esc(appId)}</code><button type="button" class="copy" data-copy="${esc(appId)}">Copy</button>${refresh}${apply}${handoff}<br><code>${esc(p.content_hash)}</code></span></div>`;
   }).join('');
   list.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('click',async()=>{
     const id=btn.dataset.copy||'';
@@ -497,13 +651,70 @@ async function load(){
   }));
   list.querySelectorAll('button.apply').forEach(btn=>btn.addEventListener('click',async()=>{
     if(btn.disabled)return;
+    const id=btn.dataset.id;
     const ok=confirm('Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.');
     if(!ok)return;
-    const response=await fetch('/api/applications/'+encodeURIComponent(btn.dataset.id)+'/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
-    const applied=await readBody(response);
-    line.textContent=applied.ok?(applied.d.outcome+': '+(applied.d.detail||'')):(applied.d.detail||applied.text||'Apply failed');
+    inflight.add(id);
+    setApplyDisabled(id,true);
+    try{
+      const response=await fetch('/api/applications/'+encodeURIComponent(id)+'/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+      const applied=await readBody(response);
+      line.textContent=applied.ok?(applied.d.outcome+': '+(applied.d.detail||'')):(applied.d.detail||applied.text||'Apply failed');
+    }finally{
+      inflight.delete(id);
+    }
+    await load();
+  }));
+  list.querySelectorAll('.handoff').forEach(box=>refreshHandoff(box.dataset.id,box));
+  inflight.forEach(id=>setApplyDisabled(id,true));
+}
+const inflight=new Set();
+function setApplyDisabled(id,disabled){
+  document.querySelectorAll('button.apply').forEach(b=>{if(b.dataset.id===id)b.disabled=disabled||b.dataset.dry==='1';});
+}
+function forceSection(id,s){
+  if(!s.can_force)return '';
+  return `<div class="force"><span class="why">This attempt has had no activity for longer than the handoff timeout and nothing is running for it here. If you know how it ended, you can force a report. It is recorded as forced.</span><button type="button" class="force-report" data-outcome="submitted">Force a report: it was submitted</button><button type="button" class="force-report" data-outcome="abandoned">Force a report: it was not submitted</button></div>`;
+}
+function wireForce(box,id){
+  box.querySelectorAll('button.force-report').forEach(b=>b.addEventListener('click',async()=>{
+    const typed=prompt('Forcing a report records an outcome without Sabra seeing it. Type the application id to confirm: '+id);
+    if(typed===null)return;
+    const forced=await readBody(await fetch('/api/applications/'+encodeURIComponent(id)+'/handoff/force',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome:b.dataset.outcome,confirm_id:typed})}));
+    document.querySelector('#result').textContent=forced.ok?('Recorded as forced. The application is now '+forced.d.application_status+'.'):(forced.d.detail||forced.text||'Forced report refused');
+    await load();
   }));
 }
+function showHandoff(box,id,s){
+  const waiting=!!s.awaiting_person;
+  setApplyDisabled(id,waiting||inflight.has(id)||s.application_status==='APPLYING');
+  if(!waiting&&s.application_status==='APPLYING'){box.innerHTML='<span class="why">A submission is running. This row asks for your answer when it needs you.</span>'+forceSection(id,s);wireForce(box,id);return;}
+  if(!waiting){box.remove();return;}
+  const where=s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Sabra what happened.`:'No browser window is open for this application. Tell Sabra whether it was submitted.';
+  box.innerHTML=`<span class="why">${where}</span><button type="button" class="outcome" data-outcome="submitted">I submitted it</button><button type="button" class="outcome" data-outcome="abandoned">I didn't submit</button>`+forceSection(id,s);
+  wireForce(box,id);
+  box.querySelectorAll('button.outcome').forEach(b=>b.addEventListener('click',async()=>{
+    box.querySelectorAll('button').forEach(x=>{x.disabled=true;});
+    const reported=await readBody(await fetch('/api/applications/'+encodeURIComponent(id)+'/handoff/outcome',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome:b.dataset.outcome})}));
+    document.querySelector('#result').textContent=reported.ok?('Recorded. The application is now '+reported.d.application_status+'.'):(reported.d.detail||reported.text||'Report failed');
+    await load();
+  }));
+}
+async function refreshHandoff(id,box){
+  const r=await readBody(await fetch('/api/applications/'+encodeURIComponent(id)+'/handoff'));
+  if(r.ok)showHandoff(box,id,r.d);
+  return r;
+}
+let polling=false;
+setInterval(async()=>{
+  if(polling)return;
+  polling=true;
+  try{
+    const boxes=[...document.querySelectorAll('.handoff')];
+    const results=await Promise.all(boxes.map(box=>refreshHandoff(box.dataset.id,box)));
+    if(results.some(r=>r.ok&&r.d.application_status!=='APPLYING'))await load();
+  }finally{polling=false;}
+},3000);
 document.querySelector('#batch').addEventListener('submit',async e=>{
   e.preventDefault();
   const chosen=[...document.querySelectorAll('input[name=package]:checked')].map(el=>({package_id:el.value,content_hash:el.dataset.hash}));
