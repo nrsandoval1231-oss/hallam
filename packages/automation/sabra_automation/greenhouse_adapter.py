@@ -166,7 +166,6 @@ ENUMERATE_FIELDS_JS = """
       placeholder: el.getAttribute('placeholder'),
       value: type === 'file' ? null : (el.value || '').slice(0, 200),
       // Visible labels, not values: an answer is matched to the words the person sees.
-      // Playwright's select_option accepts a label as well as a value.
       options: tag === 'select'
         ? Array.from(el.options).map(o => (o.textContent || '').replace(/\\s+/g, ' ').trim() || o.value).slice(0, __LIMIT__)
         : [],
@@ -764,17 +763,36 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         # From here the employer may have received the application, so nothing below
         # may raise: any failure is reported as an unconfirmed click.
         self.click_attempted = True
+        confirmation = None
         try:
             page.click(submit_selector)
             page.wait(settle_ms)
             confirmation = detect_confirmation(page, self.kind, before)
-            after_url = page.current_url()
+            after_url = confirmation.url or prepared.url
             after_title = page.title()
             if capture_evidence:
                 screenshot = self._capture(page, "after_submit")
                 if screenshot:
                     evidence.append(screenshot)
         except Exception as exc:  # noqa: BLE001 - the click may have gone through
+            if confirmation is not None and confirmation.confirmed:
+                return SubmissionReceipt(
+                    submitted=True,
+                    clicked=True,
+                    method=SubmissionMethod.PLAYWRIGHT_ADAPTER,
+                    external_confirmation={
+                        "url": confirmation.url or prepared.url,
+                        "confirmation_detected": True,
+                        "confirmation_reason": confirmation.reason,
+                        "confirmation_marker": confirmation.marker,
+                        "form_url": prepared.url,
+                        "metadata_read_error": str(exc)[:300],
+                    },
+                    confirmation_text=confirmation.text or confirmation.reason,
+                    evidence_paths=evidence,
+                    submitted_at=datetime.now(UTC),
+                    dry_run=False,
+                )
             return SubmissionReceipt(
                 submitted=False,
                 clicked=True,
@@ -1056,6 +1074,8 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 if key == "first_name" and package.applicant_first_name:
                     continue
                 if key == "last_name" and package.applicant_last_name:
+                    continue
+                if key in {"email", "phone", "country"} and getattr(package, f"applicant_{key}"):
                     continue
                 values[key] = str(answer.answer)
         return values

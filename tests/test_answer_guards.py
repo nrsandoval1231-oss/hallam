@@ -303,3 +303,17 @@ def test_a_memory_answer_does_not_override_the_structured_package_name() -> None
     # Without a structured name, a verified memory answer is the owner's explicit choice.
     split_only = _package(answers=[_answer("first_name", "Jordan")])
     assert GreenhouseApplicationAdapter._identity_values(split_only)["first_name"] == "Jordan"
+
+
+def test_memory_answer_does_not_override_structured_contact_identity() -> None:
+    package = _package(
+        answers=[
+            _answer("email", "old@example.test"),
+            _answer("phone", "(111) 555-0100"),
+            _answer("country", "Canada"),
+        ]
+    )
+    values = GreenhouseApplicationAdapter._identity_values(package)
+    assert values["email"] == "jordan.rivera@example.test"
+    assert values["phone"] == "(214) 555-0142"
+    assert values["country"] == "United States"

@@ -466,6 +466,11 @@ class ApprovalService:
     @staticmethod
     def _authorise(repos: Any, application_id: str) -> tuple[Any, ApplicationPackageSchema]:
         application = repos.applications.get(application_id)
+        opportunity = repos.opportunities.get(application.opportunity_id)
+        if opportunity.status == JobStatus.EXPIRED.value:
+            raise ApprovalRequired(
+                f"opportunity {opportunity.id} has expired; a new live opportunity is required"
+            )
         status = application.status
         if status == ApplicationStatus.APPLYING.value:
             raise ApprovalRequired(

@@ -339,7 +339,6 @@ class ExecutionService:
 
         job = self._job_for(application)
         opportunity_id = application.opportunity_id
-
         try:
             adapter = self.registry.for_job(job)
         except SourceNotSupported as exc:
@@ -1081,8 +1080,8 @@ class ExecutionService:
     ) -> ExecutionResult:
         """Record how a handoff ended.
 
-        submitted -> APPLIED. abandoned or timeout -> BLOCKED (retryable, never
-        WITHDRAWN). failed -> FAILED. closed -> stays APPLYING and waits for a report.
+        submitted -> APPLIED. timeout or closed -> stays APPLYING and waits for a report.
+        abandoned -> BLOCKED. failed -> FAILED.
         Every move goes through the transition graph and appends an event.
         """
 
@@ -1097,7 +1096,7 @@ class ExecutionService:
             "adapter": adapter_kind,
             **(extra or {}),
         }
-        if outcome == OUTCOME_CLOSED:
+        if outcome in {OUTCOME_CLOSED, OUTCOME_TIMEOUT}:
             self._record(
                 application_id,
                 EventType.HANDED_TO_HUMAN,
@@ -1110,8 +1109,8 @@ class ExecutionService:
                 adapter=adapter_kind,
                 url=result.url,
                 detail=(
-                    "the browser closed before an outcome was reported; the application stays "
-                    "APPLYING until you report whether it was submitted"
+                    ("the browser closed" if outcome == OUTCOME_CLOSED else "the handoff timed out")
+                    + "; the application stays APPLYING until you report whether it was submitted"
                 ),
             )
         if outcome not in HANDOFF_OUTCOMES and outcome != OUTCOME_TIMEOUT:

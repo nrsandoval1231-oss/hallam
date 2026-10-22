@@ -105,11 +105,13 @@ def write_value(page: Any, field: FormField, selector: str, value: str) -> bool:
         return False
     kind = (field.kind or "text").lower()
     if kind == "select":
-        page.select_option(selector, exact_option(field.options, value))
+        page.select_option(selector, label=exact_option(field.options, value))
         return True
     if kind == "checkbox":
         if _collapse(value) in _AFFIRMATIVE:
             page.check(selector)
+        elif _collapse(value) in _NEGATIVE:
+            page.uncheck(selector)
         return True
     if kind == "file":
         return False

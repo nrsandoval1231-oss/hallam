@@ -126,11 +126,14 @@ class FakeFormPage:
             raise self._fill_raises
         self.filled[selector] = value
 
-    def select_option(self, selector: str, value: str) -> None:
-        self.filled[selector] = value
+    def select_option(self, selector: str, value: str | None = None, *, label: str | None = None) -> None:
+        self.filled[selector] = label if label is not None else str(value)
 
     def check(self, selector: str) -> None:
         self.filled[selector] = "checked"
+
+    def uncheck(self, selector: str) -> None:
+        self.filled[selector] = "unchecked"
 
     def set_input_files(self, selector: str, path: str) -> None:
         self.files[selector] = path
