@@ -111,6 +111,25 @@ SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        # Conversational headings. Anchored to the whole line (with an optional "to the
+        # team" tail) so a sentence that merely starts this way is not read as a heading.
+        "requirements",
+        re.compile(
+            r"^(?:what you(?:'| wi)ll bring|what you bring|what we(?:'re| are) looking for|"
+            r"who we(?:'re| are) looking for|your background|about you|what you have)"
+            r"(?: to (?:the )?(?:team|role|table))?$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "responsibilities",
+        re.compile(
+            r"^(?:what you(?:'| wi)ll (?:be )?(?:doing|working on)|a day in the life"
+            r"(?: of an? [\w -]+)?|day[- ]to[- ]day)$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "responsibilities",
         re.compile(
             r"^(?:responsibilit(?:y|ies)|essential (?:duties|functions)|duties|"
@@ -149,7 +168,8 @@ _HEADING_MAX_CHARS = 70
 def _heading_kind(line: str) -> str | None:
     """Classify a line as a section heading, or None when it is body text."""
 
-    candidate = line.strip().rstrip(":").strip()
+    # Curly apostrophes ("What You’ll Bring") are the common case in ATS copy.
+    candidate = line.strip().replace("\u2019", "'").rstrip(":").strip()
     if not candidate or len(candidate) > _HEADING_MAX_CHARS:
         return None
     if len(candidate.split()) > _HEADING_MAX_WORDS:

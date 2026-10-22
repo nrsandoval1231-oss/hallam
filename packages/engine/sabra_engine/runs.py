@@ -231,8 +231,11 @@ class RunService:
         discovery_http: Any | None = None,
         research_http: Any | None = None,
         on_update: ProgressSink | None = None,
+        only_new_hours: float | None = None,
     ) -> None:
         self.ctx = ctx
+        # Skip boards read successfully within this many hours (`--only-new`).
+        self._only_new_hours = only_new_hours
         self._discovery_http = discovery_http
         self._research_http = research_http
         self._on_update = on_update
@@ -298,6 +301,7 @@ class RunService:
         prepare: bool = False,
         *,
         ctx_factory: Callable[[], EngineContext] = EngineContext.create,
+        only_new_hours: float | None = None,
     ) -> dict[str, Any]:
         """Create a run and execute it on a daemon thread; return the QUEUED record.
 
@@ -312,20 +316,29 @@ class RunService:
         finally:
             ctx.close()
         thread = threading.Thread(
-            target=cls._background, args=(run_id, ctx_factory), name=f"run-{run_id}", daemon=True
+            target=cls._background,
+            args=(run_id, ctx_factory, only_new_hours),
+            name=f"run-{run_id}",
+            daemon=True,
         )
         cls._threads[run_id] = thread
         thread.start()
         return record
 
     @classmethod
-    def _background(cls, run_id: str, ctx_factory: Callable[[], EngineContext]) -> None:
+    def _background(
+        cls,
+        run_id: str,
+        ctx_factory: Callable[[], EngineContext],
+        only_new_hours: float | None = None,
+    ) -> None:
         ctx = ctx_factory()
         try:
             cls(
                 ctx,
                 discovery_http=build_discovery_http(ctx),
                 research_http=build_research_http(ctx),
+                only_new_hours=only_new_hours,
             ).execute(run_id)
         except Exception:  # noqa: BLE001 - execute records its own failures; this is the net
             pass
@@ -600,6 +613,7 @@ class RunService:
             search_profile_id=profile_id,
             http=self._discovery_http,
             progress=on_progress,
+            only_new_hours=self._only_new_hours,
         )
         stage.update(
             status="done",
@@ -611,9 +625,24 @@ class RunService:
             jobs_updated=result.jobs_updated,
             duplicates_removed=result.duplicates_removed,
             canonical_opportunities=result.canonical_opportunities,
+            sources_skipped_fresh=len(result.sources_skipped_fresh),
             errors=result.errors[:20],
         )
-        if not result.sources:
+        if 0 < result.sources_failed < len(result.sources):
+            # The run is "done" and the queue refreshed, but some boards were not read:
+            # say so where the owner looks (Today and the run record), not only in the
+            # per-source details.
+            failed = [o.source_id for o in result.sources if not o.ok]
+            shown = ", ".join(failed[:10]) + (f" and {len(failed) - 10} more" if len(failed) > 10 else "")
+            self._progress["warnings"].append(
+                f"{len(failed)} of {len(result.sources)} boards failed: {shown}"
+            )
+        if not result.sources and result.sources_skipped_fresh:
+            self._progress["warnings"].append(
+                f"all {len(result.sources_skipped_fresh)} boards were read within the last "
+                f"{self._only_new_hours:g} hours; nothing needed refreshing"
+            )
+        elif not result.sources:
             self._progress["warnings"].append(
                 "no discovery sources are enabled; the queue was not refreshed"
             )

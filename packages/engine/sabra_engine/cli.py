@@ -15,6 +15,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from sabra_domain.errors import SabraError
 
@@ -112,12 +113,35 @@ def init_command(
         ctx.close()
 
 
+def _only_new_hours(ctx: EngineContext, only_new: bool, hours: float | None) -> float | None:
+    """The freshness window for `--only-new`, or None when the flag is off."""
+
+    if hours is not None and not only_new:
+        raise typer.BadParameter("--only-new-hours has no effect without --only-new")
+    if not only_new:
+        return None
+    chosen = ctx.settings.discovery_fresh_hours if hours is None else hours
+    if chosen <= 0:
+        raise typer.BadParameter("--only-new-hours must be greater than zero")
+    return float(chosen)
+
+
 @app.command("discover")
 def discover_command(
     candidate_id: str | None = typer.Option(None, "--candidate-id"),
     search_profile_id: str | None = typer.Option(None, "--search-profile-id"),
     source: list[str] | None = typer.Option(None, "--source", help="Limit to these source ids"),
     max_items: int | None = typer.Option(None, "--max-items", help="Cap postings per source"),
+    only_new: bool = typer.Option(
+        False,
+        "--only-new",
+        help="Skip boards read successfully within the last --only-new-hours hours",
+    ),
+    only_new_hours: float | None = typer.Option(
+        None,
+        "--only-new-hours",
+        help="How recent counts as fresh for --only-new (default: 20)",
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Run discovery across every enabled source (requirement 7)."""
@@ -135,6 +159,7 @@ def discover_command(
             search_profile_id=profile,
             source_ids=list(source) if source else None,
             max_items_per_source=max_items,
+            only_new_hours=_only_new_hours(ctx, only_new, only_new_hours),
         )
         if as_json:
             typer.echo(json.dumps(result.summary(), indent=2, default=str))
@@ -144,14 +169,14 @@ def discover_command(
             table.add_column(column)
         for outcome in result.sources:
             table.add_row(
-                outcome.source_id,
+                escape(outcome.source_id),
                 outcome.kind,
                 str(outcome.jobs_seen),
                 str(outcome.jobs_new),
                 str(outcome.jobs_updated),
                 str(outcome.jobs_unchanged),
                 str(outcome.elapsed_ms),
-                (outcome.error or "")[:60],
+                escape((outcome.error or "")[:60]),
             )
         console.print(table)
         console.print_json(json.dumps(result.summary(), default=str))
@@ -272,6 +297,8 @@ def status_command(as_json: bool = typer.Option(False, "--json")) -> None:
                         "enabled": row.enabled,
                         "health": row.health,
                         "total_discovered": row.total_discovered,
+                        "last_success_at": row.last_success_at,
+                        "last_attempt_at": row.last_attempt_at,
                         "last_error": row.last_error,
                     }
                     for row in repos.providers.list_all()
@@ -434,6 +461,14 @@ def run_command(
     prepare: bool = typer.Option(
         False, "--prepare", help="Also prepare packages for the top shortlisted roles"
     ),
+    only_new: bool = typer.Option(
+        False,
+        "--only-new",
+        help="Skip boards read successfully within the last --only-new-hours hours",
+    ),
+    only_new_hours: float | None = typer.Option(
+        None, "--only-new-hours", help="How recent counts as fresh (default: 20)"
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Run the loop now: discover, rank, research the shortlist, optionally prepare.
@@ -451,6 +486,7 @@ def run_command(
             discovery_http=build_discovery_http(ctx),
             research_http=build_research_http(ctx),
             on_update=None if as_json else _print_stage_changes(),
+            only_new_hours=_only_new_hours(ctx, only_new, only_new_hours),
         )
         record = service.run_sync(kind, prepare)
         if as_json:
@@ -496,19 +532,19 @@ def _print_run_table(record: dict[str, Any]) -> None:
             source_table.add_column(column)
         for item in sources:
             source_table.add_row(
-                str(item.get("source_id")),
+                escape(str(item.get("source_id"))),
                 "yes" if item.get("ok") else "NO",
                 str(item.get("jobs_seen")),
                 str(item.get("jobs_new")),
                 str(item.get("elapsed_ms")),
-                str(item.get("error") or "")[:60],
+                escape(str(item.get("error") or "")[:60]),
             )
         console.print(source_table)
     for warning in progress.get("warnings") or []:
-        console.print(f"[yellow]{warning}[/yellow]")
-    console.print(progress.get("summary") or "")
+        console.print(f"[yellow]{escape(str(warning))}[/yellow]")
+    console.print(escape(str(progress.get("summary") or "")))
     if record.get("error"):
-        console.print(f"[red]{record['error']}[/red]")
+        console.print(f"[red]{escape(str(record['error']))}[/red]")
 
 
 answers_app = typer.Typer(help="Record and verify reusable application answers.")
@@ -665,7 +701,9 @@ def apply_command(
 
     ctx = _context()
     try:
-        result = ExecutionService(ctx, handoff_prompt=prompt_for_outcome).submit(
+        result = ExecutionService(
+            ctx, handoff_prompt=prompt_for_outcome, announce=typer.echo
+        ).submit(
             application_id, allow_real_submission=real
         )
         _emit(result.as_dict(), as_json, "Submission")
@@ -842,6 +880,163 @@ def ledger_export(
         _emit(result, as_json, "Exported")
     finally:
         ctx.close()
+
+
+sources_app = typer.Typer(help="List, probe, add, enable and disable job boards.")
+app.add_typer(sources_app, name="sources")
+
+
+def _print_probe(payload: dict[str, Any]) -> None:
+    state = "yes" if payload["live"] else "no"
+    typer.echo(f"{payload['kind']} board {payload['token']}: live {state}")
+    typer.echo(f"  read: {payload['api_url']}")
+    if not payload["live"]:
+        typer.echo(f"  error: {payload.get('error') or 'no answer'}")
+        return
+    profile = payload.get("profile_name")
+    typer.echo(f"  postings: {payload['posting_count']}")
+    where = "a city in your search" if payload.get("profile_has_cities") else "remote only"
+    typer.echo(
+        f"  mention {where} or remote: {payload['local_or_remote_count']}"
+        + ("" if profile else " (no active search profile)")
+    )
+    titles = payload.get("sample_titles") or []
+    typer.echo(f"  titles matching {profile or 'the active search'}: {len(titles)} shown")
+    for title in titles:
+        typer.echo(f"    - {title}")
+    if payload.get("already_in_registry"):
+        typer.echo(f"  already in the registry as {payload['already_in_registry']}")
+
+
+@sources_app.command("list")
+def sources_list(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List the registry's boards with enabled, health and postings discovered."""
+
+    from .sources import SourcesService
+
+    ctx = _context()
+    try:
+        rows = SourcesService(ctx).list_sources()
+        if as_json:
+            typer.echo(json.dumps(rows, indent=2, default=str))
+            return
+        table = Table(title=f"Job boards ({len(rows)})")
+        # The id is what `enable` / `disable` take, so it is never truncated.
+        table.add_column("id", no_wrap=True, overflow="fold")
+        for column, width in (("on", 3), ("health", 8), ("found", 5), ("added", 5), ("last ok", 10)):
+            table.add_column(column, no_wrap=True, min_width=width)
+        table.add_column("last error", overflow="fold")
+        for row in rows:
+            # Ids come from the registry file and errors from the network: escape them
+            # so a "[...]" in either is shown as text, not read as Rich markup.
+            table.add_row(
+                escape(row["id"]),
+                "yes" if row["enabled"] else "no",
+                escape(str(row["health"])),
+                str(row["total_discovered"]),
+                str(row["verified_jobs"] if row["verified_jobs"] is not None else ""),
+                (row["last_success_at"] or "never")[:10],
+                escape((row["last_error"] or "")[:50]),
+            )
+        console.print(table)
+    finally:
+        ctx.close()
+
+
+@sources_app.command("probe")
+def sources_probe(
+    url_or_token: str = typer.Argument(..., help="A careers URL, or a bare board token"),
+    kind: str | None = typer.Option(
+        None, "--kind", help="GREENHOUSE, LEVER or ASHBY (required for a bare token)"
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Read a board once and say whether it is live and relevant. Nothing is saved."""
+
+    from .sources import SourcesService
+
+    ctx = _context()
+    try:
+        payload = SourcesService(ctx).probe(url_or_token, kind)
+        if as_json:
+            typer.echo(json.dumps(payload, indent=2, default=str))
+        else:
+            _print_probe(payload)
+        if not payload["live"]:
+            raise typer.Exit(code=1)
+    finally:
+        ctx.close()
+
+
+@sources_app.command("add")
+def sources_add(
+    url_or_token: str = typer.Argument(..., help="A careers URL, or a bare board token"),
+    kind: str | None = typer.Option(
+        None, "--kind", help="GREENHOUSE, LEVER or ASHBY (required for a bare token)"
+    ),
+    display_name: str | None = typer.Option(None, "--display-name"),
+    industry: str | None = typer.Option(None, "--industry"),
+    notes: str | None = typer.Option(None, "--notes"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Probe a board and add it to the registry file. A dead or duplicate board is refused."""
+
+    from .sources import SourcesService
+
+    ctx = _context()
+    try:
+        payload = SourcesService(ctx).add(
+            url_or_token, kind, display_name=display_name, industry=industry, notes=notes
+        )
+        if as_json:
+            typer.echo(json.dumps(payload, indent=2, default=str))
+            return
+        source = payload["source"]
+        typer.echo(
+            f"Added {source['id']} ({source['display_name']}), "
+            f"{source['verified_jobs']} postings, to {payload['registry_file']}"
+        )
+        for warning in payload["warnings"]:
+            typer.echo(f"  note: {warning}")
+    finally:
+        ctx.close()
+
+
+def _set_source_enabled(source_id: str, enabled: bool, as_json: bool) -> None:
+    from .sources import SourcesService
+
+    ctx = _context()
+    try:
+        payload = SourcesService(ctx).set_enabled(source_id, enabled)
+        if as_json:
+            typer.echo(json.dumps(payload, indent=2, default=str))
+            return
+        word = "enabled" if enabled else "disabled"
+        typer.echo(
+            f"{source_id} is {word}" + ("" if payload["changed"] else " (it already was)")
+        )
+    finally:
+        ctx.close()
+
+
+@sources_app.command("disable")
+def sources_disable(
+    source_id: str = typer.Argument(..., help="Source id, as shown by `sabra sources list`"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Stop discovering from a board. Its history stays."""
+
+    _set_source_enabled(source_id, False, as_json)
+
+
+@sources_app.command("enable")
+def sources_enable(
+    source_id: str = typer.Argument(..., help="Source id, as shown by `sabra sources list`"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Resume discovering from a board."""
+
+    _set_source_enabled(source_id, True, as_json)
 
 
 def main() -> None:

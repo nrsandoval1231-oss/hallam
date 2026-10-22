@@ -307,10 +307,9 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
     # -- contract -------------------------------------------------------
 
     def supports(self, job: CanonicalJob | Any) -> bool:
-        if str(getattr(job, "source", "")) == str(SourceKind.GREENHOUSE):
-            return True
-        url = str(getattr(job, "source_url", "") or "")
-        return "greenhouse.io" in url
+        # By source kind only. A URL that merely contains "greenhouse.io" (a company
+        # careers page that embeds a board, say) is not a Greenhouse posting we may fill.
+        return str(getattr(job, "source", "")) == str(SourceKind.GREENHOUSE)
 
     def inspect(self, job: CanonicalJob | Any) -> ApplicationForm:
         url = self.application_url(job)

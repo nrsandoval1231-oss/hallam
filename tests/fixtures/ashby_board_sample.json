@@ -1,0 +1,348 @@
+{
+ "jobs": [
+  {
+   "id": "8f17f764-aa6f-4897-b798-ca8cf4662a7e",
+   "title": "Senior Software Engineer - Reporting",
+   "department": "Engineering",
+   "team": "Software Engineering",
+   "employmentType": "FullTime",
+   "location": "Dallas, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-01T05:01:06.437+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Hybrid",
+   "address": {
+    "postalAddress": {
+     "postalCode": "75230",
+     "addressRegion": "Texas",
+     "streetAddress": "5440 Harvest Hill, #100 ",
+     "addressCountry": "United States",
+     "addressLocality": "Dallas"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/8f17f764-aa6f-4897-b798-ca8cf4662a7e",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/8f17f764-aa6f-4897-b798-ca8cf4662a7e/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>Who We Are Looking For</strong></p><p style=\"min-height:1.5em\">We’re hiring a hands-on Software Engineer to shape the next generation of our reporting and analytics UI - the dashboards, charts, grids, and self-service exploration tools our users rely on every day. This is a full-stack role with flexibility based on the candidate’s experience and strengths: it may operate as an individual contributor and subject matter expert or lead a small team of engineers. In either capacity, the differentiator is UI excellence.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\nWho We Are Looking For\n\nWe’re hiring a hands-on Software Engineer to shape the next generation of our reporting and analytics UI - the dashboards, charts, grids, and self-service exploration tools our users rely on every day. This is a full-stack role with flexibility based on the candidate’s experience and strengths: it may operate as an individual contributor and subject matter expert or lead a small team of engineers. In either capacity, the differentiator is UI excellence. You know how to turn complex data into fast, intuitive experiences, ship continuously, and use AI-enabled engineering practices to move faster without sacrificing quality or accuracy.\n\n \n\nWhat You’ll Be Doing\n\n - Contribute as a hands-on subject matter expert or lead a small development team - planning and breaking down work, reviewing PRs, coaching engineers, and driving delivery.\n\n - Build polished dashboards highlight data intelligence tools users have come to expect and reporting flows for portfolio, compliance, and operational analytics.\n\n - Integrate with .NET/C# backend services through REST APIs with solid error handling and security patterns.\n\n - Create advanced data exploration experiences using:\n\n - Highcharts (time-series, drilldowns, heatmaps/treemaps)\n\n - AG Grid Enterprise (grouping, pivoting, aggregation, filtering, Excel/PDF export)\n\n - Work across the stack to deliver reporting end-to-end: report-ready datasets → efficient APIs → high-performing UI.\n\n - Partner with backend/data engineers on data modeling, query optimization, and performance at scale (100K+ rows).\n\n - Establish standards for report correctness, validation, auditability, and tenant-specific configuration.\n\n - Build confidence with unit + E2E testing (Playwright) and leverage AI tools to improve velocity and quality.\n\n - Support production readiness: monitoring, logging, triage, and iterative UX/performance improvements.\n\n \n\nWhat You’ll Bring\n\n - 5+ years building and owning end-to-end product features in production.\n\n - Proven experience delivering analytics/reporting UIs (dashboards, grids, charting, exports).\n\n - Strong SQL (SQL Server preferred): aggregation, tuning, report-friendly modeling.\n\n - Experience designing/consuming REST APIs and collaborating on contracts/performance.\n\n - Experience leading a small team is a plus, including coaching, conducting reviews, driving accountability, and keeping a strong focus on delivery.\n\n - Clear communicator who can explain tradeoffs to technical and non-technical stakeholders.\n\n - Technical Stack:\n   \n   - Frontend: Angular 12+ / TypeScript (legacy AngularJS migration in progress), Angular Material\n   \n   - UI/Visualization: AG Grid Enterprise, Highcharts, D3\n   \n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "ddda9bfa-317f-4774-b671-6d18273cca7e",
+   "title": "SQL Development Leader - Integrations",
+   "department": "Engineering",
+   "team": "SQL Development",
+   "employmentType": "FullTime",
+   "location": "Dallas, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-01T05:01:06.437+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Hybrid",
+   "address": {
+    "postalAddress": {
+     "postalCode": "75230",
+     "addressRegion": "Texas",
+     "streetAddress": "5440 Harvest Hill, #100 ",
+     "addressCountry": "United States",
+     "addressLocality": "Dallas"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/ddda9bfa-317f-4774-b671-6d18273cca7e",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/ddda9bfa-317f-4774-b671-6d18273cca7e/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "a9125afb-1d79-4791-9022-6b8737ec70bf",
+   "title": "Senior Software Engineer - CLO Compliance",
+   "department": "Engineering",
+   "team": "Software Engineering",
+   "employmentType": "FullTime",
+   "location": "Dallas, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-01T05:01:06.437+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Hybrid",
+   "address": {
+    "postalAddress": {
+     "postalCode": "75230",
+     "addressRegion": "Texas",
+     "streetAddress": "5440 Harvest Hill, #100 ",
+     "addressCountry": "United States",
+     "addressLocality": "Dallas"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/a9125afb-1d79-4791-9022-6b8737ec70bf",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/a9125afb-1d79-4791-9022-6b8737ec70bf/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "cef0929a-3ed3-477e-98fb-24b492466721",
+   "title": "Cloud Infrastructure Support Engineer",
+   "department": "IT MSP",
+   "team": "Infrastructure",
+   "employmentType": "FullTime",
+   "location": "Dallas, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-01T05:01:06.437+00:00",
+   "isListed": true,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "address": {
+    "postalAddress": {
+     "postalCode": "75230",
+     "addressRegion": "Texas",
+     "streetAddress": "5440 Harvest Hill, #100 ",
+     "addressCountry": "United States",
+     "addressLocality": "Dallas"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/cef0929a-3ed3-477e-98fb-24b492466721",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/cef0929a-3ed3-477e-98fb-24b492466721/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "3fb30fb8-334f-4551-8f17-b25c1221ec1a",
+   "title": "Operations Associate",
+   "department": "Client Services & Operations",
+   "team": "Malaysia Client Services & Operations Team",
+   "employmentType": "FullTime",
+   "location": "Kuala Lumpur",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-01T05:01:06.437+00:00",
+   "isListed": true,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "address": {
+    "postalAddress": {
+     "postalCode": "59200",
+     "addressRegion": "Kuala Lumpur",
+     "streetAddress": "9-1, Mercu Aspire | No. 3, Jalan Bangsar",
+     "addressCountry": "Malaysia",
+     "addressLocality": "Kuala Lumpur"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/3fb30fb8-334f-4551-8f17-b25c1221ec1a",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/3fb30fb8-334f-4551-8f17-b25c1221ec1a/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "cebf2168-8ef9-47c4-9a9a-04e5e833ec60",
+   "title": "Senior Manager, SQL Development - MOS and CA",
+   "department": "Engineering",
+   "team": "SQL Development",
+   "employmentType": "FullTime",
+   "location": "Dallas, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-15T22:23:37.843+00:00",
+   "isListed": true,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "address": {
+    "postalAddress": {
+     "postalCode": "75230",
+     "addressRegion": "Texas",
+     "streetAddress": "5440 Harvest Hill, #100 ",
+     "addressCountry": "United States",
+     "addressLocality": "Dallas"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/cebf2168-8ef9-47c4-9a9a-04e5e833ec60",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/cebf2168-8ef9-47c4-9a9a-04e5e833ec60/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "e49a5618-f00e-4d18-8d46-e9316e11ff7f",
+   "title": "Accounts Receivable Specialist",
+   "department": "Corporate Functions",
+   "team": "Finance",
+   "employmentType": "FullTime",
+   "location": "Dallas, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-01T05:01:06.437+00:00",
+   "isListed": true,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "address": {
+    "postalAddress": {
+     "postalCode": "75230",
+     "addressRegion": "Texas",
+     "streetAddress": "5440 Harvest Hill, #100 ",
+     "addressCountry": "United States",
+     "addressLocality": "Dallas"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/e49a5618-f00e-4d18-8d46-e9316e11ff7f",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/e49a5618-f00e-4d18-8d46-e9316e11ff7f/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "4ccd8f81-c4e9-455a-8205-342168055937",
+   "title": "CLO Compliance Senior Analyst",
+   "department": "Client Services & Operations",
+   "team": "CLO Compliance Analysis",
+   "employmentType": "FullTime",
+   "location": "Houston, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-18T13:48:49.904+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Hybrid",
+   "address": {
+    "postalAddress": {
+     "postalCode": "77043",
+     "addressRegion": "Texas",
+     "streetAddress": "1410 Brittmoore Road, Suite 406",
+     "addressCountry": "United States",
+     "addressLocality": "Houston"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/4ccd8f81-c4e9-455a-8205-342168055937",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/4ccd8f81-c4e9-455a-8205-342168055937/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "b0429abc-bf1a-45bc-89ca-a4575afb0946",
+   "title": "IT Help Desk Tier 1",
+   "department": "IT MSP",
+   "team": "Service Desk",
+   "employmentType": "FullTime",
+   "location": "Houston, TX",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [
+    {
+     "location": "Dallas, TX",
+     "address": {
+      "postalAddress": {
+       "postalCode": "75230",
+       "addressRegion": "Texas",
+       "streetAddress": "5440 Harvest Hill, #100 ",
+       "addressCountry": "United States",
+       "addressLocality": "Dallas"
+      }
+     }
+    }
+   ],
+   "publishedAt": "2026-10-07T17:46:25.855+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Hybrid",
+   "address": {
+    "postalAddress": {
+     "postalCode": "77043",
+     "addressRegion": "Texas",
+     "streetAddress": "1410 Brittmoore Road, Suite 406",
+     "addressCountry": "United States",
+     "addressLocality": "Houston"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/b0429abc-bf1a-45bc-89ca-a4575afb0946",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/b0429abc-bf1a-45bc-89ca-a4575afb0946/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  },
+  {
+   "id": "836a5c2d-7ebe-4fa7-803d-fab241a3e5a6",
+   "title": "Operations Associate - Collateral Administration",
+   "department": "Client Services & Operations",
+   "team": "Malaysia Client Services & Operations Team",
+   "employmentType": "FullTime",
+   "location": "Kuala Lumpur",
+   "shouldDisplayCompensationOnJobPostings": false,
+   "secondaryLocations": [],
+   "publishedAt": "2026-10-13T15:15:57.500+00:00",
+   "isListed": true,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "address": {
+    "postalAddress": {
+     "postalCode": "59200",
+     "addressRegion": "Kuala Lumpur",
+     "streetAddress": "9-1, Mercu Aspire | No. 3, Jalan Bangsar",
+     "addressCountry": "Malaysia",
+     "addressLocality": "Kuala Lumpur"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/siepe/836a5c2d-7ebe-4fa7-803d-fab241a3e5a6",
+   "applyUrl": "https://jobs.ashbyhq.com/siepe/836a5c2d-7ebe-4fa7-803d-fab241a3e5a6/application",
+   "descriptionHtml": "<h2><strong>Why Siepe</strong></h2><p style=\"min-height:1.5em\">Siepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.</p><p style=\"min-height:1.5em\">Our clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You'll Get</strong></h2><p style=\"min-height:1.5em\">Impactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! </p><p style=\"min-height:1.5em\"></p><h2><strong>How We Show Up</strong></h2><p style=\"min-height:1.5em\">We lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute.",
+   "descriptionPlain": "WHY SIEPE\n\nSiepe is a fast-growing technology company helping investment managers turn complexity into clarity. We build software and data solutions that give hedge funds and financial services firms the real-time insights and operational visibility they need to make better decisions faster.\n\nOur clients manage billions in assets and rely on Siepe for critical technology, data, and operational workflows. We serve sophisticated global clients and move quickly, challenge how things are done, and give people meaningful ownership and the opportunity to make a real impact.\n\n\n\n\nWHAT YOU'LL GET\n\nImpactful work on problems that matter. Direct visibility into how your contributions affect clients and real input on decisions. Competitive pay, great benefits, and opportunities to learn and take on more as Siepe grows. Teammates who are sharp and collaborative, whether they come from the industry or are charting a new path entirely. You will get to be part of a culture that blends fun with purpose! \n\n\n\n\nHOW WE SHOW UP\n\nWe lead with trust, transparency, and a team-first mindset. We communicate early, follow through on our commitments, and take ownership of outcomes - not just execute. When there’s a problem, we bring ideas and solutions, ask the next question, and keep things moving. We stay curious, challenge ideas, and prioritize what’s best for our clients and Siepe. We move with urgency, learn as we go, and work together to leave things better than we found them.\n\n\n\n",
+   "compensation": {
+    "compensationTierSummary": null,
+    "scrapeableCompensationSalarySummary": null,
+    "compensationTiers": [],
+    "summaryComponents": []
+   }
+  }
+ ],
+ "apiVersion": "1"
+}

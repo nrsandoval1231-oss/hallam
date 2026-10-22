@@ -98,6 +98,10 @@ class HttpClient:
             },
         )
         self.calls: list[FetchRecord] = []
+        # `time.monotonic()` moment by which the current source must be done. Set by the
+        # discovery run for each source, so one slow board cannot stall the run: every
+        # attempt, every wait between attempts and every chunk read is bounded by it.
+        self.deadline: float | None = None
 
     def __enter__(self) -> HttpClient:
         return self
@@ -108,16 +112,54 @@ class HttpClient:
     def close(self) -> None:
         self._client.close()
 
+    def _remaining(self) -> float | None:
+        return None if self.deadline is None else self.deadline - time.monotonic()
+
+    def _over_budget(self, url: str, started: float, attempt: int) -> ProviderError:
+        record = self._record(url, 0, b"", started, attempt, "source time budget exceeded")
+        self.calls.append(record)
+        return ProviderError(
+            "http", f"GET {url} exceeded the source time budget", retryable=True
+        )
+
+    def _pause(self, seconds: float, url: str, started: float, attempt: int) -> None:
+        """Wait between attempts, but never past the source's deadline."""
+
+        remaining = self._remaining()
+        if remaining is not None and remaining <= seconds:
+            raise self._over_budget(url, started, attempt)
+        time.sleep(seconds)
+
+    def _fetch_once(self, url: str, params: dict[str, Any] | None) -> tuple[int, bytes]:
+        """One request. Without a deadline this is a plain GET; with one, the body is read
+        in chunks so a response that trickles in cannot outlast the budget."""
+
+        remaining = self._remaining()
+        if remaining is None:
+            response = self._client.get(url, params=params)
+            return response.status_code, response.content
+        timeout = httpx.Timeout(max(0.05, min(self.timeout, remaining)))
+        with self._client.stream("GET", url, params=params, timeout=timeout) as response:
+            chunks: list[bytes] = []
+            for chunk in response.iter_bytes():
+                chunks.append(chunk)
+                if (self._remaining() or 0.0) <= 0:
+                    raise httpx.ReadTimeout("the source time budget ran out mid-response")
+            return response.status_code, b"".join(chunks)
+
     def get(self, url: str, *, params: dict[str, Any] | None = None) -> FetchResult:
         last_error: str | None = None
         started = time.perf_counter()
         for attempt in range(1, self.max_attempts + 1):
+            remaining = self._remaining()
+            if remaining is not None and remaining <= 0:
+                raise self._over_budget(url, started, attempt)
             try:
-                response = self._client.get(url, params=params)
+                status_code, body = self._fetch_once(url, params)
             except httpx.HTTPError as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 if attempt < self.max_attempts:
-                    time.sleep(self.backoff_seconds * attempt)
+                    self._pause(self.backoff_seconds * attempt, url, started, attempt)
                     continue
                 record = self._record(url, 0, b"", started, attempt, last_error)
                 self.calls.append(record)
@@ -125,21 +167,20 @@ class HttpClient:
                     "http", f"GET {url} failed: {last_error}", retryable=True
                 ) from exc
 
-            body = response.content
-            if response.status_code in self.RETRY_STATUSES and attempt < self.max_attempts:
-                last_error = f"HTTP {response.status_code}"
-                time.sleep(self.backoff_seconds * attempt)
+            if status_code in self.RETRY_STATUSES and attempt < self.max_attempts:
+                last_error = f"HTTP {status_code}"
+                self._pause(self.backoff_seconds * attempt, url, started, attempt)
                 continue
 
-            record = self._record(url, response.status_code, body, started, attempt, None)
+            record = self._record(url, status_code, body, started, attempt, None)
             self.calls.append(record)
-            if response.status_code >= 400:
+            if status_code >= 400:
                 raise ProviderError(
                     "http",
-                    f"GET {url} returned HTTP {response.status_code}",
-                    retryable=response.status_code in self.RETRY_STATUSES,
+                    f"GET {url} returned HTTP {status_code}",
+                    retryable=status_code in self.RETRY_STATUSES,
                 )
-            return FetchResult(url=url, status=response.status_code, body=body, record=record)
+            return FetchResult(url=url, status=status_code, body=body, record=record)
 
         raise ProviderError("http", f"GET {url} exhausted retries: {last_error}", retryable=True)
 

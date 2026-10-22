@@ -149,6 +149,7 @@ class PlaywrightHandoff:
         settings: Any = None,
         control: HandoffControl | None = None,
         on_event: EventSink | None = None,
+        documents: dict[str, str] | None = None,
     ) -> HandoffResult:
         from .playwright_driver import BrowserSession
 
@@ -183,6 +184,9 @@ class PlaywrightHandoff:
                     emit("fill_failed", {"url": url, "error": str(exc)[:500]})
             ats = str(getattr(adapter, "kind", ""))
             emit("opened", {"url": url})
+            if documents:
+                # Manual handoff: nothing is typed. These are the files to attach.
+                emit("documents_ready", {"url": url, "documents": dict(documents)})
             return self._await(page, ats, url, control, emit)
         finally:
             session.close()

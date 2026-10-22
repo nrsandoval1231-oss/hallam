@@ -76,6 +76,7 @@ class RemoteStatus(StrEnum):
 class SourceKind(StrEnum):
     GREENHOUSE = "GREENHOUSE"
     LEVER = "LEVER"
+    ASHBY = "ASHBY"
     DIRECT_CAREERS = "DIRECT_CAREERS"
 
 

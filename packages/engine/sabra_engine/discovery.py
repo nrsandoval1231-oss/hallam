@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sabra_domain.enums import (
@@ -110,6 +110,8 @@ class DiscoveryRunResult:
     multi_source_opportunities: int = 0
     cross_source_pairs: int = 0
     errors: list[str] = field(default_factory=list)
+    # `--only-new`: enabled sources left unread because they were read recently.
+    sources_skipped_fresh: list[str] = field(default_factory=list)
 
     @property
     def sources_ok(self) -> int:
@@ -129,6 +131,7 @@ class DiscoveryRunResult:
             "sources_total": len(self.sources),
             "sources_ok": self.sources_ok,
             "sources_failed": self.sources_failed,
+            "sources_skipped_fresh": len(self.sources_skipped_fresh),
             "jobs_seen": self.jobs_seen,
             "jobs_new": self.jobs_new,
             "jobs_updated": self.jobs_updated,
@@ -173,10 +176,20 @@ class DiscoveryService:
         http: HttpClient | None = None,
         group: bool = True,
         progress: ProgressCallback | None = None,
+        only_new_hours: float | None = None,
     ) -> DiscoveryRunResult:
+        """Read every enabled source.
+
+        `only_new_hours` skips a source whose last successful read is newer than that many
+        hours, so a daily task costs a request per stale board instead of one per board.
+        """
+
         profile_id = search_profile_id or ""
         started_at = datetime.now(UTC)
         definitions = self._select_sources(source_ids)
+        skipped_fresh: list[str] = []
+        if only_new_hours is not None:
+            definitions, skipped_fresh = self._drop_fresh(definitions, only_new_hours)
 
         with self.ctx.repos() as repos:
             repos.events.append(
@@ -207,6 +220,7 @@ class DiscoveryService:
                 http=http,
                 group=group,
                 progress=progress,
+                skipped_fresh=skipped_fresh,
             )
         except BaseException as exc:
             # An abort, Ctrl-C or crash must not leave the run row RUNNING forever.
@@ -230,6 +244,7 @@ class DiscoveryService:
         http: HttpClient | None,
         group: bool,
         progress: ProgressCallback | None,
+        skipped_fresh: list[str] | None = None,
     ) -> DiscoveryRunResult:
         # No search profile is loaded here: providers return every posting they
         # publish, and intent is applied deterministically downstream by the hard
@@ -271,6 +286,7 @@ class DiscoveryService:
             started_at=started_at,
             finished_at=datetime.now(UTC),
             sources=outcomes,
+            sources_skipped_fresh=list(skipped_fresh or []),
         )
         result.jobs_seen = sum(o.jobs_seen for o in outcomes)
         result.jobs_new = sum(o.jobs_new for o in outcomes)
@@ -278,13 +294,19 @@ class DiscoveryService:
         result.jobs_unchanged = sum(o.jobs_unchanged for o in outcomes)
         result.errors = [f"{o.source_id}: {o.error}" for o in outcomes if o.error]
 
-        if group:
+        if group and outcomes:
             _notify(progress, {"stage": "group"})
             self._group_opportunities(candidate_id, profile_id, result)
 
         result.finished_at = datetime.now(UTC)
         if not outcomes:
-            result.status = DiscoveryRunStatus.FAILED
+            # Nothing was due: every enabled source was read recently. That is a finished
+            # run, not a failed one. With no enabled source at all it is still a failure.
+            result.status = (
+                DiscoveryRunStatus.COMPLETED
+                if result.sources_skipped_fresh
+                else DiscoveryRunStatus.FAILED
+            )
         elif result.sources_failed == 0:
             result.status = DiscoveryRunStatus.COMPLETED
         elif result.sources_ok == 0:
@@ -328,6 +350,28 @@ class DiscoveryService:
             definitions = [d for d in definitions if d.id in wanted]
         return definitions
 
+    def _drop_fresh(
+        self, definitions: list[SourceDefinition], hours: float
+    ) -> tuple[list[SourceDefinition], list[str]]:
+        """Split off the sources whose last successful read is under `hours` old."""
+
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        with self.ctx.read_repos() as repos:
+            last_ok = {
+                (row.kind, row.token): row.last_success_at for row in repos.providers.list_all()
+            }
+        due: list[SourceDefinition] = []
+        fresh: list[str] = []
+        for definition in definitions:
+            moment = last_ok.get((str(definition.entry.kind), definition.entry.token))
+            if moment is not None and moment.tzinfo is None:
+                moment = moment.replace(tzinfo=UTC)
+            if moment is not None and moment > cutoff:
+                fresh.append(definition.id)
+            else:
+                due.append(definition)
+        return due, fresh
+
     def _load_search_profile(self, candidate_id: str, profile_id: str) -> SearchProfile | None:
         if not profile_id:
             return None
@@ -352,6 +396,9 @@ class DiscoveryService:
         started = time.perf_counter()
         provider: Provider | None = None
         before = len(client.calls)
+        # This source's own time budget. HttpClient enforces it on every attempt, wait and
+        # chunk, so a slow board fails here and the run moves on to the next one.
+        client.deadline = time.monotonic() + self.ctx.settings.source_budget_seconds
         try:
             provider = self.ctx.registry.build_provider(
                 definition.id, http=client, settings=self.ctx.settings, max_items=max_items
@@ -384,6 +431,7 @@ class DiscoveryService:
         except Exception as exc:  # a source must never take the run down
             outcome.error = f"{type(exc).__name__}: {exc}"
         finally:
+            client.deadline = None
             if provider is not None:
                 provider.close()
             outcome.http_requests = len(client.calls) - before

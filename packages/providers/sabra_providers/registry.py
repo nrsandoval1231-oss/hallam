@@ -19,6 +19,7 @@ from sabra_domain.errors import ConfigurationError
 from sabra_domain.schemas import SourceRegistryEntry
 from sabra_domain.settings import Settings, get_settings
 
+from .ashby import AshbyProvider
 from .base import Provider
 from .direct_careers import DirectCareersProvider
 from .greenhouse import GreenhouseProvider
@@ -28,6 +29,7 @@ from .lever import LeverProvider
 PROVIDER_TYPES: dict[SourceKind, type[Provider]] = {
     SourceKind.GREENHOUSE: GreenhouseProvider,
     SourceKind.LEVER: LeverProvider,
+    SourceKind.ASHBY: AshbyProvider,
 }
 
 
@@ -40,6 +42,8 @@ class SourceDefinition:
     verified_at: date | None = None
     careers_url: str | None = None
     priority: int = 100
+    # Optional per-source cap on postings read (registry `max_items`).
+    max_items: int | None = None
 
     @property
     def id(self) -> str:
@@ -100,12 +104,14 @@ class SourceRegistry:
             "company_domain": _domain_from_locator(entry.locator),
             "http": http,
             "settings": settings,
-            "max_items": max_items,
+            "max_items": _effective_cap(definition.max_items, max_items),
         }
         if entry.kind is SourceKind.GREENHOUSE:
             return GreenhouseProvider(entry.token, **common)
         if entry.kind is SourceKind.LEVER:
             return LeverProvider(entry.token, **common)
+        if entry.kind is SourceKind.ASHBY:
+            return AshbyProvider(entry.token, **common)
         if entry.kind is SourceKind.DIRECT_CAREERS:
             if not definition.careers_url:
                 raise ConfigurationError(
@@ -130,6 +136,13 @@ class SourceRegistry:
                 self.build_provider(source.id, http=http, settings=settings, max_items=max_items)
             )
         return providers
+
+
+def _effective_cap(source_cap: int | None, run_cap: int | None) -> int | None:
+    """The tighter of the registry entry's `max_items` and the run's cap."""
+
+    caps = [cap for cap in (source_cap, run_cap) if cap]
+    return min(caps) if caps else None
 
 
 def _domain_from_locator(locator: str | None) -> str | None:
@@ -197,6 +210,15 @@ def load_registry(path: Path | None = None, settings: Settings | None = None) ->
         elif not isinstance(verified_at, date):
             verified_at = None
 
+        max_items = item.get("max_items")
+        if max_items is not None and (
+            isinstance(max_items, bool) or not isinstance(max_items, int) or max_items < 1
+        ):
+            raise ConfigurationError(
+                f"{path}: source {source_id!r} has max_items {max_items!r}; "
+                "it must be a positive whole number"
+            )
+
         definitions.append(
             SourceDefinition(
                 entry=entry,
@@ -204,6 +226,7 @@ def load_registry(path: Path | None = None, settings: Settings | None = None) ->
                 verified_at=verified_at,
                 careers_url=item.get("careers_url") or item.get("url"),
                 priority=int(item.get("priority", 100)),
+                max_items=max_items,
             )
         )
 
