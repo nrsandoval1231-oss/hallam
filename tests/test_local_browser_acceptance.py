@@ -147,6 +147,22 @@ def test_browser_select_matches_label_not_numeric_value(browser_page):
     assert browser_page.input_value("#question_2") == "1"
 
 
+@pytest.mark.parametrize("second_label", ["Yes", " yes "])
+def test_browser_ambiguous_select_label_is_not_chosen(browser_page, second_label):
+    from sabra_automation.greenhouse_adapter import ENUMERATE_FIELDS_JS
+
+    browser_page.locator("#question_2").evaluate(
+        "(el, label) => el.add(new Option(label, 'different-meaning'))", second_label
+    )
+    page = PlaywrightPage(browser_page, timeout_ms=500)
+    field_data = next(
+        field for field in page.evaluate(ENUMERATE_FIELDS_JS) if field["id"] == "question_2"
+    )
+    field = FormField("question_2", kind="select", options=field_data["options"])
+    assert not write_value(page, field, "#question_2", "Yes")
+    assert browser_page.input_value("#question_2") == ""
+
+
 @pytest.mark.parametrize("adapter_type", [GreenhouseApplicationAdapter, LeverApplicationAdapter])
 def test_browser_adapter_fill_preserves_current_identity(
     browser_page, employer, tmp_path, adapter_type

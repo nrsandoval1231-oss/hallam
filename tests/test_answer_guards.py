@@ -227,6 +227,12 @@ def test_a_list_that_hit_the_read_limit_says_it_may_be_cut() -> None:
     assert "may be cut" not in (option_problem(short, "United States") or "")
 
 
+def test_a_matching_option_at_the_read_limit_cannot_prove_uniqueness() -> None:
+    options = [f"Option {index}" for index in range(OPTION_READ_LIMIT)]
+    field = FormField(name="x", kind="select", options=options)
+    assert "may be cut" in (option_problem(field, "Option 0") or "")
+
+
 # ---------------------------------------------------------------------------
 # 7. "verified" is checked, not assumed
 # ---------------------------------------------------------------------------
