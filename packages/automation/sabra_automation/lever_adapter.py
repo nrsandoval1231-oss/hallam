@@ -197,6 +197,9 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         key = _lever_field_key(field)
         return [key] if key else []
 
+    def _form_identity(self, package: ApplicationPackageSchema) -> dict[str, str]:
+        return _lever_values(package)
+
     def validate(
         self, package: ApplicationPackageSchema, form: ApplicationForm
     ) -> ValidationReport:

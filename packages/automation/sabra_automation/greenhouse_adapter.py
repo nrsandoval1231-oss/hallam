@@ -435,7 +435,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 prepared_at=datetime.now(UTC),
                 dry_run=self.dry_run,
                 submit_selector=form.submit_selector,
-                unfilled_required=self._unfilled_required(package, form, filled, skipped),
+                unfilled_required=self._unfilled_required(package, form, filled),
                 documents=report,
             )
 
@@ -444,7 +444,6 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         package: ApplicationPackageSchema,
         form: ApplicationForm,
         filled: dict[str, str],
-        skipped: list[str],
     ) -> list[str]:
         """Required fields and optional answers that could not be written safely.
 
@@ -455,14 +454,13 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         required and untouched blocks the click.
         """
 
+        proposed = {
+            field.name
+            for field in self._validation_fields(package, form, self._form_identity(package))
+        }
         missing: list[str] = []
         for field in form.fields:
-            if field.kind == "file":
-                continue
-            aliases = self._filled_aliases(field)
-            if not field.required:
-                if field.name in skipped or any(alias in skipped for alias in aliases):
-                    missing.append(describe_field(field))
+            if field.kind == "file" or field.name not in proposed:
                 continue
             if field.name in filled or any(
                 alias in filled for alias in self._filled_aliases(field)
@@ -473,6 +471,9 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 continue
             missing.append(describe_field(field))
         return missing
+
+    def _form_identity(self, package: ApplicationPackageSchema) -> dict[str, str]:
+        return self._identity_values(package)
 
     def _validation_fields(
         self, package: ApplicationPackageSchema, form: ApplicationForm, identity: dict[str, str]
@@ -531,7 +532,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         if documents is None:
             documents = self._prepare_documents(package, skipped, {})
 
-        identity = self._identity_values(package)
+        identity = self._form_identity(package)
         for name, value in identity.items():
             if not value:
                 skipped.append(name)
