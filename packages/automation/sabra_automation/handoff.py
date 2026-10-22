@@ -11,8 +11,9 @@ The browser stays open until one of these happens, and none of them is guessed:
 * the person closes the browser or page, which is "needs a report", not an outcome;
 * the hard timeout passes.
 
-A handoff that ends without a submission is never terminal for the application:
-the service maps it to BLOCKED (retryable), not WITHDRAWN.
+A handoff that times out or closes without an observed outcome stays APPLYING until
+a person reports what happened. This avoids retrying an application that may already
+have reached the employer.
 """
 
 from __future__ import annotations

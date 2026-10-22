@@ -56,6 +56,7 @@ and package preparation. `make run-api` listens on http://127.0.0.1:8787.
 
 ```bash
 make sync        # create the venv and install (required after adding a package)
+uv run playwright install chromium  # local synthetic browser acceptance in the default suite
 make init        # create the database, load the source registry, seed a search profile
 make discover    # read every enabled board
 make rank        # hard-filter, assess fit, rank, shortlist
@@ -96,8 +97,12 @@ tests/           test suite and committed fixtures
 - **Stop, don't guess.** A CAPTCHA or a failed challenge probe is not submitted
   and not solved: the pre-filled form is handed to a person in a headed browser, and
   the application waits (APPLYING) until the person reports an outcome or the page
-  confirms. An abandoned or timed-out handoff is BLOCKED and retryable, never
-  WITHDRAWN. Unknown required fields block that application and name the field.
+  confirms. A closed or timed-out handoff stays APPLYING and requires a report;
+  it cannot be retried automatically. An explicit abandoned report is BLOCKED and
+  retryable, unless the opportunity has expired. Unknown required fields block that
+  application and name the field.
+  A proposed answer that cannot be written safely also blocks an optional control;
+  an employer's preselected value cannot silently replace that answer.
   A submission is confirmed only by the employer's confirmation page, never by
   words in the posting. Dry-run is the default: it never opens an employer form,
   never types or uploads, and never submits.

@@ -596,6 +596,25 @@ def test_handoff_confirms_from_the_page_not_from_body_text(browser) -> None:
     assert result.outcome == "submitted" and result.source == "confirmation_page"
 
 
+def test_fast_submit_before_stable_baseline_requires_a_report(browser) -> None:
+    page = browser.page
+    # The first form probe sees the form; it leaves before a second stable poll.
+    original_evaluate = page.evaluate
+    flipped = False
+
+    def evaluate(script: str) -> int:
+        nonlocal flipped
+        result = original_evaluate(script)
+        if not flipped and "querySelectorAll" in script:
+            flipped = True
+            page.url, page.form = GH_FORM + "/confirmation", 0
+        return result
+
+    page.evaluate = evaluate
+    result = _run_handoff(_FillingAdapter(), control=HandoffControl(0.1))
+    assert result.outcome == "timeout"
+
+
 def test_handoff_does_not_confirm_on_body_text_alone(browser) -> None:
     browser.page.body = "Thank you. Your application has been submitted."
     control = HandoffControl(0.2)
@@ -712,12 +731,11 @@ def test_timed_out_and_closed_handoffs(prepared, greenhouse_form_capture) -> Non
     result = _service(prepared, adapter, handoff=timeout).submit(
         prepared.application_id, allow_real_submission=True
     )
-    assert result.outcome == "BLOCKED"
+    assert result.outcome == "HANDED_TO_HUMAN"
     with prepared.ctx.read_repos() as repos:
         row = repos.applications.get(prepared.application_id)
-        assert row.status == ApplicationStatus.BLOCKED.value
-        assert row.blocked_reason == "HANDOFF_TIMEOUT"
-        assert "too slow" in (row.last_error or "")
+        assert row.status == ApplicationStatus.APPLYING.value
+    _service(prepared, adapter).report_handoff_outcome(prepared.application_id, "abandoned")
 
     # A second attempt whose browser is closed leaves the application APPLYING.
     closed = ScriptedHandoff(HandoffResult(outcome="closed", source="browser_closed"))
@@ -2158,12 +2176,18 @@ def test_prompt_mode_timeout_blocks_the_application_like_the_dashboard(
     _live(prepared)
     adapter, _ = _captcha_adapter(_answerable(greenhouse_form_capture))
     timeout = HandoffResult(outcome="timeout", source="timeout", error="no answer")
-    _service(prepared, adapter, handoff=ScriptedHandoff(timeout)).submit(
+    service = _service(prepared, adapter, handoff=ScriptedHandoff(timeout))
+    first = service.submit(
         prepared.application_id, allow_real_submission=True
     )
+    assert first.outcome == "HANDED_TO_HUMAN"
     with prepared.ctx.read_repos() as repos:
         row = repos.applications.get(prepared.application_id)
-        assert (row.status, row.blocked_reason) == ("BLOCKED", "HANDOFF_TIMEOUT")
+        assert row.status == ApplicationStatus.APPLYING.value
+    with pytest.raises(ValidationFailure, match="already in progress"):
+        service.submit(prepared.application_id, allow_real_submission=True)
+    service.report_handoff_outcome(prepared.application_id, "submitted")
+    assert _status(prepared) == ApplicationStatus.APPLIED.value
 
 
 def test_cli_prompt_never_trusts_an_interstitial_baseline(browser) -> None:

@@ -270,6 +270,38 @@ def test_submit_requires_confirmation_to_claim_success(greenhouse_form_capture: 
     assert receipt.error and "NOT recorded as submitted" in receipt.error
 
 
+def test_confirmed_submission_survives_a_later_title_read_failure(greenhouse_form_capture: dict) -> None:
+    adapter, pages, _ = make_adapter(
+        answerable_capture(greenhouse_form_capture),
+        captcha=False,
+        confirmation_url=GH_URL + "/confirmation",
+    )
+    adapter.dry_run = False
+    job = build_job()
+    with adapter.session(adapter.application_url(job)):
+        form = adapter.inspect(job)
+        package = _package_stub(
+            applicant_phone="(214) 555-0142",
+            applicant_country="United States",
+            employment=[
+                EmploymentEntry(
+                    employer="Meridian Aesthetics",
+                    title="Regional Sales Manager",
+                    start_date="Mar 2019",
+                    end_date="Present",
+                    is_current=True,
+                )
+            ],
+        )
+        prepared = adapter.prepare(package, form)
+        page = pages[0]
+        original_title = page.title
+        page.title = lambda: (_ for _ in ()).throw(RuntimeError("title unavailable")) if page.clicked else original_title()
+        receipt = adapter.submit(prepared)
+    assert receipt.submitted is True
+    assert receipt.external_confirmation["confirmation_detected"] is True
+
+
 # ---------------------------------------------------------------------------
 # M5: approval boundary
 # ---------------------------------------------------------------------------
@@ -405,6 +437,19 @@ def test_global_dry_run_lock_overrides_a_per_call_opt_in(
         f"caller passes allow_real_submission=True (got {result.outcome}: "
         f"{result.detail}; stops={result.stops})"
     )
+
+
+def test_expired_opportunity_cannot_be_retried(prepared) -> None:
+    ApprovalService(prepared.ctx).approve(
+        prepared.package_id, approved_by="test", acknowledge_unresolved=True
+    )
+    with prepared.ctx.repos() as repos:
+        opportunity = repos.opportunities.get(prepared.opportunity_id)
+        opportunity.status = JobStatus.EXPIRED.value
+        repos.session.flush()
+    result = ExecutionService(prepared.ctx).submit(prepared.application_id)
+    assert result.outcome == "BLOCKED"
+    assert "expired" in (result.detail or "").lower()
 
 
 def test_real_submission_on_a_captcha_form_is_handed_to_a_human_not_bypassed(prepared) -> None:

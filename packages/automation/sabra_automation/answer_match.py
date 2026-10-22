@@ -50,15 +50,13 @@ def norm_text(value: Any) -> str:
 
 
 def exact_option(options: list[str], value: str) -> str | None:
-    """The first option equal to `value` (case and whitespace aside), else None."""
+    """The unique option equal to `value` (case and whitespace aside), else None."""
 
     target = _collapse(value)
     if not target:
         return None
-    for option in options:
-        if _collapse(option) == target:
-            return option
-    return None
+    matches = [option for option in options if _collapse(option) == target]
+    return matches[0] if len(matches) == 1 else None
 
 
 def option_problem(field: FormField, value: str) -> str | None:
@@ -73,16 +71,18 @@ def option_problem(field: FormField, value: str) -> str | None:
     if kind == "select":
         if not field.options:
             return "the choices of this drop-down could not be read, so no option can be chosen"
+        if len(field.options) >= OPTION_READ_LIMIT:
+            return (
+                f"the choices may be cut at {OPTION_READ_LIMIT} options, so a unique "
+                "match cannot be established; a person must choose"
+            )
+        if sum(_collapse(option) == _collapse(value) for option in field.options) > 1:
+            return f"multiple options match the verified answer {value!r}; a person must choose"
         if exact_option(field.options, value) is None:
             shown = "; ".join(option.strip() for option in field.options[:6])
-            cut = (
-                f" (the page reader stopped at {OPTION_READ_LIMIT} options, so the list may be cut)"
-                if len(field.options) >= OPTION_READ_LIMIT
-                else ""
-            )
             return (
                 f"no option exactly matches the verified answer {value!r} "
-                f"(options: {shown}{'; ...' if len(field.options) > 6 else ''}){cut}"
+                f"(options: {shown}{'; ...' if len(field.options) > 6 else ''})"
             )
         return None
     if kind == "radio":
@@ -97,7 +97,7 @@ def write_value(page: Any, field: FormField, selector: str, value: str) -> bool:
 
     Returns True when the field now holds the answer, False when it was not written
     (the caller must treat that field as unfilled). A select is set by its exact option
-    label; a checkbox is checked for an affirmative answer and left alone for a negative
+    label; a checkbox is checked for an affirmative answer and unchecked for a negative
     one; a radio is never written here.
     """
 
@@ -105,11 +105,13 @@ def write_value(page: Any, field: FormField, selector: str, value: str) -> bool:
         return False
     kind = (field.kind or "text").lower()
     if kind == "select":
-        page.select_option(selector, exact_option(field.options, value))
+        page.select_option(selector, label=exact_option(field.options, value))
         return True
     if kind == "checkbox":
         if _collapse(value) in _AFFIRMATIVE:
             page.check(selector)
+        elif _collapse(value) in _NEGATIVE:
+            page.uncheck(selector)
         return True
     if kind == "file":
         return False

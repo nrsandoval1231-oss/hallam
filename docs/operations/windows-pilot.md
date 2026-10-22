@@ -25,7 +25,7 @@ uv sync --all-extras
 uv run playwright install chromium
 ```
 
-`playwright install chromium` downloads the browser the headed handoff opens. The default test suite does not need it and must not be pointed at a live employer form.
+`playwright install chromium` downloads the browser used by the headed handoff and the default suite's synthetic local form acceptance tests. Those tests use loopback fixtures and must never be pointed at a live employer form.
 
 `--all-extras` also installs `reportlab`, which renders the résumé PDF that is uploaded (see section 8). Without it a real submission blocks at the upload rather than sending a Markdown file.
 
@@ -177,7 +177,7 @@ Or, on http://127.0.0.1:8787/applications, press **Apply** and confirm the dialo
     ```
 
   - **Ctrl+C during `sabra apply --real`**, or any other interruption of a run, leaves the application APPLYING with an `interrupted` event. That event is what lets you report the outcome afterwards with `sabra handoff-outcome`. Nothing is guessed about whether the employer got it.
-  - The CLI prompt also times out: after `SABRA_HANDOFF_TIMEOUT_SECONDS` with no answer the application moves to **BLOCKED**, the same as the dashboard.
+  - The CLI prompt also times out: after `SABRA_HANDOFF_TIMEOUT_SECONDS` with no answer the application stays **APPLYING**, the same as the dashboard. Report its outcome before retrying: the person may have submitted between observation polls.
   - **Hard-killed process** (the dashboard window or `sabra apply` was killed, or the PC lost power) while an application was APPLYING: no `interrupted` event could be written, so a normal report is refused and the dashboard keeps saying a submission is running. First check with the employer or your email whether it was submitted. Then force a report:
 
     ```powershell
@@ -186,7 +186,7 @@ Or, on http://127.0.0.1:8787/applications, press **Apply** and confirm the dialo
 
     You are asked to type the application id back; `--yes` does not exist and nothing else substitutes. It is refused while that same process still has a run or window for the application. The dashboard shows a separate **Force a report** control only for a row that has been APPLYING with no new activity for longer than the handoff timeout, and it also asks you to type the id. A forced report is recorded as `forced: true` together with the last event that was in the log, so the ledger shows it was a human override and not something Sabra observed. Use it only when you are sure nothing is still running.
 
-  - `abandoned` and a timeout move the application to **BLOCKED**, not WITHDRAWN. A blocked application can be applied to again: it is re-authorised against the same approval hash first. `failed` moves it to FAILED, which is also retryable. After an unconfirmed click, a report of `failed` or `abandoned` both move it to BLOCKED, because that click may have reached the employer until you say it did not.
+  - An explicit `abandoned` report moves the application to **BLOCKED**, not WITHDRAWN. A timeout requires a report and stays APPLYING. A blocked application can be applied to again if its opportunity has not expired: it is re-authorised against the same approval hash first. `failed` moves it to FAILED, which is also retryable for a live opportunity. After an unconfirmed click, a report of `failed` or `abandoned` both move it to BLOCKED, because that click may have reached the employer until you say it did not.
   - A confirmation page is detected from the page itself (same rule as above) and recorded as submitted without a report.
 
 Turn dry-run back on when you are done:
