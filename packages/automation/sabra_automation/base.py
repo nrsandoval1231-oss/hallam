@@ -148,7 +148,8 @@ class PreparedSubmission:
     dry_run: bool = True
     # The control `inspect` found; the only thing `submit` will click.
     submit_selector: str | None = None
-    # Required, non-file fields that prepare could not fill. Any entry blocks the click.
+    # Required fields or proposed optional answers prepare could not fill safely.
+    # Any entry blocks the click; the legacy field name is retained for compatibility.
     unfilled_required: list[str] = field(default_factory=list)
     # What was rendered for upload: per document the file name, sha256 and byte count,
     # the number of characters with no safe mapping, and the renderer version.

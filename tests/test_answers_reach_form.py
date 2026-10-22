@@ -248,6 +248,28 @@ def test_a_select_is_never_written_with_fill(greenhouse_form_capture, tmp_path) 
     assert all(selector != "#question_904" for selector, _value in calls)
 
 
+def test_select_uses_visible_label_semantics_even_when_value_differs() -> None:
+    from sabra_automation.playwright_driver import PlaywrightPage
+
+    class RawPage:
+        def select_option(self, selector, value=None, label=None, **_kwargs):
+            self.call = (selector, value, label)
+
+    raw = RawPage()
+    PlaywrightPage(raw).select_option("#country", label="United States")
+    assert raw.call == ("#country", None, "United States")
+
+
+def test_negative_checkbox_answer_unchecks_a_default_checked_control() -> None:
+    from fake_pages import FakeFormPage
+    from sabra_automation.answer_match import write_value
+
+    page = FakeFormPage({"fields": []})
+    field = FormField(name="opt_out", kind="checkbox")
+    assert write_value(page, field, "#opt_out", "No")
+    assert page.filled["#opt_out"] == "unchecked"
+
+
 def test_lever_applies_the_same_option_rules() -> None:
     adapter = LeverApplicationAdapter(dry_run=True)
     select = FormField(

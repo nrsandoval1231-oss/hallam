@@ -197,6 +197,9 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         key = _lever_field_key(field)
         return [key] if key else []
 
+    def _form_identity(self, package: ApplicationPackageSchema) -> dict[str, str]:
+        return _lever_values(package)
+
     def validate(
         self, package: ApplicationPackageSchema, form: ApplicationForm
     ) -> ValidationReport:
@@ -206,7 +209,7 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         mapped: dict[str, str] = {}
         values = _lever_values(package)
 
-        for field in form.required_fields:
+        for field in self._validation_fields(package, form, values):
             if field.kind == "file":
                 if not (package.tailored_resume_markdown or "").strip():
                     unknown_required.append(
