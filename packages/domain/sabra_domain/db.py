@@ -64,6 +64,13 @@ class Database:
         from .models import Base
 
         Base.metadata.create_all(self.engine)
+        # `create_all` skips a table that already exists, indexes included. A database
+        # that got the `runs` table before its one-active-run index existed gets it here.
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_one_active ON runs ((1)) "
+                "WHERE status IN ('QUEUED', 'RUNNING')"
+            )
 
     def drop_all(self) -> None:
         from .models import Base
@@ -71,11 +78,22 @@ class Database:
         Base.metadata.drop_all(self.engine)
 
     @contextmanager
-    def session(self) -> Iterator[Session]:
-        """Transactional scope. Rolls back on any exception."""
+    def session(self, *, immediate: bool = True) -> Iterator[Session]:
+        """Transactional scope. Rolls back on any exception.
+
+        On SQLite the scope opens with `BEGIN IMMEDIATE`, taking the write lock up front.
+        Without it a scope that reads and then writes takes the lock at its first write,
+        so two such scopes (two browser tabs, the dashboard and a CLI run) can both read
+        the same row and the second write silently overwrites the first. With it they
+        queue: the second waits (up to the busy timeout) and then reads the committed row.
+        The cost is that the lock is held for the whole scope, so keep a scope short and do
+        slow work (a model call, a network fetch) outside it. `immediate=False` opts out.
+        """
 
         session = self._session_factory()
         try:
+            if immediate and self.engine.dialect.name == "sqlite":
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             yield session
             session.commit()
         except Exception:

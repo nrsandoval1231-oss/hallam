@@ -78,7 +78,7 @@ cd C:\Users\nrsan\hallam
 uv run sabra init --profile C:\Users\nrsan\hallam-private\candidates\profile.yaml
 ```
 
-Use the real profile path if the filename differs. Upload the résumé from the dashboard (Overview) if it is not already in that database. The résumé file itself stays outside git.
+Use the real profile path if the filename differs. Upload the résumé on the **Candidate** page (http://127.0.0.1:8787/candidate) if it is not already in that database: `.pdf`, `.docx` (text in headers and footers is read too), `.txt` and `.md` are accepted; anything else (`.rtf`, `.odt`, ...) is refused rather than guessed at. The résumé file itself stays outside git.
 
 Sensitive questions stay blank until you record an answer and verify it. Recording alone is not enough, and the engine will not invent a value.
 
@@ -104,6 +104,42 @@ On the answers page, **Verify** sends the value shown beside it. If the stored v
 
 The same actions are on http://127.0.0.1:8787/answers after the API is running (step 5). A row is usable on a form only when the list shows it verified.
 
+## 4a. Define the search, run it, and read the results from the browser
+
+Start the dashboard (step 5 has the command), then everything below can be done at http://127.0.0.1:8787 without the command line.
+
+**Candidate** (`/candidate`). Fill in **Your details** (name, email, phone, street address, city, state, postal code, country, LinkedIn, preferred headline) and press **Save my details**. The boxes start with what is stored, including values read from the résumé, and the tag beside each shows how sure Sabra is of it. Only a box you change, or one you tick **This is right** for, is stored as stated by you (VERIFIED) in a new profile version; every other value keeps its level. A confirmed value records what it was confirmed from. What you state wins over anything read from a résumé, whether the résumé was uploaded before or after. A blank box changes nothing. Packages read these values: the first and last name, email, phone, address and LinkedIn are what the form fillers type. Each row of the profile on that page shows its truth level: VERIFIED (you said it), INFERRED (read from the résumé, never typed onto a form until you confirm it), or UNKNOWN. The same page lists the master résumé versions and takes the upload.
+
+**Searches** (`/searches`). A search says what kind of job to look for. Edit the active search in place, or press **New search**. Titles, words, cities and the like are one per line. **Save search** writes it and records a `SEARCH_PROFILE_UPDATED` event; **Make this the active search** is what **Run now**, `sabra discover` and `sabra rank` use. Saving never wipes a field the form does not show (excluded companies, seniority levels and so on): they are sent back as they were.
+
+The same thing from a file: copy `config/search_profile.example.yaml` (every field is explained in it; the example is a generic Dallas-Fort Worth office/administrative search with a $70,000 target), edit it, and load it:
+
+```powershell
+uv run sabra searches load C:\Users\nrsan\hallam-private\my_search.yaml
+uv run sabra init --search-profile C:\Users\nrsan\hallam-private\my_search.yaml
+uv run sabra searches list
+uv run sabra searches show
+uv run sabra searches activate SEARCH_ID
+```
+
+Loading the same file again is harmless. If a file's id (or the one derived from its name) matches a stored search that is different, the load is refused; add `--replace` to replace it (`Replaced existing search <id> (was '<name>')` is printed). Leave `id:` out of your own files. A stored search is never overwritten or re-seeded by `sabra init`; the built-in medical-aesthetics profile is created only when the candidate has no search at all.
+
+**Today** (`/`). The first page. It lists what needs you: packages ready for approval, applications that need more information (and how many open questions), submissions waiting for your report, new high-fit roles since the last run began, and employer responses since you last pressed **Mark responses as seen**. **Run now** starts the whole loop in the background (discover, rank, research the shortlist; tick the box to also prepare packages for the top roles) and shows live progress, source by source. Only one run can be active at a time. The same run from PowerShell, with a progress table:
+
+```powershell
+uv run sabra run
+uv run sabra run --prepare
+uv run sabra run --kind rank
+```
+
+`--kind` is `discover`, `rank` (rank and research) or `full` (the default). A run never approves or submits anything. While it works the dashboard stays usable: ranking commits in batches. A run whose process was killed shows as FAILED ("abandoned") as soon as the next request notices the process is gone (or after an hour with no sign of life, when that cannot be checked), so it cannot block the next one. Ctrl-C ends the run as FAILED too. `sabra discover` and `sabra rank` refuse to start while a run is active, and the database itself allows only one active run.
+
+`sabra rank` also researches the shortlist now (company sites are read; a packet less than 7 days old is kept). One site that cannot be read never stops the run. Add `--no-research` to skip it.
+
+**Opportunities** (`/opportunities`). Each card shows the pay (or "not listed"), the confidence, the main reason, the biggest gap and the fit. **Prepare application** is unchanged. **Pass** moves the role to REJECTED (reason `OWNER_PASSED`) and it is never brought back by a later run. A package that was waiting for approval is withdrawn with it. Pass is refused once the application is approved or later.
+
+**Settings** (`/settings`). Read only: whether dry-run is on and the variable that changes it, the language-model provider, the database, the private and artifacts folders, the hand-off timeout, whether Playwright's Chromium is installed, the active search and the version.
+
 ## 5. Prepare packages, read them, and approve a batch
 
 ```powershell
@@ -112,13 +148,46 @@ uv run uvicorn --app-dir apps/api sabra_api.main:app --host 127.0.0.1 --port 878
 
 Then, in the browser on this PC:
 
-1. http://127.0.0.1:8787/ — the overview lists the shortlisted queue.
+1. http://127.0.0.1:8787/ — **Today**: what needs you, the run controls and the top of the queue.
 2. http://127.0.0.1:8787/opportunities — prepare a package for each role. Preparing an application that is already approved returns "already approved" and leaves the approved package in place.
 3. http://127.0.0.1:8787/applications — the list is the latest revision of each application. Open **Read package** before you approve. Copy the application id with **Copy**. Tick the complete packages and press **Approve selected**.
 4. An approved row says **Approved** and names the next step. **Apply** stays disabled while dry-run is on. A blocked or failed row can be applied to again once its cause is fixed, or rebuilt with **Refresh package** if the cause is a missing or wrong answer (section 6).
 5. Batch approval takes COMPLETE packages only. The dashboard and the CLI never approve a package with unresolved questions.
 
 Each approval is stored against that package's content hash. If the package changes later, that approval no longer authorizes submission.
+
+### Read one role, then review one application
+
+- Click a role's title on **Opportunities** to open its detail page (`/opportunities/ID`). It shows the posting, why Sabra recommends it, every fit component with its reason, strengths, gaps and risks, whether it passed the hard filter and why, what is verified about the company apart from what is only inferred, where the application stands, and the event history. **Prepare application** and **Pass** are there too, and are disabled once an approval exists. An id that does not exist shows a 404 page.
+- **Read package** on the Applications page (or **Review application** on a role) opens the review page (`/packages/ID`). Read it top to bottom: the original opening (the description is collapsed), the fit analysis, the tailored résumé, the cover letter, each proposed answer with its truth level and whether it is verified or sensitive, the unresolved questions, and the warnings. Warnings include how each artifact was written: which were model-written and which came from the template, what the truth gate rejected, regenerated or replaced with the template, and the model token counts. The recruiter and hiring-manager messages and the interview preparation are in a collapsed section.
+- The **Decision** box shows the content hash the approval will be bound to. **Approve application** approves exactly this package at exactly that hash; it is disabled, with the reason, when the package is INCOMPLETE, not truth-clean, superseded by a newer revision, or already approved. **Refresh package** rebuilds it (revoking an earlier approval first when there is one) and opens the new revision. **Reject** withdraws the application and passes on the role; it is not offered for an approved application (refresh it first) or a submitted one.
+- On **Today**, each count opens the right page: ready for approval, needs more information and waiting-for-your-report open Applications filtered to just those rows (press **Show all** to clear the filter); new high-fit opens Opportunities; employer responses opens Pipeline.
+
+### Record what employers do
+
+Open http://127.0.0.1:8787/pipeline. Every application past approval is listed under its stage: approved, applying / handoff, applied, response, screen, interview, offer, rejected by employer, withdrawn, expired. Each shows the company, role, when and how it was submitted and its last event. **History** shows its outcomes and events; **Review** opens the package.
+
+Use **Record outcome** to say what happened: employer response, recruiter contact, phone screen, interview, offer, rejection, withdrawal or no response. A note, the contact's name and the date it happened are optional (the date defaults to now; a future date is refused). Each outcome writes an event and moves the opportunity (and its postings) along the job lifecycle: applied, response, screen, interview, offer, rejected by employer, withdrawn. A withdrawal also withdraws the application. The application row itself stays APPLIED through response, screen, interview, offer and rejection; the opportunity carries those stages. An outcome that does not fit where the lifecycle is (a phone screen after an interview, anything after a rejection) is recorded without moving it, and the page says so. No new lifecycle edges were added. Employer outcomes can be recorded only for a submitted application. The one exception is a withdrawal, which is refused while a submission is in progress or waiting for your report (report how it ended first), and for a blocked or failed application that may have reached the employer. A withdrawal moves the application and the role together or not at all. An outcome cannot be dated before the application was submitted.
+
+From PowerShell:
+
+```powershell
+uv run sabra pipeline                     # the same list, by stage
+uv run sabra outcome APPLICATION_ID interview --note "Panel on Friday" --at 2026-10-24
+uv run sabra outcome APPLICATION_ID rejection --contact "Pat Lee"
+```
+
+`--at` takes an ISO date or datetime; a value with no time zone is read as local time. Kinds can be typed in any case (`phone-screen` works).
+
+### Export the learning dataset
+
+Every application becomes one line of evidence: job features, candidate features, strategy, artifact ids and the latest outcome.
+
+```powershell
+uv run sabra ledger export learning.jsonl
+```
+
+The command refuses to replace an existing file unless you add `--force`. The same data downloads from http://127.0.0.1:8787/api/learning-records. Names, email, phone, address, the candidate id, outcome notes and contacts are never in the export; any string that still looks like an email address is replaced. Outcome notes and contacts stay in the ledger only.
 
 ## 6. Refresh packages after you verify new answers
 
@@ -194,6 +263,57 @@ Turn dry-run back on when you are done:
 ```powershell
 $env:SABRA_AUTOMATION_DRY_RUN = "true"
 ```
+
+## 9. Run it every morning
+
+To have the loop run by itself, register a daily Windows Task Scheduler task. Nothing is registered until you run this yourself, from the checkout:
+
+```powershell
+cd C:\Users\nrsan\hallam
+.\scripts\schedule-windows.ps1 -At 06:30            # discover, rank, research
+.\scripts\schedule-windows.ps1 -At 06:30 -Prepare   # ...and prepare packages for the top roles
+.\scripts\schedule-windows.ps1 -Unregister          # remove it
+```
+
+The task is called "Sabra daily run". It runs as you, only while you are logged on (if the PC was off at 06:30 it runs when you next log on), and never starts a second run on top of one that is still going. Each run loads `C:\Users\nrsan\hallam-private\hallam-env.ps1` (pass `-PrivateDir` for another folder), then runs
+
+```powershell
+uv run sabra run --json >> <data_dir>\logs\run-<date>.log
+```
+
+`<data_dir>` is `C:\Users\nrsan\hallam-private\var` unless `hallam-env.ps1` sets `SABRA_DATA_DIR`. The task stops with an error, and runs nothing, if `hallam-env.ps1` is missing. The log is UTF-8 and holds the run's JSON record, per-source outcomes included; the dashboard's **Today** page shows the last run's summary. The scheduled run only discovers, ranks, researches and (with `-Prepare`) prepares. It does not approve, and it does not submit: dry-run stays the default, and a package still waits for you on the Applications page. The task runs `scripts\run-sabra-daily.ps1`; do not move it.
+
+## 10. Model-assisted drafting (optional)
+
+Add these lines to `C:\Users\nrsan\hallam-private\sabra.env` and restart the dashboard
+(or dot-source `hallam-env.ps1` again in the window that runs the CLI). Never put the key
+anywhere inside the git checkout.
+
+```text
+SABRA_LLM_PROVIDER=anthropic
+SABRA_LLM_API_KEY=<your Anthropic key>
+SABRA_LLM_MODEL=claude-opus-5-5
+```
+
+With a provider set, the engine uses the model for three things only: choosing and
+ordering the résumé's bullets, skills, headline and summary; writing the cover-letter
+body; and writing the fit narrative (why this job, gap analysis). Bullets are never
+written by the model: it returns bullet ids and the engine copies the candidate's own
+text. Scores, ranking, approval and submission stay deterministic. With no provider
+set, or if the model fails, the package is built exactly as before and carries a
+"model unavailable" warning when a call failed. `SABRA_LLM_PROVIDER=openai_compatible`
+with `SABRA_LLM_BASE_URL` works the same way against any OpenAI-style endpoint.
+
+**Truth gate.** Every model-written text is checked before it can enter a package.
+Numbers, durations, names, titles, dates, certifications and skills must appear in
+the candidate's profile or master résumé (the job posting and company research are
+never evidence about the candidate, in any grammatical person), and a second model
+call must quote supporting evidence for each claim. A text that fails is regenerated
+once with the problems fed back, then replaced by the deterministic template. Each
+package records, per artifact, whether it was `model:<provider>/<model>` or `template`,
+plus the gate result and per-call token counts, in its truth ledger under
+`generation`; the review page shows this under Warnings. Approval still binds to the
+content hash of the final texts. Model calls are logged in the `model_calls` table.
 
 ## What this build will not do
 

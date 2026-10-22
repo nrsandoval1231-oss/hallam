@@ -37,6 +37,8 @@ from sabra_domain.schemas import ApplicationPackageSchema, ApprovalRecord
 
 from .attempt_events import submission_evidence, unresolved_unconfirmed
 from .context import EngineContext
+from .display import compensation_text
+from .package_review import generation_notes, package_actions
 
 
 @dataclass(slots=True)
@@ -93,6 +95,7 @@ class ApprovalService:
             job = repos.jobs.get(package_row.job_id)
             application = repos.applications.for_opportunity(package_row.opportunity_id)
             events = repos.events.for_entity(EntityType.PACKAGE, package_row.id)
+            fit = repos.fit.for_opportunity(opportunity.id)
             return {
                 "package": {
                     "id": package_row.id,
@@ -121,6 +124,8 @@ class ApprovalService:
                     "salary_max": job.salary_max,
                     "salary_currency": job.salary_currency,
                     "salary_period": job.salary_period,
+                    "compensation_text": compensation_text(job),
+                    "remote_status": job.remote_status,
                     "travel": job.travel,
                     "employment_type": job.employment_type,
                     "date_posted": job.date_posted.isoformat() if job.date_posted else None,
@@ -132,16 +137,33 @@ class ApprovalService:
                     "answers": [a.model_dump(mode="json") for a in schema.answers],
                     "recruiter_message": schema.recruiter_message,
                     "hiring_manager_message": schema.hiring_manager_message,
+                    "interview_preparation": schema.interview_preparation,
                 },
                 "analysis": {
                     "fit_explanation": schema.fit_explanation,
                     "qualification_gaps": schema.qualification_gaps,
                     "candidate_summary": schema.candidate_summary,
                 },
+                # The stored assessment behind the score, for the fit section of the page.
+                "fit": {
+                    "fit_score": fit.fit_score,
+                    "confidence": fit.confidence,
+                    "strengths": list(fit.strengths or []),
+                    "gaps": list(fit.gaps or []),
+                    "risks": list(fit.risks or []),
+                    "why_this_job": fit.why_this_job,
+                    "engine": fit.engine,
+                }
+                if fit
+                else None,
                 "warnings": schema.warnings,
+                # How each artifact was produced and what the truth gate did, as sentences.
+                "generation_notes": generation_notes(schema.truth_ledger),
                 "unresolved_questions": schema.unresolved_questions,
                 "truth_ledger": schema.truth_ledger,
                 "application_id": application.id if application else None,
+                "application_status": application.status if application else None,
+                "actions": package_actions(package_row, application, opportunity.status),
                 "events": [
                     {
                         "event_type": e.event_type,
@@ -363,6 +385,14 @@ class ApprovalService:
             package_row = repos.packages.get(package_id)
             decided_at = datetime.now(UTC)
             application = repos.applications.for_opportunity(package_row.opportunity_id)
+            if application is not None and application.package_id != package_row.id:
+                # Rejecting an older revision would withdraw the application and pass on the
+                # role while the package the owner is looking at stays untouched.
+                raise ValidationFailure(
+                    f"package {package_id} is not the current package of application "
+                    f"{application.id} (current package: {application.package_id}); "
+                    "only the current package can be rejected"
+                )
             # A BLOCKED or FAILED application is the owner giving up on a role that was
             # approved. That is allowed only when nothing can have reached the employer.
             giving_up = application is not None and application.status in {

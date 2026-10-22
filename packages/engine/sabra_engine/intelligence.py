@@ -9,13 +9,22 @@ re-reject, re-qualify or re-shortlist anything.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sabra_domain.enums import EntityType, EventType, JobStatus
-from sabra_domain.errors import NotFound
+from sabra_domain.enums import (
+    ApplicationStatus,
+    EntityType,
+    EventType,
+    JobStatus,
+    PackageStatus,
+    RejectionReason,
+)
+from sabra_domain.errors import NotFound, ValidationFailure
 from sabra_domain.schemas import CandidateProfile, FitAssessmentSchema, SearchProfile
+from sabra_domain.state import can_transition_job
 from sabra_scoring.features import (
     CandidateFeatures,
     IntentFeatures,
@@ -41,6 +50,36 @@ RANKABLE = {
     JobStatus.AWAITING_APPROVAL,
     JobStatus.APPROVED,
 }
+
+
+# Opportunities filtered, assessed and written per transaction.
+DEFAULT_BATCH_SIZE = 50
+# Past the filter already: a rescore that still passes it leaves the state alone.
+BEYOND_QUALIFIED = {
+    JobStatus.SHORTLISTED,
+    JobStatus.RESEARCHED,
+    JobStatus.PREPARED,
+    JobStatus.AWAITING_APPROVAL,
+    JobStatus.APPROVED,
+}
+
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _notify(progress: ProgressCallback | None, payload: dict[str, Any]) -> None:
+    """Report progress. A progress sink that fails must never fail the pass."""
+
+    if progress is None:
+        return
+    try:
+        progress(payload)
+    except Exception:  # noqa: BLE001 - observability only
+        return
+
+
+def _passed_by_owner(opportunity: Any) -> bool:
+    rejection = opportunity.rejection or {}
+    return RejectionReason.OWNER_PASSED.value in (rejection.get("reasons") or [])
 
 
 @dataclass(slots=True)
@@ -96,74 +135,131 @@ class IntelligenceService:
         search_profile_id: str,
         shortlist_limit: int | None = None,
         rescore: bool = False,
+        progress: ProgressCallback | None = None,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> IntelligenceResult:
+        """Filter, assess, rank and shortlist.
+
+        The pass commits in batches of `batch_size` opportunities rather than holding one
+        write transaction for the whole queue: a thousand-posting pass would otherwise
+        keep the SQLite write lock for minutes and lock the dashboard out. Every stage is
+        state-driven and idempotent, so a pass that stops part-way is simply run again.
+        `progress` receives a small dict after each batch.
+        """
+
         result = IntelligenceResult()
-        with self.ctx.repos() as repos:
+        batch_size = max(1, batch_size)
+        _notify(progress, {"stage": "load"})
+
+        with self.ctx.read_repos() as repos:
             profile = self._load_candidate_profile(repos, candidate_id)
             search = repos.search_profiles.get(search_profile_id)
             candidate = extract_candidate_features(profile)
             intent = extract_intent_features(search)
-            result.candidate_populated = candidate.populated
-            if not candidate.populated:
-                result.notes.append(
-                    "candidate profile carries no evidence: fit is scored on the posting "
-                    "and search intent only, and confidence is correspondingly low"
-                )
+            scoped_ids = [
+                o.id
+                for o in repos.opportunities.list_for_candidate(candidate_id)
+                if (o.search_profile_id or "") == search_profile_id
+            ]
+        result.candidate_populated = candidate.populated
+        if not candidate.populated:
+            result.notes.append(
+                "candidate profile carries no evidence: fit is scored on the posting "
+                "and search intent only, and confidence is correspondingly low"
+            )
+        result.considered = len(scoped_ids)
 
-            opportunities = repos.opportunities.list_for_candidate(candidate_id)
-            scoped = [o for o in opportunities if (o.search_profile_id or "") == search_profile_id]
-            result.considered = len(scoped)
-
-            assessments: list[tuple[str, FitAssessmentSchema]] = []
-            for opportunity in scoped:
-                status = JobStatus(opportunity.status)
-                if status in FILTERABLE or rescore:
-                    decision = self._filter(repos, opportunity, search, intent, candidate)
-                    if not decision:
+        assessments: list[tuple[str, FitAssessmentSchema]] = []
+        for start in range(0, len(scoped_ids), batch_size):
+            chunk = scoped_ids[start : start + batch_size]
+            with self.ctx.repos() as repos:
+                for opportunity_id in chunk:
+                    opportunity = repos.opportunities.get(opportunity_id)
+                    if _passed_by_owner(opportunity):
+                        # An owner's Pass is a decision, not a score: no later pass,
+                        # rescore included, brings the role back.
                         result.already_decided += 1
                         continue
-                    if decision.reasons:
-                        result.rejected += 1
-                        for reason in decision.reasons:
-                            result.rejection_breakdown[reason] = (
-                                result.rejection_breakdown.get(reason, 0) + 1
-                            )
-                        continue
-                    result.qualified += 1
-                status = JobStatus(repos.opportunities.get(opportunity.id).status)
-                if status in RANKABLE:
-                    assessment = self._assess(repos, opportunity, search, intent, candidate)
-                    if assessment is not None:
-                        result.assessed += 1
-                        assessments.append((opportunity.id, assessment))
+                    status = JobStatus(opportunity.status)
+                    if status in FILTERABLE or rescore:
+                        decision = self._filter(repos, opportunity, search, intent, candidate)
+                        if not decision:
+                            result.already_decided += 1
+                            continue
+                        if decision.reasons:
+                            result.rejected += 1
+                            for reason in decision.reasons:
+                                result.rejection_breakdown[reason] = (
+                                    result.rejection_breakdown.get(reason, 0) + 1
+                                )
+                            continue
+                        result.qualified += 1
+                    status = JobStatus(repos.opportunities.get(opportunity_id).status)
+                    if status in RANKABLE:
+                        assessment = self._assess(repos, opportunity, search, intent, candidate)
+                        if assessment is not None:
+                            result.assessed += 1
+                            assessments.append((opportunity_id, assessment))
+            _notify(
+                progress,
+                {
+                    "stage": "assess",
+                    "done": min(start + batch_size, len(scoped_ids)),
+                    "total": len(scoped_ids),
+                    "rejected": result.rejected,
+                    "qualified": result.qualified,
+                    "assessed": result.assessed,
+                },
+            )
 
-            ranked = self.ranker.rank(assessments)
-            for position, entry in enumerate(ranked, start=1):
-                repos.fit.upsert(
-                    entry.opportunity_id,
-                    candidate_id,
-                    {"rank_score": entry.rank_score},
-                )
-                repos.opportunities.set_rank(entry.opportunity_id, entry.rank_score, position)
-            result.ranked = len(ranked)
+        ranked = self.ranker.rank(assessments)
+        for start in range(0, len(ranked), batch_size):
+            with self.ctx.repos() as repos:
+                for position, entry in enumerate(
+                    ranked[start : start + batch_size], start=start + 1
+                ):
+                    repos.fit.upsert(
+                        entry.opportunity_id,
+                        candidate_id,
+                        {"rank_score": entry.rank_score},
+                    )
+                    repos.opportunities.set_rank(entry.opportunity_id, entry.rank_score, position)
+            _notify(
+                progress,
+                {"stage": "rank", "done": min(start + batch_size, len(ranked)), "total": len(ranked)},
+            )
+        result.ranked = len(ranked)
 
-            limit = shortlist_limit or search.shortlist_target
-            # Already-shortlisted opportunities stay eligible. Restricting
-            # eligibility to QUALIFIED made the second run's selection empty, which
-            # then looked like a demotion and tried an illegal
-            # SHORTLISTED -> SHORTLISTED transition.
-            eligible = {
-                opportunity.id: True
-                for opportunity in scoped
-                if JobStatus(repos.opportunities.get(opportunity.id).status)
-                in {JobStatus.QUALIFIED, JobStatus.SHORTLISTED}
+        limit = shortlist_limit or search.shortlist_target
+        with self.ctx.repos() as repos:
+            # Every ranked opportunity competes for a slot, including ones already shortlisted
+            # or researched (research moves SHORTLISTED to RESEARCHED) and ones whose package
+            # is prepared or awaiting approval: they keep their place and their state.
+            # Restricting the pool to QUALIFIED made a second run's selection empty, which
+            # then looked like a demotion. Only a QUALIFIED opportunity changes state here;
+            # moving an advanced one back to SHORTLISTED is an illegal transition (a rank
+            # after preparing a package used to fail on exactly that).
+            statuses = {
+                opportunity_id: JobStatus(repos.opportunities.get(opportunity_id).status)
+                for opportunity_id in scoped_ids
             }
             currently_shortlisted = {
-                opportunity.id
-                for opportunity in scoped
-                if JobStatus(opportunity.status) == JobStatus.SHORTLISTED
+                opportunity_id
+                for opportunity_id, status in statuses.items()
+                if status in {JobStatus.SHORTLISTED, JobStatus.RESEARCHED}
             }
-            selected = self.ranker.select_shortlist(ranked, limit=limit, eligible=eligible)
+            # The assess batches committed minutes ago; an opportunity may since have been
+            # passed, expired or sent to the employer. Only rows still QUALIFIED or already
+            # past it may take a slot, and an owner's Pass is never reversed. Filtering
+            # before selection means such a row neither consumes a slot nor fails the pass.
+            def may_take_a_slot(opportunity_id: str) -> bool:
+                status = statuses[opportunity_id]
+                if status is not JobStatus.QUALIFIED and status not in BEYOND_QUALIFIED:
+                    return False
+                return not _passed_by_owner(repos.opportunities.get(opportunity_id))
+
+            ranked = [entry for entry in ranked if may_take_a_slot(entry.opportunity_id)]
+            selected = self.ranker.select_shortlist(ranked, limit=limit)
             chosen = {entry.opportunity_id for entry in selected}
 
             for entry in selected:
@@ -172,37 +268,49 @@ class IntelligenceService:
                     True,
                     reason=entry.explanation,
                 )
-                current = JobStatus(repos.opportunities.get(entry.opportunity_id).status)
-                if current is not JobStatus.SHORTLISTED:
-                    repos.opportunities.set_status(entry.opportunity_id, JobStatus.SHORTLISTED)
-                if entry.opportunity_id not in currently_shortlisted:
-                    result.shortlisted += 1
-                    repos.events.append(
-                        EntityType.OPPORTUNITY,
-                        entry.opportunity_id,
-                        EventType.JOB_SHORTLISTED,
-                        entry.as_dict(),
-                    )
+                if statuses[entry.opportunity_id] in BEYOND_QUALIFIED:
+                    continue
+                repos.opportunities.set_status(entry.opportunity_id, JobStatus.SHORTLISTED)
+                result.shortlisted += 1
+                repos.events.append(
+                    EntityType.OPPORTUNITY,
+                    entry.opportunity_id,
+                    EventType.JOB_SHORTLISTED,
+                    entry.as_dict(),
+                )
             # An opportunity that has fallen out of the shortlist is demoted, not
             # deleted: the queue is a projection of the scores, and history stays.
-            for opportunity in scoped:
-                if opportunity.id in currently_shortlisted and opportunity.id not in chosen:
-                    repo_row = repos.opportunities.get(opportunity.id)
-                    repo_row.shortlisted = False
-                    repo_row.shortlist_reason = "demoted: no longer in the top shortlist"
-                    repo_row.status = str(JobStatus.QUALIFIED)
+            for opportunity_id in scoped_ids:
+                if opportunity_id in currently_shortlisted and opportunity_id not in chosen:
+                    repos.opportunities.set_shortlist(
+                        opportunity_id, False, reason="demoted: no longer in the top shortlist"
+                    )
+                    # Through the graph, so the postings follow the opportunity.
+                    repos.opportunities.set_status(opportunity_id, JobStatus.QUALIFIED)
+                    repos.events.append(
+                        EntityType.OPPORTUNITY,
+                        opportunity_id,
+                        EventType.JOB_SCORED,
+                        {
+                            "stage": "demoted_from_shortlist",
+                            "from": statuses[opportunity_id].value,
+                            "reason": "no longer in the top shortlist",
+                        },
+                    )
 
             result.top = [
                 {
                     "opportunity_id": entry.opportunity_id,
                     "rank_score": round(entry.rank_score, 6),
-                    "title": repos.opportunities.get(entry.opportunity_id).title,
-                    "company": repos.opportunities.get(entry.opportunity_id).company,
-                    "location": repos.opportunities.get(entry.opportunity_id).location,
+                    "title": row.title,
+                    "company": row.company,
+                    "location": row.location,
                     "components": {k: round(v, 4) for k, v in entry.components.items()},
                 }
                 for entry in ranked[: max(limit, 10)]
+                for row in (repos.opportunities.get(entry.opportunity_id),)
             ]
+        _notify(progress, {"stage": "shortlist", "shortlisted": result.shortlisted})
         return result
 
     # -- stages ---------------------------------------------------------
@@ -266,7 +374,7 @@ class IntelligenceService:
                 },
             )
         else:
-            if JobStatus(opportunity.status) != JobStatus.SHORTLISTED:
+            if JobStatus(opportunity.status) not in BEYOND_QUALIFIED:
                 repos.opportunities.set_status(opportunity.id, JobStatus.QUALIFIED)
             repos.events.append(
                 EntityType.OPPORTUNITY,
@@ -328,3 +436,100 @@ def job_features_for(repos: Repos, opportunity: Any) -> JobFeatures:
     if not jobs:
         raise NotFound("job_for_opportunity", opportunity.id)
     return extract_job_features(sorted(jobs, key=lambda j: (-len(j.description or ""), j.id))[0])
+
+
+def pass_opportunity(
+    ctx: EngineContext, opportunity_id: str, *, decided_by: str = "owner"
+) -> dict[str, Any]:
+    """The owner passes on an opportunity (PRD section 29, "Pass").
+
+    The opportunity and its postings move to REJECTED through the job transition graph
+    with reason OWNER_PASSED, and a later ranking pass never brings it back. A prepared
+    package that was waiting for approval is superseded and its application withdrawn.
+    An application past AWAITING_APPROVAL (approved, applying, applied, blocked, failed)
+    is refused: the owner already acted on it, and passing silently would orphan an
+    approval or a submission.
+    """
+
+    with ctx.repos() as repos:
+        opportunity = repos.opportunities.get(opportunity_id)
+        application = repos.applications.for_opportunity(opportunity_id)
+        if application is not None and application.status not in {
+            ApplicationStatus.DRAFT.value,
+            ApplicationStatus.AWAITING_APPROVAL.value,
+            ApplicationStatus.WITHDRAWN.value,
+        }:
+            raise ValidationFailure(
+                f"cannot pass on this opportunity: its application is {application.status}, "
+                "past awaiting approval. Use the application's own controls instead"
+            )
+        current = JobStatus(opportunity.status)
+        if current is JobStatus.REJECTED and _passed_by_owner(opportunity):
+            return {
+                "opportunity_id": opportunity_id,
+                "status": opportunity.status,
+                "already_passed": True,
+            }
+        if current is JobStatus.EXPIRED:
+            raise ValidationFailure(
+                "cannot pass on this opportunity: the posting has expired, so it is already "
+                "off your list"
+            )
+        if current is not JobStatus.REJECTED and not can_transition_job(
+            current, JobStatus.REJECTED
+        ):
+            raise ValidationFailure(
+                f"cannot pass on this opportunity: it is {current.value}, and a role in that "
+                "state cannot be passed on"
+            )
+
+        # A role the filter already rejected keeps its reasons; the pass is added to them.
+        earlier = opportunity.rejection or {}
+        reasons = [r for r in (earlier.get("reasons") or []) if r != RejectionReason.OWNER_PASSED]
+        rejection = {
+            "reasons": [*reasons, RejectionReason.OWNER_PASSED.value],
+            "detail": {**(earlier.get("detail") or {}), "decided_by": decided_by},
+        }
+        if earlier.get("evaluated_at"):
+            rejection["evaluated_at"] = earlier["evaluated_at"]
+        package = repos.packages.latest_for_opportunity(opportunity_id)
+        if package is not None and package.status not in {
+            PackageStatus.SUPERSEDED.value,
+            PackageStatus.APPROVED.value,
+        }:
+            repos.packages.set_status(package.id, PackageStatus.SUPERSEDED)
+            repos.events.append(
+                EntityType.PACKAGE,
+                package.id,
+                EventType.PACKAGE_REJECTED,
+                {"reason": RejectionReason.OWNER_PASSED.value, "decided_by": decided_by},
+                actor=decided_by,
+            )
+        if application is not None and application.status != ApplicationStatus.WITHDRAWN.value:
+            repos.applications.set_status(application.id, ApplicationStatus.WITHDRAWN)
+            repos.events.append(
+                EntityType.APPLICATION,
+                application.id,
+                EventType.REJECTED,
+                {"reason": RejectionReason.OWNER_PASSED.value, "decided_by": decided_by},
+                actor=decided_by,
+            )
+        repos.opportunities.set_status(opportunity_id, JobStatus.REJECTED, rejection=rejection)
+        repos.opportunities.set_shortlist(opportunity_id, False, reason="passed by the owner")
+        repos.events.append(
+            EntityType.OPPORTUNITY,
+            opportunity_id,
+            EventType.JOB_REJECTED,
+            {
+                "title": opportunity.title,
+                "company": opportunity.company,
+                "reasons": [RejectionReason.OWNER_PASSED.value],
+                "decided_by": decided_by,
+            },
+            actor=decided_by,
+        )
+        return {
+            "opportunity_id": opportunity_id,
+            "status": opportunity.status,
+            "already_passed": False,
+        }

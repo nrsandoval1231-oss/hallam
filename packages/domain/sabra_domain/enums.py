@@ -124,6 +124,11 @@ class EventType(StrEnum):
     CANDIDATE_UPDATED = "CANDIDATE_UPDATED"
     RESUME_INGESTED = "RESUME_INGESTED"
     SEARCH_PROFILE_CREATED = "SEARCH_PROFILE_CREATED"
+    SEARCH_PROFILE_UPDATED = "SEARCH_PROFILE_UPDATED"
+    SEARCH_PROFILE_ACTIVATED = "SEARCH_PROFILE_ACTIVATED"
+    PIPELINE_RUN_STARTED = "PIPELINE_RUN_STARTED"
+    PIPELINE_RUN_COMPLETED = "PIPELINE_RUN_COMPLETED"
+    PIPELINE_RUN_FAILED = "PIPELINE_RUN_FAILED"
     MODEL_ANSWER_DRAFTED = "MODEL_ANSWER_DRAFTED"
     # A non-blocking caution worth keeping in the audit trail (see `payload["warning"]`).
     WARNING_RECORDED = "WARNING_RECORDED"
@@ -139,6 +144,7 @@ class EntityType(StrEnum):
     PACKAGE = "package"
     APPLICATION = "application"
     DISCOVERY_RUN = "discovery_run"
+    PIPELINE_RUN = "pipeline_run"
     SYSTEM = "system"
 
 
@@ -154,6 +160,8 @@ class RejectionReason(StrEnum):
     EXCESSIVE_TRAVEL = "EXCESSIVE_TRAVEL"
     ROLE_UNAVAILABLE = "ROLE_UNAVAILABLE"
     OUTSIDE_SEARCH_INTENT = "OUTSIDE_SEARCH_INTENT"
+    # The owner pressed Pass. Never undone by a later ranking pass.
+    OWNER_PASSED = "OWNER_PASSED"
 
 
 class OutcomeKind(StrEnum):
@@ -174,6 +182,21 @@ class DiscoveryRunStatus(StrEnum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     PARTIAL = "PARTIAL"
+
+
+class RunKind(StrEnum):
+    """What a pipeline run does (browser "Run now" and `sabra run`)."""
+
+    DISCOVER = "discover"
+    RANK = "rank"
+    FULL = "full"
+
+
+class RunStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class SourceHealth(StrEnum):

@@ -24,10 +24,24 @@ Verified against real data, not scaffolding:
 | M7 Ledger | Done | Append-only events, ledger projection, outcomes, learning records |
 | M8 Pilot | **Blocked on owner input** | See below |
 
-`apps/api` is a FastAPI app with an HTML dashboard. It serves `/`, `/opportunities`,
-`/applications` (batch approval), and `/answers` (record and verify), plus JSON
-routes for health, status, the candidate profile, résumé upload, the shortlist,
-and package preparation. `make run-api` listens on http://127.0.0.1:8787.
+`apps/api` is a FastAPI app with an HTML dashboard that covers the whole loop from the
+browser. Every page shares one navigation bar: `/` (Today: what needs your attention and
+**Run now**; each count links to the page that acts on it), `/opportunities` (cards with
+pay, confidence and the biggest gap; Prepare and Pass), `/opportunities/{id}` (the
+posting, why it scored as it did, the hard-filter decision, verified facts apart from
+inferences, the application and the event history), `/applications` (batch approval; each
+row links to its review page), `/packages/{id}` (the application review: the opening, fit,
+résumé, cover letter, answers with their truth levels, unresolved questions, warnings and
+how each artifact was written, then one **Approve application** bound to the content hash),
+`/pipeline` (every application past approval by stage, with a **Record outcome** control
+and its history), `/candidate` (your details, résumé upload, the profile with its truth
+levels), `/searches` (define and switch search profiles), `/answers` (record and verify)
+and `/settings` (read only). JSON routes sit beside them: health, status, today, candidate,
+searches, runs, settings, the shortlist, opportunity detail, package review and reject,
+package preparation, the pipeline, the application ledger, outcomes, and the learning
+dataset (`/api/learning-records`, JSON lines). On the command line, `sabra outcome`,
+`sabra pipeline` and `sabra ledger export` cover the same ground. `make run-api` listens
+on http://127.0.0.1:8787.
 `apps/web` is still an empty scaffold.
 
 ### Honest gaps
@@ -59,10 +73,32 @@ make sync        # create the venv and install (required after adding a package)
 uv run playwright install chromium  # local synthetic browser acceptance in the default suite
 make init        # create the database, load the source registry, seed a search profile
 make discover    # read every enabled board
-make rank        # hard-filter, assess fit, rank, shortlist
+make rank        # hard-filter, assess fit, rank, shortlist, research the shortlist
 make test        # default suite; live employer checks stay opted out
 make run-api     # local dashboard at http://127.0.0.1:8787
 ```
+
+Your own search, instead of the built-in seed profile (copy and edit
+[`config/search_profile.example.yaml`](config/search_profile.example.yaml); every field is
+explained in it):
+
+```bash
+uv run sabra init --search-profile my_search.yaml   # load it and make it active
+uv run sabra searches list                          # the active one is starred
+uv run sabra searches load other.yaml               # add or replace another
+uv run sabra searches activate SEARCH_ID
+```
+
+The whole loop in one command, or from the browser's **Today** page (**Run now**):
+
+```bash
+uv run sabra run                  # discover, rank, research the shortlist
+uv run sabra run --prepare        # ...and prepare packages for the top roles
+```
+
+A run never approves or submits anything. To run it every morning on Windows, see
+[`scripts/schedule-windows.ps1`](scripts/schedule-windows.ps1) and the "Run it every
+morning" section of [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md).
 
 Reasoning-layer features are **off by default** (`SABRA_LLM_PROVIDER=none`) and every
 one of them has a deterministic fallback, so the loop runs with no model configured.
@@ -81,7 +117,7 @@ packages/
   engine/        services: discovery, intelligence, research, documents,
                  approval, execution, ledger, CLI
 workers/         empty scaffold (discovery, research, and application workers)
-config/          source registry and candidate profiles
+config/          source registry, candidate profiles, example search profile
 docs/            architecture, decisions, operations
 migrations/      empty scaffold; the schema is created from the SQLAlchemy models
 tests/           test suite and committed fixtures

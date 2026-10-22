@@ -111,6 +111,18 @@ class Repos:
         return DiscoveryRunRepository(self.session)
 
     @cached_property
+    def pipeline_runs(self) -> Any:
+        from sabra_domain.repositories import PipelineRunRepository
+
+        return PipelineRunRepository(self.session)
+
+    @cached_property
+    def app_state(self) -> Any:
+        from sabra_domain.repositories import AppStateRepository
+
+        return AppStateRepository(self.session)
+
+    @cached_property
     def model_calls(self) -> Any:
         from sabra_domain.repositories import ModelCallRepository
 

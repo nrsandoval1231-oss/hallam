@@ -12,6 +12,8 @@ persistence happens per source and nothing is deleted on failure.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -46,6 +48,10 @@ GROUPABLE_STATUSES = (
     JobStatus.AWAITING_APPROVAL,
     JobStatus.APPROVED,
 )
+
+
+# Opportunity groups written per transaction while grouping postings.
+GROUP_BATCH_SIZE = 50
 
 
 @dataclass(slots=True)
@@ -137,6 +143,20 @@ class DiscoveryRunResult:
         }
 
 
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _notify(progress: ProgressCallback | None, payload: dict[str, Any]) -> None:
+    """Report progress. A progress sink that fails must never fail discovery."""
+
+    if progress is None:
+        return
+    try:
+        progress(payload)
+    except Exception:  # noqa: BLE001 - observability only
+        return
+
+
 class DiscoveryService:
     def __init__(self, ctx: EngineContext) -> None:
         self.ctx = ctx
@@ -152,6 +172,7 @@ class DiscoveryService:
         max_items_per_source: int | None = None,
         http: HttpClient | None = None,
         group: bool = True,
+        progress: ProgressCallback | None = None,
     ) -> DiscoveryRunResult:
         profile_id = search_profile_id or ""
         started_at = datetime.now(UTC)
@@ -175,6 +196,41 @@ class DiscoveryService:
             )
             run_id = run.id
 
+        try:
+            return self._execute(
+                run_id=run_id,
+                started_at=started_at,
+                definitions=definitions,
+                candidate_id=candidate_id,
+                profile_id=profile_id,
+                max_items_per_source=max_items_per_source,
+                http=http,
+                group=group,
+                progress=progress,
+            )
+        except BaseException as exc:
+            # An abort, Ctrl-C or crash must not leave the run row RUNNING forever.
+            with suppress(Exception), self.ctx.repos() as repos:
+                repos.runs.finish(
+                    run_id,
+                    status=str(DiscoveryRunStatus.FAILED),
+                    errors=[f"{type(exc).__name__}: {exc}"[:500]],
+                )
+            raise
+
+    def _execute(
+        self,
+        *,
+        run_id: str,
+        started_at: datetime,
+        definitions: list[SourceDefinition],
+        candidate_id: str,
+        profile_id: str,
+        max_items_per_source: int | None,
+        http: HttpClient | None,
+        group: bool,
+        progress: ProgressCallback | None,
+    ) -> DiscoveryRunResult:
         # No search profile is loaded here: providers return every posting they
         # publish, and intent is applied deterministically downstream by the hard
         # filter. Filtering at discovery time would hide postings from the audit trail.
@@ -185,6 +241,7 @@ class DiscoveryService:
             user_agent=self.ctx.settings.discovery_user_agent,
         )
 
+        _notify(progress, {"stage": "sources", "sources_total": len(definitions), "done": 0})
         try:
             for definition in definitions:
                 outcome = self._run_source(
@@ -195,6 +252,15 @@ class DiscoveryService:
                 )
                 outcomes.append(outcome)
                 self._record_source_result(definition, outcome)
+                _notify(
+                    progress,
+                    {
+                        "stage": "sources",
+                        "sources_total": len(definitions),
+                        "done": len(outcomes),
+                        "outcome": outcome.as_dict(),
+                    },
+                )
         finally:
             if owns_http:
                 client.close()
@@ -213,6 +279,7 @@ class DiscoveryService:
         result.errors = [f"{o.source_id}: {o.error}" for o in outcomes if o.error]
 
         if group:
+            _notify(progress, {"stage": "group"})
             self._group_opportunities(candidate_id, profile_id, result)
 
         result.finished_at = datetime.now(UTC)
@@ -420,77 +487,29 @@ class DiscoveryService:
 
         from sabra_domain.models import Job
 
-        with self.ctx.repos() as repos:
+        # Read once, outside any write scope: the keys are all the grouping needs.
+        with self.ctx.read_repos() as repos:
             statuses = [str(s) for s in GROUPABLE_STATUSES]
             rows = list(
                 repos.session.execute(
                     select(Job).where(Job.status.in_(statuses)).order_by(Job.id)
                 ).scalars()
             )
-            if not rows:
-                return
-
             keys = [JobKey.from_row(row) for row in rows]
-            rows_by_identity = {(row.source, row.source_job_id): row for row in rows}
+        if not rows:
+            return
 
-            groups = group_records(keys)
-            for group in groups:
-                primary_key = group.primary
-                primary_row = rows_by_identity[(primary_key.source, primary_key.source_job_id)]
+        groups = group_records(keys)
+        # Each batch is its own transaction, so the write lock is held for a few dozen
+        # groups at a time and the dashboard stays usable on a large board. A group is
+        # independent of the others and the pass is idempotent, so a stop part-way is
+        # simply run again.
+        for start in range(0, len(groups), GROUP_BATCH_SIZE):
+            with self.ctx.repos() as repos:
+                for group in groups[start : start + GROUP_BATCH_SIZE]:
+                    self._materialize_group(repos, group, candidate_id, profile_id)
 
-                opportunity = repos.opportunities.find(
-                    candidate_id, profile_id, group.canonical_key
-                )
-                created = opportunity is None
-                if created:
-                    opportunity = repos.opportunities.create(
-                        candidate_id=candidate_id,
-                        search_profile_id=profile_id,
-                        canonical_key=group.canonical_key,
-                        title=primary_key.title,
-                        company=primary_row.company,
-                        location=primary_row.location,
-                        primary_job_id=primary_row.id,
-                        source_ids=[m.as_source_entry() for m in group.members],
-                    )
-                    repos.events.append(
-                        EntityType.OPPORTUNITY,
-                        opportunity.id,
-                        EventType.JOB_DISCOVERED,
-                        {
-                            "canonical_key": group.canonical_key,
-                            "company": primary_row.company,
-                            "title": primary_key.title,
-                            "source_count": group.source_count,
-                        },
-                    )
-
-                for index, member in enumerate(group.members):
-                    row = rows_by_identity[(member.source, member.source_job_id)]
-                    if row.opportunity_id != opportunity.id:
-                        row.opportunity_id = opportunity.id
-                    if created:
-                        continue
-                    before = opportunity.source_count
-                    repos.opportunities.attach_source(opportunity, member.as_source_entry())
-                    if opportunity.source_count > before:
-                        reason = (
-                            group.merge_reasons[index]
-                            if index < len(group.merge_reasons)
-                            else "exact_key_match"
-                        )
-                        self._record_merge(repos, opportunity, member, reason, group.canonical_key)
-
-                if created:
-                    for index, member in enumerate(group.members[1:], start=1):
-                        reason = (
-                            group.merge_reasons[index]
-                            if index < len(group.merge_reasons)
-                            else "exact_key_match"
-                        )
-                        self._record_merge(repos, opportunity, member, reason, group.canonical_key)
-            repos.session.flush()
-
+        with self.ctx.read_repos() as repos:
             total_postings = sum(g.source_count for g in groups)
             multi = [g for g in groups if g.source_count > 1]
             result.postings_ingested = total_postings
@@ -510,6 +529,69 @@ class DiscoveryService:
             result.cross_source_pairs = sum(
                 1 for g in multi if len({m.source for m in g.members}) > 1
             )
+
+    def _materialize_group(
+        self, repos: Repos, group: Any, candidate_id: str, profile_id: str
+    ) -> None:
+        """Create or extend the opportunity for one group of duplicate postings."""
+
+        primary_key = group.primary
+        primary_row = repos.jobs.find_by_source_id(primary_key.source, primary_key.source_job_id)
+        if primary_row is None:
+            return  # the posting disappeared between the read and this batch
+
+        opportunity = repos.opportunities.find(candidate_id, profile_id, group.canonical_key)
+        created = opportunity is None
+        if created:
+            opportunity = repos.opportunities.create(
+                candidate_id=candidate_id,
+                search_profile_id=profile_id,
+                canonical_key=group.canonical_key,
+                title=primary_key.title,
+                company=primary_row.company,
+                location=primary_row.location,
+                primary_job_id=primary_row.id,
+                source_ids=[m.as_source_entry() for m in group.members],
+            )
+            repos.events.append(
+                EntityType.OPPORTUNITY,
+                opportunity.id,
+                EventType.JOB_DISCOVERED,
+                {
+                    "canonical_key": group.canonical_key,
+                    "company": primary_row.company,
+                    "title": primary_key.title,
+                    "source_count": group.source_count,
+                },
+            )
+
+        for index, member in enumerate(group.members):
+            row = repos.jobs.find_by_source_id(member.source, member.source_job_id)
+            if row is None:
+                continue
+            if row.opportunity_id != opportunity.id:
+                row.opportunity_id = opportunity.id
+            if created:
+                continue
+            before = opportunity.source_count
+            repos.opportunities.attach_source(opportunity, member.as_source_entry())
+            if opportunity.source_count > before:
+                reason = (
+                    group.merge_reasons[index]
+                    if index < len(group.merge_reasons)
+                    else "exact_key_match"
+                )
+                self._record_merge(repos, opportunity, member, reason, group.canonical_key)
+
+        if created:
+            for index, member in enumerate(group.members[1:], start=1):
+                reason = (
+                    group.merge_reasons[index]
+                    if index < len(group.merge_reasons)
+                    else "exact_key_match"
+                )
+                self._record_merge(repos, opportunity, member, reason, group.canonical_key)
+        repos.session.flush()
 
 
 __all__ = [
