@@ -525,7 +525,7 @@ class _EmptyShortlist:
     def rank(self, assessments):
         return self._real.rank(assessments)
 
-    def select_shortlist(self, ranked, *, limit, eligible=None):
+    def select_shortlist(self, ranked, *, limit, eligible=None, **_options):
         return []
 
 

@@ -19,7 +19,12 @@ from datetime import date
 from typing import Any
 
 from sabra_domain.enums import EmploymentType, RejectionReason, RemoteStatus
-from sabra_domain.identity import normalize_location, normalize_text, token_matches_phrase
+from sabra_domain.identity import (
+    normalize_location,
+    normalize_text,
+    normalize_title,
+    token_matches_phrase,
+)
 from sabra_domain.schemas import RejectionRecord, SearchProfile
 
 from .features import (
@@ -29,6 +34,7 @@ from .features import (
     annualized_salary,
     token_set,
 )
+from .geography import describe, remote_region_conflict
 
 
 @dataclass(slots=True)
@@ -40,6 +46,8 @@ class FilterDecision:
     detail: dict[str, str] = field(default_factory=dict)
     checks_run: list[str] = field(default_factory=list)
     checks_skipped: list[str] = field(default_factory=list)
+    # Set by the caller when a passing decision brought a rejected opportunity back.
+    reinstated: bool = False
 
     def as_record(self, evaluated_at: Any = None) -> RejectionRecord:
         return RejectionRecord(reasons=self.reasons, detail=self.detail, evaluated_at=evaluated_at)
@@ -179,9 +187,21 @@ class HardFilter:
 
         # 9. Geography -------------------------------------------------------
         run.append("geography")
-        if not search.locations.allow_relocation and not (
-            search.locations.allow_remote and job.remote_status == RemoteStatus.REMOTE
-        ):
+        remote_open = search.locations.allow_remote and job.remote_status == RemoteStatus.REMOTE
+        if remote_open:
+            # A remote role is not tied to a city but usually is to a country. Only a
+            # location that names a country or region outside the accepted ones rejects;
+            # one that names none ("Remote", "Remote - Denver") is left open.
+            conflict, named = remote_region_conflict(job.location, intent.accepted_countries)
+            if conflict:
+                reject(
+                    RejectionReason.PROHIBITED_GEOGRAPHY,
+                    f"remote outside {describe(sorted(intent.accepted_countries))}: "
+                    f"{job.location!r} names {describe(named)}",
+                )
+            elif not job.location:
+                skipped.append("geography")
+        elif not search.locations.allow_relocation:
             if job.location:
                 if not _location_allowed(job, intent, search):
                     reject(
@@ -229,13 +249,15 @@ def _title_relevant(job: JobFeatures, intent: IntentFeatures) -> bool:
     Three ways to qualify, all derived from the profile:
 
     1. a target or acceptable title's tokens are all present in the posting title;
-    2. the posting title contains a contiguous n-gram drawn from those titles;
+    2. the posting title contains a contiguous n-gram drawn from those titles, and
+       either that n-gram is a complete declared title or (when the profile declares
+       level terms) the posting title also carries one of them;
     3. the posting title contains one of the profile's declared role-family terms
        AND one of its declared level terms.
 
     Rule 3 exists because real titles do not reuse the profile's wording. Measured
     against live boards, an n-gram-only rule rejected "Regional Account Director -
-    Texas", "Clinical Sales Exec" and "Regional Vice President I, Sales" — all
+    Texas", "Clinical Sales Executive" and "Regional Vice President I, Sales" — all
     genuine field-sales roles — while the family+level rule admits them and still
     rejects "Senior Software Engineer" and "Clinical Field Specialist".
 
@@ -254,11 +276,23 @@ def _title_relevant(job: JobFeatures, intent: IntentFeatures) -> bool:
             return True
 
     title_phrase = " ".join(job.title_tokens)
-    if any(
-        re.search(rf"(?:^|\s){re.escape(gram)}(?:\s|$)", title_phrase)
-        for gram in intent.title_ngrams
-    ):
-        return True
+    complete_titles = {
+        " ".join(normalize_title(declared).split())
+        for declared in list(intent.target_titles) + list(intent.acceptable_titles)
+    }
+    for gram in intent.title_ngrams:
+        if not re.search(rf"(?:^|\s){re.escape(gram)}(?:\s|$)", title_phrase):
+            continue
+        # A fragment of a declared title ("customer success", from "Customer Success
+        # Coordinator") is only evidence of the role when the posting also carries a
+        # level word, or the fragment is a whole declared title. Without a level check
+        # "Customer Success Manager" qualified through "customer success" alone, though
+        # the candidate declared coordinator-level work. A profile that declares no level
+        # words keeps the plain n-gram rule: it has said nothing to check against.
+        if not intent.role_level_tokens or gram in complete_titles:
+            return True
+        if intent.role_level_tokens & title_tokens:
+            return True
 
     if intent.role_family_tokens and intent.role_level_tokens:
         level_hit = bool(intent.role_level_tokens & title_tokens)

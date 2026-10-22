@@ -69,7 +69,10 @@ excluded_titles:
 # Role "families" and "levels". Real postings rarely repeat your target titles word for
 # word ("Senior Administrative Specialist"). A title also qualifies when it contains one
 # family word AND one level word. These two lists say what counts as an office job (family)
-# and what makes it a job title (level).
+# and what makes it a job title (level). When level words are listed, part of a target title
+# (for example "customer success" from "Customer Success Coordinator") only qualifies a
+# posting that also has a level word, so "Customer Success Manager" is not admitted unless
+# "manager" is one of the level words.
 role_family_terms:
   - administrative
   - office
@@ -90,6 +93,7 @@ role_level_terms:
   - representative
   - lead
   - supervisor
+  - agent
 
 # Industries you prefer. Postings in these industries rank higher.
 industries:
@@ -123,6 +127,13 @@ locations:
   # Metro areas, as phrases.
   metro_areas:
     - Dallas-Fort Worth
+  # Countries a REMOTE posting may be open to (ISO codes or names; regions such as EMEA work
+  # too). A remote posting whose location names a country or region not listed here, such as
+  # "Remote - Canada" or "Remote - EMEA", is filtered out. One that names none ("Remote",
+  # "Remote - Denver") is kept. Default is US. "Worldwide" (or an empty list)
+  # turns the check off. A value that is not a known country or region is refused.
+  countries:
+    - US
   # Which ways of working you accept.
   allow_remote: true
   allow_hybrid: true
@@ -210,6 +221,11 @@ shortlist_target: 10
 # How many top roles "Run now" prepares application packages for (when asked to prepare).
 # Preparing a package never submits anything; you approve each one yourself.
 prepare_target: 3
+
+# The most roles from any one company the shortlist will hold (companies are compared by
+# normalised name). Without a cap, one employer with many similar openings can fill it. The
+# slots it frees go to the next-best roles at other companies. Default 2.
+max_per_company: 2
 
 # -- bookkeeping -----------------------------------------------------------------------------
 

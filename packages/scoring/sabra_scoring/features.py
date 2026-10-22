@@ -16,6 +16,8 @@ from typing import Any
 from sabra_domain.identity import normalize_location, normalize_text, normalize_title
 from sabra_domain.schemas import CandidateProfile, SearchProfile
 
+from .geography import normalize_countries
+
 # Unicode-aware so evidence matching works for postings in any script.
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 _WORD = re.compile(r"[a-z0-9][a-z0-9'\-]*")
@@ -323,6 +325,8 @@ class IntentFeatures:
     location_tokens: set[str] = field(default_factory=set)
     city_tokens: set[str] = field(default_factory=set)
     state_tokens: set[str] = field(default_factory=set)
+    # Canonical country/region codes a REMOTE posting may be open to; empty = no check.
+    accepted_countries: set[str] = field(default_factory=set)
 
 
 # Function words that must not appear inside a title n-gram. Without this,
@@ -402,6 +406,7 @@ def extract_intent_features(profile: SearchProfile) -> IntentFeatures:
         # "TX"; comparing raw tokens silently failed that match.
         city_tokens=token_set(" ".join(normalize_location(c) for c in profile.locations.cities)),
         state_tokens=token_set(" ".join(normalize_location(s) for s in profile.locations.states)),
+        accepted_countries=normalize_countries(profile.locations.countries),
     )
 
 

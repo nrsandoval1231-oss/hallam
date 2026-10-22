@@ -82,6 +82,10 @@ NEUTRAL_QUALIFICATION = 0.5
 # Confidence multiplier for the same case: the fit rests on far less than it appears to.
 NO_REQUIREMENTS_CONFIDENCE_FACTOR = 0.6
 NO_REQUIREMENTS_RISK = "the posting lists no requirements; fit may be overstated"
+# A posted minimum this many times the target pay points to a different, more senior job
+# than the search is for. Noted as a risk, never a rejection.
+SENIOR_PAY_MULTIPLE = 1.6
+SENIOR_PAY_RISK = "pay suggests a more senior role than the search targets"
 
 
 @dataclass(slots=True)
@@ -252,13 +256,23 @@ class HeuristicFitEngine:
         if reference <= 0:
             return Component("compensation_score", 0.5, False, "no target set", {})
         ratio = high / reference
-        score = min(1.0, max(0.0, (ratio - 0.6) / 0.6))
+        # The benefit stops at the target: pay above it earns no more, so a role paying
+        # well past what the search aims for cannot out-rank one that simply meets it.
+        score = min(1.0, max(0.0, (ratio - 0.6) / 0.4))
+        senior_signal = bool(target and low is not None and low > SENIOR_PAY_MULTIPLE * target)
         if target and high >= target:
             note = f"top of range {high:,.0f} meets the {target:,.0f} target"
         elif floor and high >= floor:
-            note = f"top of range {high:,.0f} clears the {floor:,.0f} minimum but not the {target:,.0f} target"
-        else:
+            note = (
+                f"top of range {high:,.0f} clears the {floor:,.0f} minimum but not the "
+                f"{target:,.0f} target"
+                if target
+                else f"top of range {high:,.0f} meets the {floor:,.0f} minimum"
+            )
+        elif target:
             note = f"top of range {high:,.0f} is below both floor and target"
+        else:
+            note = f"top of range {high:,.0f} is below the {reference:,.0f} minimum"
         return Component(
             "compensation_score",
             round(score, 4),
@@ -269,6 +283,7 @@ class HeuristicFitEngine:
                 "posted_high": high,
                 "reference": reference,
                 "period": job.salary_period,
+                "pay_suggests_senior_role": senior_signal,
             },
         )
 
@@ -496,6 +511,12 @@ def _narrate(
     if qualification and qualification.available and qualification.details.get("uncovered"):
         for item in qualification.details["examples_uncovered"]:
             gaps.append(f"requirement not evidenced: {item[:160]}")
+
+    for component in components:
+        if component.name == "compensation_score" and component.details.get(
+            "pay_suggests_senior_role"
+        ):
+            risks.append(SENIOR_PAY_RISK)
 
     if job.days_since_posted is not None and job.days_since_posted > 60:
         risks.append(f"posted {job.days_since_posted} days ago; may already be filled")

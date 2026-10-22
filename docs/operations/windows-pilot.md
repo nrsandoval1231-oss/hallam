@@ -122,6 +122,13 @@ uv run sabra searches show
 uv run sabra searches activate SEARCH_ID
 ```
 
+Fields that shape the shortlist (all on the Searches page and in the example file):
+
+- `role_family_terms` / `role_level_terms`: when level words are listed, part of a target title (for example "customer success" from "Customer Success Coordinator") only qualifies a posting that also has a level word. "Customer Success Manager" is therefore filtered out unless "manager" is a level word.
+- `locations.countries` (default `US`): countries or regions a remote posting may be open to. "Remote - Canada", "Remote / Australia / Singapore" and "Remote - EMEA" are filtered out (`PROHIBITED_GEOGRAPHY`, "remote outside US"); "Remote", "Remote - US" and "Remote - Denver" are kept. Write `Worldwide` (or leave the list empty) to accept remote work anywhere; a value that is not a known country or region is refused when the search is saved. On-site and hybrid roles still use the cities, states and metro areas.
+- `max_per_company` (default `2`): the most roles from one company (by normalised name) the shortlist holds; the freed slots go to the next-best roles elsewhere. The run's rank stage records how many roles were passed over for this (`skipped_for_diversity`).
+- `compensation.target`: pay above the target earns no extra credit, and a posted minimum above 1.6 times the target adds the risk note "pay suggests a more senior role than the search targets". It never filters a role out.
+
 Loading the same file again is harmless. If a file's id (or the one derived from its name) matches a stored search that is different, the load is refused; add `--replace` to replace it (`Replaced existing search <id> (was '<name>')` is printed). Leave `id:` out of your own files. A stored search is never overwritten or re-seeded by `sabra init`; the built-in medical-aesthetics profile is created only when the candidate has no search at all.
 
 **Today** (`/`). The first page. It lists what needs you: packages ready for approval, applications that need more information (and how many open questions), submissions waiting for your report, new high-fit roles since the last run began, and employer responses since you last pressed **Mark responses as seen**. **Run now** starts the whole loop in the background (discover, rank, research the shortlist; tick the box to also prepare packages for the top roles) and shows live progress, source by source. Only one run can be active at a time. The same run from PowerShell, with a progress table:
@@ -135,6 +142,12 @@ uv run sabra run --kind rank
 `--kind` is `discover`, `rank` (rank and research) or `full` (the default). A run never approves or submits anything. `--only-new` skips boards read successfully in the last 20 hours (see section 4b). While it works the dashboard stays usable: ranking commits in batches. A run whose process was killed shows as FAILED ("abandoned") as soon as the next request notices the process is gone (or after an hour with no sign of life, when that cannot be checked), so it cannot block the next one. Ctrl-C ends the run as FAILED too. `sabra discover` and `sabra rank` refuse to start while a run is active, and the database itself allows only one active run.
 
 `sabra rank` also researches the shortlist now (company sites are read; a packet less than 7 days old is kept). One site that cannot be read never stops the run. Add `--no-research` to skip it.
+
+**After you change a search, re-rank what is already stored with `sabra rank --rescore`.** A normal run only filters new postings. `--rescore` runs the current filter and scoring over every stored opportunity of the active search: a role the filter rejected earlier that now passes returns to QUALIFIED (the old reasons are kept in its history event); a qualified, shortlisted or researched role that now fails is rejected and leaves the shortlist; the shortlist is then rebuilt with the per-company cap. Roles you passed on, roles whose package is prepared, awaiting approval, approved or submitted, and any role with an application are left exactly as they are. Use `--no-research` to skip the research step.
+
+```powershell
+uv run sabra rank --rescore
+```
 
 **Opportunities** (`/opportunities`). Each card shows the pay (or "not listed"), the confidence, the main reason, the biggest gap and the fit. **Prepare application** is unchanged. **Pass** moves the role to REJECTED (reason `OWNER_PASSED`) and it is never brought back by a later run. A package that was waiting for approval is withdrawn with it. Pass is refused once the application is approved or later.
 

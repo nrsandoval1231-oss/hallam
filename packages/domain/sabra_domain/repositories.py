@@ -604,6 +604,10 @@ class OpportunityRepository:
         if JobStatus(row.status) == target:
             if rejection is not None:
                 row.rejection = rejection
+                # A rescore that re-rejects for new reasons: the postings carry the same record.
+                for job in self.list_jobs(opportunity_id):
+                    if job.status == str(target):
+                        job.rejection = rejection
             self.session.flush()
             return row
         assert_job_transition(JobStatus(row.status), target, revoke=revoke)
