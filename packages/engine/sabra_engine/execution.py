@@ -42,6 +42,11 @@ from sabra_automation.handoff import (
     HandoffResult,
     PlaywrightHandoff,
 )
+from sabra_automation.manual_adapter import (
+    MANUAL_KIND,
+    ManualHandoffAdapter,
+    manual_plan,
+)
 from sabra_domain.enums import (
     ApplicationStatus,
     EntityType,
@@ -63,7 +68,7 @@ from sabra_domain.errors import (
 from sabra_domain.state import application_path, can_transition_job
 
 from .approval import ApprovalService
-from .attempt_events import attempt_has_unconfirmed, waiting_for_person
+from .attempt_events import attempt_has_unconfirmed, manual_info, waiting_for_person
 from .context import EngineContext
 from .handoff_manager import (
     HANDOFFS,
@@ -88,6 +93,8 @@ class ExecutionResult:
     detail: str | None = None
     plan: dict[str, Any] | None = None
     url: str | None = None
+    # Manual handoff only: the PDFs saved for the person to attach (label -> path).
+    documents: dict[str, str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -97,6 +104,7 @@ class ExecutionResult:
             "adapter": self.adapter,
             "detail": self.detail,
             "url": self.url,
+            "documents": self.documents,
             "stops": self.stops,
             "plan": self.plan,
             "validation": self.validation.as_dict() if self.validation else None,
@@ -111,6 +119,10 @@ class _HandoffRequest:
     form: ApplicationForm | None
     url: str
     detail: str
+    # A manual handoff (no adapter for the source): nothing is filled, and these are the
+    # rendered files the person attaches.
+    manual: bool = False
+    documents: dict[str, str] | None = None
 
 
 class AdapterRegistry:
@@ -130,6 +142,20 @@ class AdapterRegistry:
             f"no application adapter supports {getattr(job, 'source', '?')} posting "
             f"{getattr(job, 'source_url', '?')}"
         )
+
+    def needs_manual(self, job: Any) -> bool:
+        """Whether `job` would be handed to the person: the same choice `submit` makes.
+
+        The dashboard label and the behaviour both come from here, so they cannot
+        disagree. Adapters are chosen by source kind only (Greenhouse, Lever); every
+        other source is opened for the person.
+        """
+
+        try:
+            self.for_job(job)
+        except SourceNotSupported:
+            return True
+        return False
 
     def supported_kinds(self) -> list[str]:
         return [a.kind for a in self.adapters]
@@ -288,6 +314,7 @@ class ExecutionService:
         ctx_factory: Any = None,
         handoffs: HandoffManager | None = None,
         verify_posting: Callable[[Any], Any] | None = None,
+        announce: Callable[[str], None] | None = None,
     ) -> None:
         """`handoff` is injectable (tests use a fake that needs no Playwright).
 
@@ -300,6 +327,9 @@ class ExecutionService:
         browser in a thread and `submit` returns at once. `ctx_factory` builds the
         thread's own engine context, because the request's context is closed when the
         request ends.
+
+        `announce(text)` is told where the files for a manual handoff were saved, before
+        the browser opens (the CLI prints it).
         """
 
         self.ctx = ctx
@@ -313,6 +343,7 @@ class ExecutionService:
         self.ctx_factory = ctx_factory
         self.handoffs = handoffs or HANDOFFS
         self.verify_posting = verify_posting
+        self.announce = announce
 
     # -- submission ------------------------------------------------------
 
@@ -339,28 +370,28 @@ class ExecutionService:
 
         job = self._job_for(application)
         opportunity_id = application.opportunity_id
+        manual = False
         try:
             adapter = self.registry.for_job(job)
-        except SourceNotSupported as exc:
-            self._mark_blocked(application_id, SafetyStopKind.ADAPTER_UNSUPPORTED, str(exc))
-            return ExecutionResult(
-                application_id=application_id,
-                opportunity_id=opportunity_id,
-                outcome="NOT_SUPPORTED",
-                detail=str(exc),
-                stops=[{"kind": str(SafetyStopKind.ADAPTER_UNSUPPORTED), "message": str(exc)}],
-            )
+        except SourceNotSupported:
+            # No adapter understands this source (Ashby, a company careers page). It is
+            # not blocked: in a real run the person gets the posting in a browser and the
+            # files to attach, and everything after that is the ordinary handoff.
+            adapter = ManualHandoffAdapter(settings=self.ctx.settings)
+            manual = True
 
         adapter.dry_run = not allow_real_submission or self.ctx.settings.automation_dry_run
         if adapter.dry_run:
-            plan = fill_plan(package, job)
+            plan = manual_plan(package, job) if manual else fill_plan(package, job)
             self._record(
                 application_id,
                 EventType.APPLICATION_ATTEMPTED,
                 {
                     "adapter": adapter.kind,
                     "dry_run": True,
-                    "url": str(getattr(job, "source_url", "") or ""),
+                    "url": adapter.application_url(job) if manual else str(
+                        getattr(job, "source_url", "") or ""
+                    ),
                     "navigated": False,
                     "typed": False,
                     "uploaded": False,
@@ -373,7 +404,11 @@ class ExecutionService:
                 outcome="DRY_RUN",
                 adapter=adapter.kind,
                 detail=(
-                    "dry run did not open the employer form and did not type or upload anything"
+                    "dry run did not open the posting (manual handoff; no adapter for this "
+                    "source) and did not type or upload anything"
+                    if manual
+                    else "dry run did not open the employer form and did not type or upload "
+                    "anything"
                 ),
                 plan=plan,
             )
@@ -395,13 +430,18 @@ class ExecutionService:
                 return gone
 
             try:
-                _claimed, package = self._claim(application_id, adapter, job)
+                _claimed, package = self._claim(application_id, adapter, job, manual=manual)
             except (ApprovalRequired, ApprovalScopeMismatch, TruthBoundaryViolation) as exc:
                 return self._authorisation_refused(application_id, exc)
             claimed = True
 
             try:
-                outcome = self._drive(application_id, opportunity_id, adapter, package, job)
+                if manual:
+                    outcome = self._drive_manual(
+                        application_id, opportunity_id, adapter, package, job
+                    )
+                else:
+                    outcome = self._drive(application_id, opportunity_id, adapter, package, job)
                 if isinstance(outcome, _HandoffRequest):
                     return self._hand_to_human(
                         application_id,
@@ -411,6 +451,8 @@ class ExecutionService:
                         form=outcome.form,
                         url=outcome.url,
                         detail=outcome.detail,
+                        manual=outcome.manual,
+                        documents=outcome.documents,
                     )
                 return outcome
             except Exception as exc:  # noqa: BLE001 - nothing may escape with the claim held
@@ -605,7 +647,7 @@ class ExecutionService:
         )
 
     def _claim(
-        self, application_id: str, adapter: ApplicationAdapter, job: Any
+        self, application_id: str, adapter: ApplicationAdapter, job: Any, *, manual: bool = False
     ) -> tuple[Any, Any]:
         """Authorise, move to APPLYING and record APPLICATION_STARTED: one transaction.
 
@@ -616,7 +658,7 @@ class ExecutionService:
         read saw.
         """
 
-        url = str(getattr(job, "source_url", "") or "")
+        url = adapter.application_url(job) if manual else str(getattr(job, "source_url", "") or "")
         with self.ctx.repos() as repos:
             if repos.applications.get(application_id).status == ApplicationStatus.APPLYING.value:
                 raise ValidationFailure(
@@ -636,6 +678,9 @@ class ExecutionService:
             application.blocked_reason = None
             repos.session.flush()
             payload = {"adapter": adapter.kind, "dry_run": False, "url": url, "from": str(prior)}
+            if manual:
+                payload["manual"] = True
+                payload["nothing_typed"] = True
             repos.events.append(
                 EntityType.APPLICATION, application_id, EventType.APPLICATION_ATTEMPTED, payload
             )
@@ -666,6 +711,47 @@ class ExecutionService:
             # anything else) moved the application off APPLYING, nothing is clicked.
             adapter.pre_click_check = lambda: self._still_claimed(application_id)
             return self._drive_session(application_id, opportunity_id, adapter, package, job, url)
+
+    def _drive_manual(
+        self,
+        application_id: str,
+        opportunity_id: str,
+        adapter: ApplicationAdapter,
+        package: Any,
+        job: Any,
+    ) -> ExecutionResult | _HandoffRequest:
+        """Prepare a manual handoff: render the files, then ask for the person's browser.
+
+        Nothing is inspected, filled or clicked. A document that cannot be produced stops
+        the run before the browser opens, as it does for an automated adapter.
+        """
+
+        url = adapter.application_url(job)
+        if not url:
+            return self._blocked_by_stop(
+                application_id,
+                opportunity_id,
+                adapter,
+                SafetyStop(
+                    SafetyStopKind.MATERIAL_AMBIGUITY,
+                    "the posting has no usable http(s) apply URL, so there is no page to open",
+                ),
+            )
+        try:
+            rendered = adapter.prepare_documents(package) or {}
+        except SafetyStop as stop:
+            return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
+        documents = {str(label): str(path) for label, path in dict(rendered).items()}
+        return _HandoffRequest(
+            form=None,
+            url=url,
+            detail=(
+                "no application adapter supports this source, so the posting is opened for "
+                "you to fill in and submit yourself"
+            ),
+            manual=True,
+            documents=documents,
+        )
 
     def _still_claimed(self, application_id: str) -> bool:
         """Compare-and-set: the row is still APPLYING, checked under the write lock."""
@@ -889,33 +975,66 @@ class ExecutionService:
         form: ApplicationForm | None,
         url: str,
         detail: str,
+        manual: bool = False,
+        documents: dict[str, str] | None = None,
     ) -> ExecutionResult:
         """Do not submit. Open the form in a headed browser for the person.
 
         The form is filled only inside that headed session. The application stays
         APPLYING until a person reports an outcome or the page confirms.
+
+        `manual` is the same handoff for a source with no adapter: nothing is filled at
+        all, and `documents` are the files the person attaches.
         """
 
-        self._record(
-            application_id,
-            EventType.CHALLENGE_DETECTED,
-            {"adapter": adapter.kind, "url": url, "detail": detail, "dry_run": False},
-        )
-        self._record(
-            application_id,
-            EventType.HANDED_TO_HUMAN,
-            {
-                "headed": True,
-                "url": url,
-                "dry_run": False,
-                "state": "starting",
-                "background": self.background_handoff,
-            },
-        )
+        if manual:
+            self._record(
+                application_id,
+                EventType.HANDED_TO_HUMAN,
+                {
+                    "headed": True,
+                    "url": url,
+                    "dry_run": False,
+                    "state": "starting",
+                    "background": self.background_handoff,
+                    "manual": True,
+                    "nothing_typed": True,
+                    "adapter": adapter.kind,
+                    "documents": documents or {},
+                    "detail": detail,
+                },
+            )
+            self._announce_documents(url, documents)
+        else:
+            self._record(
+                application_id,
+                EventType.CHALLENGE_DETECTED,
+                {"adapter": adapter.kind, "url": url, "detail": detail, "dry_run": False},
+            )
+            self._record(
+                application_id,
+                EventType.HANDED_TO_HUMAN,
+                {
+                    "headed": True,
+                    "url": url,
+                    "dry_run": False,
+                    "state": "starting",
+                    "background": self.background_handoff,
+                },
+            )
         handoff = self.handoff or PlaywrightHandoff(prompt=self.handoff_prompt)
+        extra = {"documents": documents or {}} if manual else {}
         if self.background_handoff:
             return self._start_background_handoff(
-                application_id, opportunity_id, adapter, package, handoff, form=form, url=url
+                application_id,
+                opportunity_id,
+                adapter,
+                package,
+                handoff,
+                form=form,
+                url=url,
+                manual=manual,
+                documents=documents,
             )
         control = HandoffControl(self.ctx.settings.handoff_timeout_seconds)
         try:
@@ -927,10 +1046,21 @@ class ExecutionService:
                 settings=self.ctx.settings,
                 control=control,
                 on_event=self._event_sink(application_id),
+                **extra,
             )
         except Exception as exc:  # noqa: BLE001 - the person never got the form
             return self._handoff_error(application_id, opportunity_id, adapter.kind, exc)
         return self._finish_handoff(application_id, opportunity_id, adapter.kind, result)
+
+    def _announce_documents(self, url: str, documents: dict[str, str] | None) -> None:
+        if self.announce is None:
+            return
+        lines = [f"Opening {url} for you to fill in. Nothing will be typed."]
+        if documents:
+            lines.append("Attach these files when the form asks for them:")
+            lines.extend(f"  {label}: {path}" for label, path in documents.items())
+        with suppress(Exception):  # telling the person must never stop the handoff
+            self.announce("\n".join(lines))
 
     def _start_background_handoff(
         self,
@@ -942,9 +1072,12 @@ class ExecutionService:
         *,
         form: ApplicationForm | None,
         url: str,
+        manual: bool = False,
+        documents: dict[str, str] | None = None,
     ) -> ExecutionResult:
         adapter_kind = adapter.kind
         settings = self.ctx.settings
+        run_extra = {"documents": documents or {}} if manual else {}
 
         def target(record: HandoffRecord) -> None:
             worker: ExecutionService | None = None
@@ -967,6 +1100,7 @@ class ExecutionService:
                         settings=settings,
                         control=record.control,
                         on_event=running._event_sink(application_id, record),
+                        **run_extra,
                     )
                 except Exception as exc:  # noqa: BLE001
                     record.state = "error"
@@ -1017,10 +1151,18 @@ class ExecutionService:
             adapter=adapter_kind,
             url=url,
             detail=(
-                "a challenge was detected. The pre-filled form is open in a browser window for "
-                "you to solve and submit; then report the result on the Applications page"
+                "the posting is open in a browser window. Nothing was typed: fill it in, "
+                "attach the saved files and submit it yourself; then report the result on "
+                "the Applications page"
+                if manual
+                else "a challenge was detected. The pre-filled form is open in a browser "
+                "window for you to solve and submit; then report the result on the "
+                "Applications page"
             ),
-            stops=[{"kind": str(SafetyStopKind.CAPTCHA), "message": "handed to a person"}],
+            stops=[]
+            if manual
+            else [{"kind": str(SafetyStopKind.CAPTCHA), "message": "handed to a person"}],
+            documents=documents if manual else None,
         )
 
     def _worker(self) -> tuple[ExecutionService, Any]:
@@ -1086,6 +1228,7 @@ class ExecutionService:
         """
 
         outcome = result.outcome
+        is_manual = adapter_kind == MANUAL_KIND or self._attempt_was_manual(application_id)
         payload = {
             "outcome": outcome,
             "source": result.source,
@@ -1093,7 +1236,8 @@ class ExecutionService:
             "confirmation_text": result.confirmation_text,
             "opened_headed": result.opened_headed,
             "error": result.error,
-            "adapter": adapter_kind,
+            "adapter": MANUAL_KIND if is_manual else adapter_kind,
+            **({"manual": True, "nothing_typed": True} if is_manual else {}),
             **(extra or {}),
         }
         if outcome in {OUTCOME_CLOSED, OUTCOME_TIMEOUT}:
@@ -1180,6 +1324,18 @@ class ExecutionService:
             url=result.url,
             detail=result.error or result.source,
         )
+
+    def _attempt_was_manual(self, application_id: str) -> bool:
+        """Whether the current attempt was a manual handoff (read from its events).
+
+        A report that arrives after a restart has no adapter in hand, so the attempt's own
+        events are what say that nothing was typed.
+        """
+
+        with suppress(Exception), self.ctx.read_repos() as repos:
+            events = list(repos.events.for_entity(EntityType.APPLICATION, application_id))
+            return manual_info(events) is not None
+        return False
 
     @staticmethod
     def _walk(repos: Any, application_id: str, target: ApplicationStatus) -> None:
@@ -1436,12 +1592,15 @@ class ExecutionService:
             and not self.handoffs.run_in_progress(application_id)
             and self._is_stale(events[-1] if events else None)
         )
+        manual = manual_info(events) if applying else None
         return {
             **info,
             **summary,
             "awaiting_person": awaiting,
             "running": running,
             "can_force": can_force,
+            "manual": manual is not None,
+            "documents": (manual or {}).get("documents") or {},
         }
 
     # -- state recording -------------------------------------------------

@@ -31,6 +31,32 @@ def current_attempt(events: Sequence[Any]) -> list[Any]:
     return list(events[start + 1 :])
 
 
+def manual_info(events: Sequence[Any]) -> dict[str, Any] | None:
+    """The manual-handoff facts of the latest attempt, or None when it was not manual.
+
+    A manual handoff is an approved application on a source with no adapter: the posting
+    is opened for the person and nothing is typed. The attempt says so in its
+    APPLICATION_STARTED event, and names the saved files in its HANDED_TO_HUMAN event.
+    """
+
+    started = None
+    for index, event in enumerate(events):
+        if event.event_type == EventType.APPLICATION_STARTED.value:
+            started = index
+    if started is None or not (events[started].payload or {}).get("manual"):
+        return None
+    info: dict[str, Any] = {"documents": {}, "url": (events[started].payload or {}).get("url")}
+    for event in events[started + 1 :]:
+        payload = event.payload or {}
+        if (
+            event.event_type == EventType.HANDED_TO_HUMAN.value
+            and payload.get("manual")
+            and payload.get("documents")
+        ):
+            info["documents"] = dict(payload["documents"])
+    return info
+
+
 def attempt_has_unconfirmed(events: Sequence[Any]) -> bool:
     return any(
         e.event_type == EventType.APPLICATION_UNCONFIRMED.value for e in current_attempt(events)

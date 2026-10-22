@@ -519,8 +519,31 @@ document.querySelector('#new-search').addEventListener('click',startNew);
 
 SETTINGS_BODY = """<main class="wrap">
 <h1>Settings</h1>
-<p>What Sabra is set to do. Read only: these are changed outside the browser.</p>
+<p>What Sabra is set to do. The values below are changed outside the browser; the job boards can be changed here.</p>
 <section class="card"><div id="settings">Loading...</div></section>
+<section class="card">
+<h2>Job boards</h2>
+<p>The company boards Sabra reads each run. A role on a board Sabra cannot fill itself (anything except Greenhouse and Lever) is opened in your browser for you to complete.</p>
+<div id="sources">Loading...</div>
+<p class="line" id="sources-line"></p>
+</section>
+<section class="card">
+<h2>Add a board</h2>
+<p>Paste a careers URL (Greenhouse, Lever or Ashby). Sabra reads the board once, shows what it found, and adds it only when you press Add.</p>
+<form id="probe-form">
+<label for="board-url">Careers URL or board name</label>
+<input id="board-url" name="url" autocomplete="off" placeholder="https://jobs.ashbyhq.com/company">
+<div class="grid3">
+<div><label for="board-kind">Service (only for a bare name)</label>
+<select id="board-kind" name="kind"><option value="">Detect from the URL</option><option value="GREENHOUSE">Greenhouse</option><option value="LEVER">Lever</option><option value="ASHBY">Ashby</option></select></div>
+<div><label for="board-name">Company name (optional)</label><input id="board-name" name="display_name"></div>
+<div><label for="board-industry">Industry (optional)</label><input id="board-industry" name="industry"></div>
+</div>
+<p><button type="submit" id="probe-btn">Check this board</button></p>
+</form>
+<div id="probe-result" class="line"></div>
+<p><button type="button" id="add-btn" hidden>Add this board</button></p>
+</section>
 </main>
 <script>
 __ESC__
@@ -542,7 +565,69 @@ async function load(){
     row('Version',s.version)
   ].join('');
 }
+function sourceRow(x){
+  const state=x.enabled?'On':'Off';
+  const verified=x.verified_jobs==null?'':x.verified_jobs+' postings when added';
+  const found=(x.total_discovered||0)+' found so far';
+  const err=x.last_error?`<br><span class="err">${esc(x.last_error)}</span>`:'';
+  const act=x.enabled?'disable':'enable';
+  return `<div class="stage"><strong>${esc(x.display_name)}</strong> <span class="pill">${esc(x.kind)}</span> <span class="pill">${esc(state)}</span> <span class="pill">${esc(x.health||'UNKNOWN')}</span><br><span class="muted">${esc(x.id)} · ${esc(verified?verified+' · '+found:found)}</span>${err}<br><button type="button" class="secondary" data-act="${act}" data-id="${esc(x.id)}">${x.enabled?'Disable':'Enable'}</button></div>`;
+}
+async function loadSources(){
+  const box=document.querySelector('#sources');
+  const b=await readBody(await fetch('/api/sources'));
+  if(!b.ok){box.textContent=detailOf(b,'The job boards could not be loaded.');return;}
+  const list=Array.isArray(b.d.sources)?b.d.sources:[];
+  box.innerHTML=list.length?list.map(sourceRow).join(''):'No job boards are set up yet.';
+}
+let probed=null;
+function probeSummary(r){
+  if(!r.live)return 'This board did not answer as a live job board'+(r.error?': '+r.error:'')+'. Nothing can be added.';
+  const where=r.profile_has_cities?'your cities or remote':'remote';
+  const titles=(r.sample_titles||[]).length?' Titles that fit your search: '+r.sample_titles.join('; ')+'.':' No titles match your search yet.';
+  const dup=r.already_in_registry?' It is already in your list as '+r.already_in_registry+'.':'';
+  return 'Live. '+r.posting_count+' postings, '+r.local_or_remote_count+' mention '+where+'.'+titles+dup;
+}
+async function probeBoard(ev){
+  if(ev&&ev.preventDefault)ev.preventDefault();
+  const line=document.querySelector('#probe-result');
+  const addBtn=document.querySelector('#add-btn');
+  addBtn.hidden=true;probed=null;
+  const url=document.querySelector('#board-url').value;
+  const kind=document.querySelector('#board-kind').value;
+  line.textContent='Checking...';
+  const b=await readBody(await fetch('/api/sources/probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url_or_token:url,kind:kind||null})}));
+  if(!b.ok){line.textContent=detailOf(b,'The board could not be checked.');return;}
+  line.textContent=probeSummary(b.d);
+  if(b.d.live&&!b.d.already_in_registry){probed={url:url,kind:kind};addBtn.hidden=false;}
+}
+async function addBoard(){
+  if(!probed)return;
+  const line=document.querySelector('#probe-result');
+  const addBtn=document.querySelector('#add-btn');
+  addBtn.disabled=true;
+  const body={url_or_token:probed.url,kind:probed.kind||null,display_name:document.querySelector('#board-name').value||null,industry:document.querySelector('#board-industry').value||null};
+  const b=await readBody(await fetch('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
+  addBtn.disabled=false;
+  if(!b.ok){line.textContent=detailOf(b,'The board could not be added.');return;}
+  line.textContent='Added '+(b.d.source&&b.d.source.display_name?b.d.source.display_name:'the board')+'. It is read on the next run.';
+  addBtn.hidden=true;probed=null;
+  await loadSources();
+}
+async function toggleSource(act,id){
+  const line=document.querySelector('#sources-line');
+  const b=await readBody(await fetch('/api/sources/'+encodeURIComponent(id)+'/'+act,{method:'POST'}));
+  line.textContent=b.ok?'':detailOf(b,'The change was refused.');
+  await loadSources();
+}
+document.querySelector('#sources').addEventListener('click',ev=>{
+  const t=ev.target&&ev.target.closest?ev.target.closest('button[data-act]'):null;
+  if(t)toggleSource(t.dataset.act,t.dataset.id);
+});
+document.querySelector('#probe-form').addEventListener('submit',probeBoard);
+document.querySelector('#add-btn').addEventListener('click',addBoard);
 load();
+loadSources();
 </script>
 """.replace("__ESC__", ESC_JS)
 

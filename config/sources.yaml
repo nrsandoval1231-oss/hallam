@@ -8,6 +8,14 @@
 # `domain` is the employer's own site. It is optional: it is only recorded here
 # when the domain was confirmed to resolve.
 #
+# Supported kinds: GREENHOUSE, LEVER, ASHBY (public job-board JSON APIs) and
+# DIRECT_CAREERS (schema.org JobPosting JSON-LD on a company page). A role on an
+# ASHBY or DIRECT_CAREERS board cannot be filled by the engine: once approved it
+# opens in your browser for you to complete (see docs/operations/windows-pilot.md).
+#
+# Optional per-entry keys: `max_items` caps the postings read from one board.
+# `sabra sources add <careers-url>` appends an entry for you and keeps these comments.
+#
 # Tier 1 (requirement 7) is Greenhouse + Lever + directly accessible company
 # career pages. See `docs/operations/source-registry-findings.md` for why no
 # DIRECT_CAREERS entry is enabled: every seed-vertical employer's careers page
@@ -279,3 +287,14 @@ sources:
       application/ld+json block, so a DIRECT_CAREERS source yields nothing
       capturable. Every seed-vertical employer's own careers page likewise routes
       to a Greenhouse or Lever board already listed above.
+
+  # -- Example Ashby entry (commented out). Add one with:
+  #      uv run sabra sources add https://jobs.ashbyhq.com/<token>
+  # - id: ashby-siepe
+  #   kind: ASHBY
+  #   token: siepe
+  #   display_name: Siepe
+  #   enabled: true
+  #   max_items: 200
+  #   verified_jobs: 10
+  #   verified_at: 2026-10-22

@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # Discovery behaviour.
     discovery_timeout_seconds: float = 20.0
     discovery_max_pages: int = 5
+    # Wall-clock limit for reading ONE board, retries and waits included, so a single slow
+    # board cannot stall a run of a hundred. 0 means twice `discovery_timeout_seconds`.
+    discovery_source_budget_seconds: float = 0.0
+    # `sabra discover --only-new` skips a board whose last successful read is newer than this.
+    discovery_fresh_hours: float = 20.0
     discovery_user_agent: str = "SabraJobEngine/0.1 (+candidate-owned job search)"
 
     # Automation behaviour.
@@ -95,6 +100,14 @@ class Settings(BaseSettings):
                 data_dir = REPO_ROOT / data_dir
             self.data_dir = data_dir
             self.database_url = f"sqlite+pysqlite:///{(data_dir / 'sabra.db').as_posix()}"
+
+    @property
+    def source_budget_seconds(self) -> float:
+        """The time one board may take, retries included."""
+
+        if self.discovery_source_budget_seconds > 0:
+            return float(self.discovery_source_budget_seconds)
+        return float(self.discovery_timeout_seconds) * 2
 
     def ensure_dirs(self) -> None:
         for path in (

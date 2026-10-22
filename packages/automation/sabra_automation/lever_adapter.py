@@ -84,10 +84,8 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
     )
 
     def supports(self, job: CanonicalJob | Any) -> bool:
-        if str(getattr(job, "source", "")) == str(SourceKind.LEVER):
-            return True
-        url = str(getattr(job, "source_url", "") or "")
-        return "lever.co" in url
+        # By source kind only: "lever.co" is also a substring of hosts like clever.com.
+        return str(getattr(job, "source", "")) == str(SourceKind.LEVER)
 
     def inspect(self, job: CanonicalJob | Any) -> ApplicationForm:
         url = self.application_url(job)

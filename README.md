@@ -36,8 +36,9 @@ how each artifact was written, then one **Approve application** bound to the con
 `/pipeline` (every application past approval by stage, with a **Record outcome** control
 and its history), `/candidate` (your details, résumé upload, the profile with its truth
 levels), `/searches` (define and switch search profiles), `/answers` (record and verify)
-and `/settings` (read only). JSON routes sit beside them: health, status, today, candidate,
-searches, runs, settings, the shortlist, opportunity detail, package review and reject,
+and `/settings` (the configuration, read only, plus **Job boards**: enable or disable a
+board, or paste a careers URL to check it and add it). JSON routes sit beside them: health, status, today, candidate,
+searches, runs, settings, sources, the shortlist, opportunity detail, package review and reject,
 package preparation, the pipeline, the application ledger, outcomes, and the learning
 dataset (`/api/learning-records`, JSON lines). On the command line, `sabra outcome`,
 `sabra pipeline` and `sabra ledger export` cover the same ground. `make run-api` listens
@@ -96,9 +97,40 @@ uv run sabra run                  # discover, rank, research the shortlist
 uv run sabra run --prepare        # ...and prepare packages for the top roles
 ```
 
-A run never approves or submits anything. To run it every morning on Windows, see
+A run never approves or submits anything. `sabra run --only-new` (and
+`sabra discover --only-new`) skips boards that were read successfully in the last 20
+hours (`--only-new-hours N` to change it), so a second run in a day costs a request per
+stale board. `sabra status` shows each board's last success. To run it every morning on
+Windows, see
 [`scripts/schedule-windows.ps1`](scripts/schedule-windows.ps1) and the "Run it every
 morning" section of [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md).
+
+### Job boards (providers)
+
+Discovery reads public job-board APIs. The providers are **Greenhouse**, **Lever**,
+**Ashby** and **direct careers pages** (schema.org JobPosting JSON-LD). Boards are listed
+in [`config/sources.yaml`](config/sources.yaml) (set `SABRA_SOURCE_REGISTRY_PATH` to keep
+your own copy); an entry may carry `max_items` to cap the postings read from that board.
+Greenhouse and Lever roles are filled by the engine's adapters. A role on an Ashby board or
+a company careers page cannot be: once you approve it, **Open in browser for you to fill**
+opens the apply page, saves your tailored résumé and cover letter as PDFs and shows where,
+types nothing, and waits for you to report the result.
+
+```bash
+uv run sabra sources list                       # boards: enabled, health, postings found
+uv run sabra sources probe https://jobs.ashbyhq.com/siepe
+uv run sabra sources probe siepe --kind ASHBY   # a bare token needs --kind
+uv run sabra sources add https://jobs.ashbyhq.com/siepe --industry Fintech
+uv run sabra sources disable ashby-siepe        # and: enable
+```
+
+`probe` reads the board once through the board's public API (never any other host) and
+prints whether it is live, how many postings it has, how many mention a city from your
+active search or "remote", and up to five titles that fit your search. `add` probes, refuses
+a dead or duplicate board, and appends an entry to the configured registry file without
+touching its comments. One slow or broken board is recorded on its row (health, last error)
+and never fails the run; each board has its own time budget
+(`SABRA_DISCOVERY_SOURCE_BUDGET_SECONDS`, default twice `SABRA_DISCOVERY_TIMEOUT_SECONDS`).
 
 Reasoning-layer features are **off by default** (`SABRA_LLM_PROVIDER=none`) and every
 one of them has a deterministic fallback, so the loop runs with no model configured.
@@ -110,7 +142,7 @@ apps/            FastAPI app and HTML dashboard under api/; web/ is an empty sca
 packages/
   domain/        models, schema, state machines, repositories, event log
   llm/           provider abstraction (null provider by default)
-  providers/     Greenhouse, Lever, direct careers; normalization; deduplication
+  providers/     Greenhouse, Lever, Ashby, direct careers; normalization; deduplication
   scoring/       features, hard filter, fit engine, ranking
   documents/     master résumé, tailoring, answers, package assembly
   automation/    Playwright adapter contract, Greenhouse and Lever adapters

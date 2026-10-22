@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
@@ -31,7 +32,7 @@ from sabra_domain.errors import (
 from sabra_domain.identity import new_id
 from sabra_domain.repositories import ApplicationRepository, OpportunityRepository
 from sabra_domain.schemas import SearchProfile
-from sabra_domain.settings import REPO_ROOT
+from sabra_domain.settings import REPO_ROOT, get_settings
 from sabra_engine.answer_memory import AnswerMemoryService
 from sabra_engine.approval import ApprovalService
 from sabra_engine.candidate_intake import (
@@ -46,7 +47,7 @@ from sabra_engine.candidate_intake import (
 from sabra_engine.context import EngineContext
 from sabra_engine.display import compensation_text as _compensation_text
 from sabra_engine.documents import DocumentService, package_summary
-from sabra_engine.execution import ExecutionService
+from sabra_engine.execution import AdapterRegistry, ExecutionService, default_registry
 from sabra_engine.handoff_manager import HANDOFFS
 from sabra_engine.intelligence import pass_opportunity
 from sabra_engine.ledger import (
@@ -59,6 +60,7 @@ from sabra_engine.ledger import (
 from sabra_engine.opportunity_detail import OpportunityDetailService
 from sabra_engine.refresh import PackageRefreshService
 from sabra_engine.runs import RunService
+from sabra_engine.sources import SourcesService
 from sqlalchemy.exc import OperationalError
 
 from .pages import (
@@ -138,6 +140,7 @@ async def sabra_error_handler(_request: Request, exc: SabraError) -> JSONRespons
             "already in progress",
             "no submission waiting",
             "already active",
+            "already in the registry",
             "cannot pass",
             "cannot withdraw",
         )
@@ -535,7 +538,48 @@ class BatchApprovalRequest(BaseModel):
     packages: list[PackageSelection] = Field(default_factory=list)
 
 
-def _annotate_package(repos: Any, row: Any, *, dry_run: bool) -> dict[str, Any]:
+def _job_sources(repos: Any) -> dict[str, str]:
+    """`job id -> source` for every job that has an application, in one query."""
+
+    rows = (
+        repos.session.query(models.Job.id, models.Job.source)
+        .filter(models.Job.id.in_(repos.session.query(models.ApplicationRow.job_id)))
+        .all()
+    )
+    return {job_id: str(source) for job_id, source in rows}
+
+
+def _is_manual(
+    application: Any,
+    registry: AdapterRegistry,
+    sources: dict[str, str],
+    repos: Any,
+) -> bool:
+    """Whether this application is opened for the owner instead of filled by an adapter.
+
+    Asks the same registry `submit` uses (adapters are chosen by source kind), so the
+    label on the page and what Apply does cannot disagree.
+    """
+
+    if application is None:
+        return False
+    source = sources.get(application.job_id)
+    if source is None:
+        with suppress(NotFound):
+            source = str(repos.jobs.get(application.job_id).source)
+    if source is None:
+        return False
+    return registry.needs_manual(SimpleNamespace(source=source, source_url=None))
+
+
+def _annotate_package(
+    repos: Any,
+    row: Any,
+    *,
+    dry_run: bool,
+    registry: AdapterRegistry | None = None,
+    sources: dict[str, str] | None = None,
+) -> dict[str, Any]:
     summary = package_summary(row)
     opportunity = repos.opportunities.get(row.opportunity_id)
     application = repos.applications.for_opportunity(row.opportunity_id)
@@ -544,6 +588,15 @@ def _annotate_package(repos: Any, row: Any, *, dry_run: bool) -> dict[str, Any]:
     summary["company"] = opportunity.company
     summary["application_id"] = application.id if application else None
     summary["application_status"] = application.status if application else None
+    # An approved application on a source with no adapter (Ashby, a company careers page)
+    # is opened in the owner's browser to fill; the page says so instead of "Apply".
+    manual_handoff = _is_manual(
+        application,
+        registry if registry is not None else default_registry(dry_run=True),
+        sources if sources is not None else {},
+        repos,
+    )
+    summary["manual_handoff"] = manual_handoff
     summary["approvable"] = bool(
         row.status == PackageStatus.COMPLETE.value
         and row.truth_clean
@@ -570,15 +623,27 @@ def _annotate_package(repos: Any, row: Any, *, dry_run: bool) -> dict[str, Any]:
     summary["unresolved_questions"] = list(payload.get("unresolved_questions") or [])
     if application is not None and application.status == ApplicationStatus.APPROVED.value:
         summary["review_label"] = "Approved"
-        summary["next_step"] = (
-            "Dry run is on, so Apply stays off until SABRA_AUTOMATION_DRY_RUN=false. "
-            "Then confirm Apply. You solve any CAPTCHA; the engine does not."
-            if dry_run
-            else (
-                "Apply. A form with no challenge is submitted. "
-                "A CAPTCHA opens in a headed browser for you to solve."
+        if manual_handoff:
+            summary["next_step"] = (
+                "Sabra cannot fill this employer's form. "
+                + (
+                    "Dry run is on, so this stays off until SABRA_AUTOMATION_DRY_RUN=false. "
+                    if dry_run
+                    else ""
+                )
+                + "Open it in your browser: Sabra saves your résumé and cover letter as PDFs, "
+                "shows where, and types nothing. You fill and submit it, then report the result."
             )
-        )
+        else:
+            summary["next_step"] = (
+                "Dry run is on, so Apply stays off until SABRA_AUTOMATION_DRY_RUN=false. "
+                "Then confirm Apply. You solve any CAPTCHA; the engine does not."
+                if dry_run
+                else (
+                    "Apply. A form with no challenge is submitted. "
+                    "A CAPTCHA opens in a headed browser for you to solve."
+                )
+            )
     elif application is not None and application.status in {
         ApplicationStatus.BLOCKED.value,
         ApplicationStatus.FAILED.value,
@@ -614,8 +679,10 @@ def _package_rows() -> tuple[list[dict[str, Any]], bool]:
             candidate = repos.candidates.primary()
             if candidate is None:
                 return [], dry_run
+            registry = default_registry(dry_run=True)
+            sources = _job_sources(repos)
             rows = [
-                _annotate_package(repos, row, dry_run=dry_run)
+                _annotate_package(repos, row, dry_run=dry_run, registry=registry, sources=sources)
                 for row in _latest_packages(repos, candidate.id)
             ]
         # The same rule as the Today count: an APPLYING row is a handoff only while it is
@@ -1119,13 +1186,18 @@ def search_activate(profile_id: str) -> dict[str, Any]:
 class RunRequest(BaseModel):
     kind: Literal["discover", "rank", "full"] = "full"
     prepare: bool = False
+    # Skip boards read successfully within the last N hours (default 20 when true).
+    only_new: bool = False
 
 
 @app.post("/api/runs", status_code=202)
 def run_start(body: RunRequest) -> dict[str, Any]:
     """Start a run on a background thread. 409 while another run is active."""
 
-    return RunService.start_background(body.kind, body.prepare, ctx_factory=EngineContext.create)
+    hours = get_settings().discovery_fresh_hours if body.only_new else None
+    return RunService.start_background(
+        body.kind, body.prepare, ctx_factory=EngineContext.create, only_new_hours=hours
+    )
 
 
 @app.get("/api/runs/{run_id}")
@@ -1379,6 +1451,77 @@ def settings_view() -> dict[str, Any]:
         ctx.close()
 
 
+# ---------------------------------------------------------------------------
+# Job boards (the source registry)
+# ---------------------------------------------------------------------------
+
+
+class ProbeRequest(BaseModel):
+    url_or_token: str = Field(min_length=1, max_length=2000)
+    kind: str | None = Field(default=None, max_length=32)
+
+
+class AddSourceRequest(ProbeRequest):
+    display_name: str | None = Field(default=None, max_length=256)
+    industry: str | None = Field(default=None, max_length=128)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+@app.get("/api/sources")
+def source_list() -> dict[str, Any]:
+    ctx = EngineContext.create()
+    try:
+        return {"sources": SourcesService(ctx).list_sources()}
+    finally:
+        ctx.close()
+
+
+@app.post("/api/sources/probe")
+def source_probe(body: ProbeRequest) -> dict[str, Any]:
+    """Read a careers URL once and report whether it is a live board. Nothing is saved."""
+
+    ctx = EngineContext.create()
+    try:
+        return SourcesService(ctx).probe(body.url_or_token, body.kind)
+    finally:
+        ctx.close()
+
+
+@app.post("/api/sources", status_code=201)
+def source_add(body: AddSourceRequest) -> dict[str, Any]:
+    """Probe a board and append it to the registry file. A dead or duplicate board is refused."""
+
+    ctx = EngineContext.create()
+    try:
+        return SourcesService(ctx).add(
+            body.url_or_token,
+            body.kind,
+            display_name=body.display_name,
+            industry=body.industry,
+            notes=body.notes,
+        )
+    finally:
+        ctx.close()
+
+
+@app.post("/api/sources/{source_id}/enable")
+def source_enable(source_id: str) -> dict[str, Any]:
+    ctx = EngineContext.create()
+    try:
+        return SourcesService(ctx).set_enabled(source_id, True)
+    finally:
+        ctx.close()
+
+
+@app.post("/api/sources/{source_id}/disable")
+def source_disable(source_id: str) -> dict[str, Any]:
+    ctx = EngineContext.create()
+    try:
+        return SourcesService(ctx).set_enabled(source_id, False)
+    finally:
+        ctx.close()
+
+
 OPPORTUNITIES_CSS = (
     "main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;"
     "text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}"
@@ -1518,7 +1661,11 @@ async function load(){
     const appId=p.application_id||'';
     const refresh=['APPROVED','BLOCKED','FAILED'].includes(p.application_status)?`<button type="button" class="refresh-one" data-id="${esc(appId)}">Refresh package</button>`:'';
     const canApply=['APPROVED','BLOCKED','FAILED'].includes(p.application_status);
-    const apply=canApply?`<button type="button" class="apply" data-id="${esc(appId)}" data-dry="${dry?'1':'0'}" ${dry?'disabled':''}>Apply</button>${dry?'<span class="why">Dry run is on, so Apply is off. Set SABRA_AUTOMATION_DRY_RUN=false and restart the dashboard.</span>':''}`:'';
+    const manual=!!p.manual_handoff;
+    const applyLabel=manual?'Open in browser for you to fill':'Apply';
+    const applyAttrs=`class="apply" data-id="${esc(appId)}" data-dry="${dry?'1':'0'}" data-manual="${manual?'1':'0'}" ${dry?'disabled':''}`;
+    const applyButton=manual?`<button type="button" ${applyAttrs}>Open in browser for you to fill</button>`:`<button type="button" ${applyAttrs}>Apply</button>`;
+    const apply=canApply?applyButton+(dry?`<span class="why">Dry run is on, so ${esc(applyLabel)} is off. Set SABRA_AUTOMATION_DRY_RUN=false and restart the dashboard.</span>`:''):'';
     const handoff=p.application_status==='APPLYING'?`<div class="handoff" data-id="${esc(appId)}">Checking the handoff...</div>`:'';
     return `<div class="row"><label><input type="checkbox" name="package" value="${esc(p.package_id)}" data-hash="${esc(p.content_hash)}" ${p.approvable?'':'disabled'}></label><span><strong>${esc(p.title||'Package')} at ${esc(p.company||'the company')}</strong><br><a href="/packages/${esc(p.package_id)}">Read package</a><br>${esc(p.status)} · ${esc(label)}${next}<br>Application ID <code class="app-id">${esc(appId)}</code><button type="button" class="copy" data-copy="${esc(appId)}">Copy</button>${refresh}${apply}${handoff}<br><code>${esc(p.content_hash)}</code></span></div>`;
   }).join('');
@@ -1536,7 +1683,7 @@ async function load(){
   list.querySelectorAll('button.apply').forEach(btn=>btn.addEventListener('click',async()=>{
     if(btn.disabled)return;
     const id=btn.dataset.id;
-    const ok=confirm('Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.');
+    const ok=confirm(btn.dataset.manual==='1'?'Open this posting in your browser? Sabra cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.');
     if(!ok)return;
     inflight.add(id);
     setApplyDisabled(id,true);
@@ -1574,8 +1721,10 @@ function showHandoff(box,id,s){
   setApplyDisabled(id,waiting||inflight.has(id)||s.application_status==='APPLYING');
   if(!waiting&&s.application_status==='APPLYING'){box.innerHTML='<span class="why">A submission is running. This row asks for your answer when it needs you.</span>'+forceSection(id,s);wireForce(box,id);return;}
   if(!waiting){box.remove();return;}
-  const where=s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Sabra what happened.`:'No browser window is open for this application. Tell Sabra whether it was submitted.';
-  box.innerHTML=`<span class="why">${where}</span><button type="button" class="outcome" data-outcome="submitted">I submitted it</button><button type="button" class="outcome" data-outcome="abandoned">I didn't submit</button>`+forceSection(id,s);
+  const files=Object.entries(s.documents||{}).map(([k,v])=>`<li>${esc(k.replace(/_/g,' '))}: <code>${esc(v)}</code></li>`).join('');
+  const attach=s.manual&&files?`<span class="why">Attach these files when the form asks:</span><ul class="files">${files}</ul>`:'';
+  const where=s.manual?(s.active?`The posting is open in a browser window (${esc(s.state||'open')}). Nothing was typed. Fill it in, attach the files, submit it yourself, then tell Sabra what happened.`:'No browser window is open for this posting. Tell Sabra whether you submitted it.'):(s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Sabra what happened.`:'No browser window is open for this application. Tell Sabra whether it was submitted.');
+  box.innerHTML=`<span class="why">${where}</span>${attach}<button type="button" class="outcome" data-outcome="submitted">I submitted it</button><button type="button" class="outcome" data-outcome="abandoned">I didn't submit</button>`+forceSection(id,s);
   wireForce(box,id);
   box.querySelectorAll('button.outcome').forEach(b=>b.addEventListener('click',async()=>{
     box.querySelectorAll('button').forEach(x=>{x.disabled=true;});

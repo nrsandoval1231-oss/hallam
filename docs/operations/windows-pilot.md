@@ -132,13 +132,42 @@ uv run sabra run --prepare
 uv run sabra run --kind rank
 ```
 
-`--kind` is `discover`, `rank` (rank and research) or `full` (the default). A run never approves or submits anything. While it works the dashboard stays usable: ranking commits in batches. A run whose process was killed shows as FAILED ("abandoned") as soon as the next request notices the process is gone (or after an hour with no sign of life, when that cannot be checked), so it cannot block the next one. Ctrl-C ends the run as FAILED too. `sabra discover` and `sabra rank` refuse to start while a run is active, and the database itself allows only one active run.
+`--kind` is `discover`, `rank` (rank and research) or `full` (the default). A run never approves or submits anything. `--only-new` skips boards read successfully in the last 20 hours (see section 4b). While it works the dashboard stays usable: ranking commits in batches. A run whose process was killed shows as FAILED ("abandoned") as soon as the next request notices the process is gone (or after an hour with no sign of life, when that cannot be checked), so it cannot block the next one. Ctrl-C ends the run as FAILED too. `sabra discover` and `sabra rank` refuse to start while a run is active, and the database itself allows only one active run.
 
 `sabra rank` also researches the shortlist now (company sites are read; a packet less than 7 days old is kept). One site that cannot be read never stops the run. Add `--no-research` to skip it.
 
 **Opportunities** (`/opportunities`). Each card shows the pay (or "not listed"), the confidence, the main reason, the biggest gap and the fit. **Prepare application** is unchanged. **Pass** moves the role to REJECTED (reason `OWNER_PASSED`) and it is never brought back by a later run. A package that was waiting for approval is withdrawn with it. Pass is refused once the application is approved or later.
 
-**Settings** (`/settings`). Read only: whether dry-run is on and the variable that changes it, the language-model provider, the database, the private and artifacts folders, the hand-off timeout, whether Playwright's Chromium is installed, the active search and the version.
+**Settings** (`/settings`). The configuration is read only: whether dry-run is on and the variable that changes it, the language-model provider, the database, the private and artifacts folders, the hand-off timeout, whether Playwright's Chromium is installed, the active search and the version.
+
+## 4b. Add a job board
+
+Boards live in the registry file (`SABRA_SOURCE_REGISTRY_PATH`, otherwise `config/sources.yaml`). You do not edit it by hand.
+
+**From the browser.** Open **Settings** (http://127.0.0.1:8787/settings). **Job boards** lists every board with its service (Greenhouse, Lever, Ashby), whether it is on, how many postings it had when added, its health and its last error, with **Disable** / **Enable** buttons. Under **Add a board**, paste a careers URL (for example `https://jobs.ashbyhq.com/siepe`, `https://job-boards.greenhouse.io/revance` or `https://jobs.lever.co/elfbeauty`) and press **Check this board**. Sabra reads the board once and shows whether it is live, how many postings it has, how many mention one of your search's cities or "remote", and titles that fit your search. **Add this board** appears only for a live board that is not already listed. Company name and industry are optional; the name defaults to the board's own name where the service gives one (Greenhouse), otherwise to its token.
+
+**From PowerShell.** The same thing:
+
+```powershell
+uv run sabra sources list
+uv run sabra sources probe https://jobs.ashbyhq.com/siepe
+uv run sabra sources add https://jobs.ashbyhq.com/siepe --display-name "Siepe" --industry "Fintech"
+uv run sabra sources probe siepe --kind ASHBY       # a bare name needs --kind
+uv run sabra sources disable ashby-siepe            # and: enable
+```
+
+Adding appends one entry at the end of the registry file and keeps every comment already in it; it refuses a board that does not answer and one already listed. The new board is read on the next run. Disabling a board keeps its history and stops reading it.
+
+**What a run costs.** One slow or failing board never stops the run: it gets its own time budget, its failure is recorded on its row (health and last error, visible on Settings, `sabra sources list` and `sabra status`), and the other boards carry on. Re-run during the day with `uv run sabra run --only-new` (or `sabra discover --only-new`) to skip boards read successfully in the last 20 hours; `--only-new-hours 6` changes the window. A registry entry can also set `max_items: 200` to cap the postings read from one very large board.
+
+**A role on a board the engine cannot fill.** Greenhouse and Lever forms are filled by Sabra's adapters. Ashby and company careers pages are not, so an approved role there is not blocked. With dry-run on, **Apply** is replaced by **Open in browser for you to fill** (disabled) and `sabra apply APPLICATION_ID` reports `DRY_RUN` with a plan that says "manual handoff; no adapter". With real submission on (section 8), pressing it:
+
+1. checks the posting is still up (a closed posting blocks the application, as for any other),
+2. saves your tailored résumé and cover letter as PDFs in `<artifacts>\applications\<opportunity id>\` (`<First>-<Last>-Resume.pdf`, `<First>-<Last>-Cover-Letter.pdf`) and shows their paths on the row (the CLI prints them),
+3. opens the posting's apply page in a visible browser and **types nothing**,
+4. waits for you to fill the form, attach those files, submit it yourself, and press **I submitted it** (or **I didn't submit**).
+
+It follows the same rules as a CAPTCHA handoff: the row stays **APPLYING** while the window is open, a closed window or timeout waits for your report, **I didn't submit** returns it to **BLOCKED** (retryable), a report from `sabra handoff-outcome` or the forced report works as in section 8, and a submission is recorded with method `HEADED_HUMAN` and adapter `manual` with a note that nothing was typed. Sabra never recognises a confirmation page on these sites, so the report is always yours.
 
 ## 5. Prepare packages, read them, and approve a batch
 

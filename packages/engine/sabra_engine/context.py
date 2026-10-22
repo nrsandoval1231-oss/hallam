@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import Path
 from typing import Any
 
 from sabra_domain.db import Database
@@ -137,6 +138,8 @@ class EngineContext:
     db: Database
     registry: SourceRegistry
     llm: LLMProvider
+    # The file `registry` was read from. `sabra sources` edits and re-reads this one.
+    registry_path: Path | None = None
 
     @classmethod
     def create(
@@ -156,14 +159,14 @@ class EngineContext:
         db = Database(settings.database_url, echo=echo)
         if create_schema:
             db.create_all()
-        from pathlib import Path
-
-        registry = load_registry(Path(registry_path) if registry_path else None, settings)
+        path = Path(registry_path) if registry_path else Path(settings.source_registry_path)
+        registry = load_registry(path, settings)
         return cls(
             settings=settings,
             db=db,
             registry=registry,
             llm=llm if llm is not None else get_provider(settings),
+            registry_path=path,
         )
 
     @contextmanager
@@ -184,6 +187,12 @@ class EngineContext:
     def read_repos(self) -> Iterator[Repos]:
         with self.db.read_session() as session:
             yield Repos(session)
+
+    def reload_registry(self) -> SourceRegistry:
+        """Re-read the registry file, after it was edited by `sabra sources` or the dashboard."""
+
+        self.registry = load_registry(self.registry_path, self.settings)
+        return self.registry
 
     def sync_source_registry(self) -> int:
         """Mirror the YAML registry into the database so health is trackable."""
