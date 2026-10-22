@@ -88,7 +88,13 @@ uv run sabra init --search-profile my_search.yaml   # load it and make it active
 uv run sabra searches list                          # the active one is starred
 uv run sabra searches load other.yaml               # add or replace another
 uv run sabra searches activate SEARCH_ID
+uv run sabra rank --rescore                         # re-filter and re-rank stored roles after editing a search
 ```
+
+Beyond titles, pay and places, a search sets `locations.countries` (the countries a remote role may
+be open to; default `US`) and `max_per_company` (the most roles from one company on the shortlist;
+default 2). `sabra rank --rescore` applies a changed search to roles already stored; roles you
+passed on, and roles with a prepared or approved package, are left alone.
 
 The whole loop in one command, or from the browser's **Today** page (**Run now**):
 

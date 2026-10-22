@@ -82,6 +82,32 @@ def _passed_by_owner(opportunity: Any) -> bool:
     return RejectionReason.OWNER_PASSED.value in (rejection.get("reasons") or [])
 
 
+# Rejection reasons the hard filter writes. A rejection with any other reason (the owner's
+# Pass, a declined package) is a human decision and is never reversed by a rescore.
+FILTER_REASONS = frozenset(r.value for r in RejectionReason) - {RejectionReason.OWNER_PASSED.value}
+# States a rescore may re-filter. Past these (a prepared package, an approval, a
+# submission) the opportunity is left exactly as it is: rejecting it would orphan the
+# package or application, and the owner already acted on it.
+REFILTERABLE = {JobStatus.QUALIFIED, JobStatus.SHORTLISTED, JobStatus.RESEARCHED}
+
+
+def _may_refilter(repos: Repos, opportunity: Any, status: JobStatus) -> bool:
+    """Whether a rescore may re-run the hard filter on an opportunity already decided.
+
+    Allowed for QUALIFIED, SHORTLISTED and RESEARCHED rows that have no application, and
+    for REJECTED rows whose rejection came from the filter itself. A row that reached
+    PREPARED, AWAITING_APPROVAL or beyond, or that has an application, is left alone.
+    """
+
+    if status is JobStatus.REJECTED:
+        reasons = set((opportunity.rejection or {}).get("reasons") or [])
+        if not reasons or not reasons <= FILTER_REASONS:
+            return False
+    elif status not in REFILTERABLE:
+        return False
+    return repos.applications.for_opportunity(opportunity.id) is None
+
+
 @dataclass(slots=True)
 class IntelligenceResult:
     considered: int = 0
@@ -91,6 +117,10 @@ class IntelligenceResult:
     assessed: int = 0
     ranked: int = 0
     shortlisted: int = 0
+    # Opportunities passed over because their company already held `max_per_company` slots.
+    skipped_for_diversity: int = 0
+    # Previously rejected opportunities a rescore found to pass the current rules.
+    reinstated: int = 0
     rejection_breakdown: dict[str, int] = field(default_factory=dict)
     candidate_populated: bool = False
     top: list[dict[str, Any]] = field(default_factory=list)
@@ -105,6 +135,8 @@ class IntelligenceResult:
             "assessed": self.assessed,
             "ranked": self.ranked,
             "shortlisted": self.shortlisted,
+            "skipped_for_diversity": self.skipped_for_diversity,
+            "reinstated": self.reinstated,
             "rejection_breakdown": dict(
                 sorted(self.rejection_breakdown.items(), key=lambda kv: -kv[1])
             ),
@@ -181,11 +213,15 @@ class IntelligenceService:
                         result.already_decided += 1
                         continue
                     status = JobStatus(opportunity.status)
-                    if status in FILTERABLE or rescore:
+                    if status in FILTERABLE or (
+                        rescore and _may_refilter(repos, opportunity, status)
+                    ):
                         decision = self._filter(repos, opportunity, search, intent, candidate)
                         if not decision:
                             result.already_decided += 1
                             continue
+                        if decision.reinstated:
+                            result.reinstated += 1
                         if decision.reasons:
                             result.rejected += 1
                             for reason in decision.reasons:
@@ -259,7 +295,19 @@ class IntelligenceService:
                 return not _passed_by_owner(repos.opportunities.get(opportunity_id))
 
             ranked = [entry for entry in ranked if may_take_a_slot(entry.opportunity_id)]
-            selected = self.ranker.select_shortlist(ranked, limit=limit)
+            companies = {
+                entry.opportunity_id: repos.opportunities.get(entry.opportunity_id).company
+                for entry in ranked
+            }
+            stats: dict[str, int] = {}
+            selected = self.ranker.select_shortlist(
+                ranked,
+                limit=limit,
+                companies=companies,
+                max_per_company=search.max_per_company,
+                stats=stats,
+            )
+            result.skipped_for_diversity = stats.get("skipped_for_diversity", 0)
             chosen = {entry.opportunity_id for entry in selected}
 
             for entry in selected:
@@ -282,6 +330,10 @@ class IntelligenceService:
             # deleted: the queue is a projection of the scores, and history stays.
             for opportunity_id in scoped_ids:
                 if opportunity_id in currently_shortlisted and opportunity_id not in chosen:
+                    if repos.applications.for_opportunity(opportunity_id) is not None:
+                        # A package or application exists: dropping the role out of the
+                        # shortlist would strand it, so it keeps its place and its state.
+                        continue
                     repos.opportunities.set_shortlist(
                         opportunity_id, False, reason="demoted: no longer in the top shortlist"
                     )
@@ -307,7 +359,14 @@ class IntelligenceService:
                     "location": row.location,
                     "components": {k: round(v, 4) for k, v in entry.components.items()},
                 }
-                for entry in ranked[: max(limit, 10)]
+                # The same per-company cap as the shortlist, so the table the CLI prints
+                # matches what was actually shortlisted.
+                for entry in self.ranker.select_shortlist(
+                    ranked,
+                    limit=max(limit, 10),
+                    companies=companies,
+                    max_per_company=search.max_per_company,
+                )
                 for row in (repos.opportunities.get(entry.opportunity_id),)
             ]
         _notify(progress, {"stage": "shortlist", "shortlisted": result.shortlisted})
@@ -347,7 +406,13 @@ class IntelligenceService:
         job_row = self._primary_job(repos, opportunity)
         features = extract_job_features(job_row)
         decision = self.filter_engine.evaluate(features, search, intent, candidate)
+        current = JobStatus(opportunity.status)
         if decision.reasons:
+            if current is JobStatus.REJECTED and set(decision.reasons) == set(
+                (opportunity.rejection or {}).get("reasons") or []
+            ):
+                # Rejected before, for the same reasons: nothing to record again.
+                return None
             record = decision.as_record(evaluated_at=datetime.now(UTC))
             repos.opportunities.set_status(
                 opportunity.id, JobStatus.REJECTED, rejection=record.model_dump(mode="json")
@@ -374,17 +439,23 @@ class IntelligenceService:
                 },
             )
         else:
-            if JobStatus(opportunity.status) not in BEYOND_QUALIFIED:
+            payload: dict[str, Any] = {
+                "stage": "hard_filter_passed",
+                "checks_run": decision.checks_run,
+                "checks_skipped": decision.checks_skipped,
+            }
+            if current is JobStatus.REJECTED:
+                # A rule change now lets through a role an earlier pass rejected. Back
+                # through the graph (the explicit rescore edge), with the old reasons kept
+                # in the event so history shows what changed.
+                payload["reinstated_from"] = (opportunity.rejection or {}).get("reasons") or []
+                repos.opportunities.set_status(opportunity.id, JobStatus.QUALIFIED, revoke=True)
+                opportunity.rejection = None
+                decision.reinstated = True
+            elif current not in BEYOND_QUALIFIED:
                 repos.opportunities.set_status(opportunity.id, JobStatus.QUALIFIED)
             repos.events.append(
-                EntityType.OPPORTUNITY,
-                opportunity.id,
-                EventType.JOB_SCORED,
-                {
-                    "stage": "hard_filter_passed",
-                    "checks_run": decision.checks_run,
-                    "checks_skipped": decision.checks_skipped,
-                },
+                EntityType.OPPORTUNITY, opportunity.id, EventType.JOB_SCORED, payload
             )
         return decision
 

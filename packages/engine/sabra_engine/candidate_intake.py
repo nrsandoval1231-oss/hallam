@@ -153,7 +153,7 @@ def seed_search_profile(candidate_id: str) -> SearchProfile:
         ],
         # Declared role families and level markers. Real postings do not reuse the
         # target titles verbatim ("Regional Account Director", "Clinical Sales
-        # Exec"), so intent screening needs the candidate's own description of what
+        # Executive"), so intent screening needs the candidate's own description of what
         # counts as a commercial role rather than a table inside the scorer.
         role_family_terms=[
             "sales",
@@ -178,6 +178,7 @@ def seed_search_profile(candidate_id: str) -> SearchProfile:
             "vp",
             "head",
             "lead",
+            "leader",
             "coordinator",
             "officer",
         ],

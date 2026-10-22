@@ -339,6 +339,26 @@ class LocationIntent(BaseModel):
     allow_hybrid: bool = True
     allow_onsite: bool = True
     allow_relocation: bool = False
+    # Countries (or regions such as EMEA) a REMOTE posting may be open to. A remote
+    # posting whose location text names a country or region outside this list is
+    # filtered out ("Remote - Canada"); one that names none is kept. An empty list
+    # turns the check off. The default keeps profiles saved before this field valid.
+    countries: list[str] = Field(default_factory=lambda: ["US"])
+
+    @field_validator("countries", mode="after")
+    @classmethod
+    def _known_countries(cls, value: list[str]) -> list[str]:
+        from .geography import resolve_country
+
+        cleaned = [v.strip() for v in value if v and v.strip()]
+        unknown = [v for v in cleaned if resolve_country(v) is None]
+        if unknown:
+            raise ValueError(
+                f"unrecognised country or region {unknown}: use a country name or code "
+                "(US, Canada, UK), a region (EMEA, APAC, LATAM, Europe, Americas) or "
+                "Worldwide for no restriction"
+            )
+        return cleaned
 
 
 class SearchProfile(BaseModel):
@@ -380,6 +400,9 @@ class SearchProfile(BaseModel):
     source_filter: list[SourceKind] = Field(default_factory=list)
     shortlist_target: int = 10
     prepare_target: int = 3
+    # The most opportunities from one company (by normalised name) the shortlist will
+    # hold, so one large employer with many near-identical openings cannot fill it.
+    max_per_company: int = Field(default=2, ge=1)
     created_at: datetime | None = None
 
     @field_validator("excluded_titles", "target_titles", mode="after")

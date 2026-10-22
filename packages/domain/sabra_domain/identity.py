@@ -182,6 +182,8 @@ _STATE_ABBREV = {
     "wyoming": "WY",
     "district of columbia": "DC",
 }
+# Public name for the table above (other modules read it; the underscore name is kept).
+US_STATE_ABBREVIATIONS = _STATE_ABBREV
 
 
 def normalize_location(location: str | None) -> str:

@@ -530,6 +530,11 @@ class RunService:
             parts.append(
                 f"{rank.get('qualified', 0)} qualified, {rank.get('shortlisted', 0)} newly "
                 f"shortlisted, {rank.get('rejected', 0)} filtered out"
+                + (
+                    f", {rank['reinstated']} brought back"
+                    if rank.get("reinstated")
+                    else ""
+                )
             )
         research = stages.get("research")
         if research:
@@ -679,6 +684,8 @@ class RunService:
             assessed=summary["assessed"],
             ranked=summary["ranked"],
             shortlisted=summary["shortlisted"],
+            skipped_for_diversity=summary["skipped_for_diversity"],
+            reinstated=summary["reinstated"],
             rejection_breakdown=summary["rejection_breakdown"],
             top=[
                 {

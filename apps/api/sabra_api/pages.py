@@ -394,6 +394,7 @@ SEARCHES_BODY = """<main class="wrap">
 <div><label>Cities (one per line)<textarea name="cities" rows="3"></textarea></label></div>
 <div><label>States (one per line)<textarea name="states" rows="3"></textarea></label></div>
 <div><label>Metro areas (one per line)<textarea name="metro_areas" rows="3"></textarea></label></div>
+<div><label>Countries remote work may be in (one per line, e.g. US; leave blank for anywhere)<textarea name="countries" rows="3"></textarea></label></div>
 <div><label>Employment types</label>__EMPLOYMENT__</div>
 </div>
 <label>Where the work happens</label>
@@ -409,6 +410,7 @@ SEARCHES_BODY = """<main class="wrap">
 <div><label>Ignore postings older than (days). Leave blank for no limit.<input name="max_age_days" type="number" min="1"></label></div>
 <div><label>Shortlist size<input name="shortlist_target" type="number" min="1"></label></div>
 <div><label>Prepare packages for the top<input name="prepare_target" type="number" min="0"></label></div>
+<div><label>Most roles from one company on the shortlist<input name="max_per_company" type="number" min="1"></label></div>
 </div>
 <p><button type="submit" id="save">Save search</button> <button type="button" class="secondary" id="activate">Make this the active search</button></p>
 <p class="line" id="line"></p></form></section>
@@ -416,7 +418,7 @@ SEARCHES_BODY = """<main class="wrap">
 <script>
 __ESC__
 const LIST_FIELDS=['target_titles','acceptable_titles','excluded_titles','excluded_keywords','role_family_terms','role_level_terms','industries','excluded_industries'];
-const LOC_FIELDS={cities:'cities',states:'states',metro_areas:'metro_areas'};
+const LOC_FIELDS={cities:'cities',states:'states',metro_areas:'metro_areas',countries:'countries'};
 const TYPES=__TYPES__;
 let current=null;let currentId=null;let isNew=false;
 function lines(v){return String(v||'').split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean);}
@@ -444,6 +446,7 @@ function fill(p){
   set('max_age_days',p.max_age_days==null?'':p.max_age_days);
   set('shortlist_target',p.shortlist_target==null?'':p.shortlist_target);
   set('prepare_target',p.prepare_target==null?'':p.prepare_target);
+  set('max_per_company',p.max_per_company==null?'':p.max_per_company);
   TYPES.forEach(t=>chk('type_'+t,(p.employment_types||[]).includes(t)));
 }
 function collect(f){
@@ -463,6 +466,7 @@ function collect(f){
   p.max_age_days=num(g('max_age_days'));
   const sl=num(g('shortlist_target'));if(sl!==null)p.shortlist_target=sl;
   const pt=num(g('prepare_target'));if(pt!==null)p.prepare_target=pt;
+  const mc=num(g('max_per_company'));if(mc!==null)p.max_per_company=mc;
   p.employment_types=TYPES.filter(t=>!!g('type_'+t));
   return p;
 }
@@ -486,7 +490,7 @@ async function edit(id){
 function startNew(){
   current={};currentId=null;isNew=true;
   document.querySelector('#form-title').textContent='New search';
-  fill({name:'',locations:{allow_remote:true,allow_hybrid:true,allow_onsite:true},compensation:{currency:'USD'},employment_types:['FULL_TIME'],shortlist_target:10,prepare_target:3,max_age_days:90});
+  fill({name:'',locations:{allow_remote:true,allow_hybrid:true,allow_onsite:true,countries:['US']},compensation:{currency:'USD'},employment_types:['FULL_TIME'],shortlist_target:10,prepare_target:3,max_per_company:2,max_age_days:90});
   document.querySelector('#activate').disabled=true;
   document.querySelector('#line').textContent='';
 }

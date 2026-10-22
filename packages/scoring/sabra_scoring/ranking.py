@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from sabra_domain.identity import normalize_company
 from sabra_domain.schemas import FitAssessmentSchema
 
 EPSILON = 0.05
@@ -149,16 +150,44 @@ class Ranker:
         *,
         limit: int,
         eligible: dict[str, bool] | None = None,
+        companies: dict[str, str] | None = None,
+        max_per_company: int | None = None,
+        stats: dict[str, int] | None = None,
     ) -> list[RankedOpportunity]:
         """Choose the top `limit` opportunities.
 
         Ties break on opportunity id so selection is deterministic across runs;
         `eligible` lets the caller exclude opportunities that are already in a
-        later lifecycle state.
+        later lifecycle state. When `max_per_company` and `companies` (opportunity id
+        to company name) are given, no normalised company contributes more than that
+        many, and the freed slots go to the next-best opportunities of other companies.
+
+        `stats`, when given, receives `skipped_for_diversity`: how many eligible
+        opportunities ranked inside the selection window (above the last one chosen)
+        but were left out because their company already held `max_per_company` slots.
         """
 
+        size = max(0, limit)
         pool = [r for r in ranked if (eligible or {}).get(r.opportunity_id, True)]
-        return pool[: max(0, limit)]
+        skipped = 0
+        if not max_per_company or max_per_company < 1 or not companies:
+            selected = pool[:size]
+        else:
+            selected = []
+            taken: dict[str, int] = {}
+            for entry in pool:
+                if len(selected) >= size:
+                    break
+                # An opportunity with no known company cannot be grouped, so it is never capped.
+                key = normalize_company(companies.get(entry.opportunity_id)) or entry.opportunity_id
+                if taken.get(key, 0) >= max_per_company:
+                    skipped += 1
+                    continue
+                taken[key] = taken.get(key, 0) + 1
+                selected.append(entry)
+        if stats is not None:
+            stats["skipped_for_diversity"] = skipped
+        return selected
 
 
 def _log(value: float) -> float:

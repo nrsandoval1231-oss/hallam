@@ -192,7 +192,13 @@ def rank_command(
         None, "--shortlist-limit", help="How many opportunities to shortlist"
     ),
     rescore: bool = typer.Option(
-        False, "--rescore", help="Re-filter and re-assess opportunities already decided"
+        False,
+        "--rescore",
+        help=(
+            "Re-filter, re-assess and re-rank stored opportunities after the search profile "
+            "changed. Roles passed by the owner, and roles with a prepared package or an "
+            "application, are left alone"
+        ),
     ),
     research: bool = typer.Option(
         True,

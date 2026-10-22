@@ -172,6 +172,10 @@ REVOKE_JOB_EDGES = frozenset(
     {
         (JobStatus.APPROVED, JobStatus.AWAITING_APPROVAL),
         (JobStatus.FAILED, JobStatus.AWAITING_APPROVAL),
+        # A rescore (`sabra rank --rescore`) after the rules change: an opportunity the
+        # hard filter rejected, that has no application and was not passed by the owner,
+        # returns to QUALIFIED when it now passes. Only the rescore takes this edge.
+        (JobStatus.REJECTED, JobStatus.QUALIFIED),
     }
 )
 
