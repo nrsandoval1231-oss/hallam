@@ -101,6 +101,8 @@ tests/           test suite and committed fixtures
   it cannot be retried automatically. An explicit abandoned report is BLOCKED and
   retryable, unless the opportunity has expired. Unknown required fields block that
   application and name the field.
+  A proposed answer that cannot be written safely also blocks an optional control;
+  an employer's preselected value cannot silently replace that answer.
   A submission is confirmed only by the employer's confirmation page, never by
   words in the posting. Dry-run is the default: it never opens an employer form,
   never types or uploads, and never submits.

@@ -97,7 +97,7 @@ def write_value(page: Any, field: FormField, selector: str, value: str) -> bool:
 
     Returns True when the field now holds the answer, False when it was not written
     (the caller must treat that field as unfilled). A select is set by its exact option
-    label; a checkbox is checked for an affirmative answer and left alone for a negative
+    label; a checkbox is checked for an affirmative answer and unchecked for a negative
     one; a radio is never written here.
     """
 

@@ -206,7 +206,7 @@ class LeverApplicationAdapter(GreenhouseApplicationAdapter):
         mapped: dict[str, str] = {}
         values = _lever_values(package)
 
-        for field in form.required_fields:
+        for field in self._validation_fields(package, form, values):
             if field.kind == "file":
                 if not (package.tailored_resume_markdown or "").strip():
                     unknown_required.append(

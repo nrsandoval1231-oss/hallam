@@ -164,6 +164,35 @@ def test_browser_ambiguous_select_label_is_not_chosen(browser_page, second_label
 
 
 @pytest.mark.parametrize("adapter_type", [GreenhouseApplicationAdapter, LeverApplicationAdapter])
+def test_browser_optional_ambiguous_default_blocks_submission(
+    browser_page, employer, tmp_path, adapter_type
+):
+    from sabra_domain.errors import SafetyStop
+
+    browser_page.locator("#question_2").evaluate("""el => {
+      el.required = false;
+      el.add(new Option('Yes', 'different-meaning'));
+      el.value = 'different-meaning';
+    }""")
+    if adapter_type is LeverApplicationAdapter:
+        browser_page.evaluate("""() => {
+          document.querySelector('#first_name').required = false;
+          document.querySelector('#last_name').required = false;
+          document.querySelector('#name').required = true;
+        }""")
+    page = PlaywrightPage(browser_page, timeout_ms=500)
+    adapter = adapter_type(dry_run=False, page_factory=lambda _url: page, evidence_dir=tmp_path)
+    with adapter.session(employer.url):
+        form = adapter.inspect(SimpleNamespace(source_url=employer.url))
+        assert not adapter.validate(package(), form).ok
+        prepared = adapter.prepare(package(), form)
+        assert any("question_2" in name for name in prepared.unfilled_required)
+        with pytest.raises(SafetyStop):
+            adapter._submit_live(prepared, settle_ms=0, capture_evidence=False)
+    assert employer.received == []
+
+
+@pytest.mark.parametrize("adapter_type", [GreenhouseApplicationAdapter, LeverApplicationAdapter])
 def test_browser_adapter_fill_preserves_current_identity(
     browser_page, employer, tmp_path, adapter_type
 ):

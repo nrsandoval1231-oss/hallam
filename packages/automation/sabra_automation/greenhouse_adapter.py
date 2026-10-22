@@ -187,12 +187,7 @@ def _css_attr(value: str) -> str:
     A raw newline is a syntax error inside a CSS string; `\a ` is its escape.
     """
 
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\r", "")
-        .replace("\n", "\\a ")
-    )
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "").replace("\n", "\\a ")
 
 
 def _count_matches(page: Any, selector: str) -> int:
@@ -440,14 +435,18 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 prepared_at=datetime.now(UTC),
                 dry_run=self.dry_run,
                 submit_selector=form.submit_selector,
-                unfilled_required=self._unfilled_required(package, form, filled),
+                unfilled_required=self._unfilled_required(package, form, filled, skipped),
                 documents=report,
             )
 
     def _unfilled_required(
-        self, package: ApplicationPackageSchema, form: ApplicationForm, filled: dict[str, str]
+        self,
+        package: ApplicationPackageSchema,
+        form: ApplicationForm,
+        filled: dict[str, str],
+        skipped: list[str],
     ) -> list[str]:
-        """Required non-file fields that were left empty and are not empty on purpose.
+        """Required fields and optional answers that could not be written safely.
 
         A field counts as filled only when it was written under its own name (or the
         identity key it stands for). A *question key* in `filled` proves nothing about
@@ -458,15 +457,48 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
         missing: list[str] = []
         for field in form.fields:
-            if not field.required or field.kind == "file":
+            if field.kind == "file":
                 continue
-            if field.name in filled or any(alias in filled for alias in self._filled_aliases(field)):
+            aliases = self._filled_aliases(field)
+            if not field.required:
+                if field.name in skipped or any(alias in skipped for alias in aliases):
+                    missing.append(describe_field(field))
+                continue
+            if field.name in filled or any(
+                alias in filled for alias in self._filled_aliases(field)
+            ):
                 continue
             plan = plan_greenhouse_field(field.name, package.employment, package.education)
             if plan is not None and plan.covered and plan.action == "blank":
                 continue
             missing.append(describe_field(field))
         return missing
+
+    def _validation_fields(
+        self, package: ApplicationPackageSchema, form: ApplicationForm, identity: dict[str, str]
+    ) -> list[FormField]:
+        """Validate required controls and every optional control with a proposed answer."""
+
+        fields: list[FormField] = []
+        for field in form.fields:
+            if field.required:
+                fields.append(field)
+                continue
+            if field.kind == "file":
+                continue
+            if any(identity.get(alias) for alias in self._filled_aliases(field)):
+                fields.append(field)
+                continue
+            if self.kind == "greenhouse":
+                plan = plan_greenhouse_field(field.name, package.employment, package.education)
+                if plan is not None and plan.covered and plan.action != "blank":
+                    fields.append(field)
+                    continue
+            if not self._is_structural_field(field, package):
+                resolved, _refusal = self._resolve_answer(package, field)
+                if resolved is not None:
+                    fields.append(field)
+        return fields
 
     def _filled_aliases(self, field: FormField) -> list[str]:
         """Other keys `filled` may hold for this field (the identity key it stands for)."""
@@ -571,7 +603,11 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         """
 
         for field in form.fields:
-            if not field.selector or field.name in filled or self._is_structural_field(field, package):
+            if (
+                not field.selector
+                or field.name in filled
+                or self._is_structural_field(field, package)
+            ):
                 continue
             resolved, refusal = self._resolve_answer(package, field)
             if resolved is None:
@@ -603,13 +639,18 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         mapped: dict[str, str] = {}
         identity = self._identity_values(package)
 
-        for field in form.required_fields:
+        for field in self._validation_fields(package, form, identity):
             if field.kind == "file":
-                if "resume" in field.name.lower() and not (package.tailored_resume_markdown or "").strip():
+                if (
+                    "resume" in field.name.lower()
+                    and not (package.tailored_resume_markdown or "").strip()
+                ):
                     unknown_required.append(
                         f"{describe_field(field)}: no tailored résumé is available to upload"
                     )
-                elif (package.tailored_resume_markdown or "").strip() and "resume" in field.name.lower():
+                elif (
+                    package.tailored_resume_markdown or ""
+                ).strip() and "resume" in field.name.lower():
                     mapped[field.name] = "resume"
                 continue
             # Structural identity first. The captured form labels its employment-block
@@ -621,9 +662,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 key = self._identity_key(field.name)
                 value = identity.get(key) if key else None
                 if not value:
-                    unknown_required.append(
-                        f"{describe_field(field)}: no verified candidate value"
-                    )
+                    unknown_required.append(f"{describe_field(field)}: no verified candidate value")
                     continue
                 problem = option_problem(field, value)
                 if problem:
@@ -636,7 +675,11 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 if not plan.covered:
                     unknown_required.append(plan.reason or describe_field(field))
                     continue
-                problem = option_problem(field, plan.value) if plan.action == "fill" and plan.value else None
+                problem = (
+                    option_problem(field, plan.value)
+                    if plan.action == "fill" and plan.value
+                    else None
+                )
                 if problem:
                     unknown_required.append(f"{describe_field(field)}: {problem}")
                     continue
@@ -715,7 +758,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         if prepared.unfilled_required:
             raise SafetyStop(
                 SafetyStopKind.UNKNOWN_REQUIRED_QUESTION,
-                "refusing to submit: required fields were left empty: "
+                "refusing to submit: fields could not be completed safely: "
                 + "; ".join(prepared.unfilled_required[:8]),
                 {"fields": prepared.unfilled_required},
             )
@@ -1134,9 +1177,7 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
         for key in ("first_name", "last_name"):
             for token in (values.get(key) or "").split():
                 plain = "".join(
-                    c
-                    for c in unicodedata.normalize("NFKD", token)
-                    if not unicodedata.combining(c)
+                    c for c in unicodedata.normalize("NFKD", token) if not unicodedata.combining(c)
                 )
                 cleaned = re.sub(r"[^A-Za-z0-9]+", "", plain)
                 if cleaned:
