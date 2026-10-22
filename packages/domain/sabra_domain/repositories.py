@@ -307,10 +307,49 @@ class SearchProfileRepository:
         ]
 
     def list_for_candidate(self, candidate_id: str) -> list[models.SearchProfileRow]:
-        stmt = select(models.SearchProfileRow).where(
-            models.SearchProfileRow.candidate_id == candidate_id
+        stmt = (
+            select(models.SearchProfileRow)
+            .where(models.SearchProfileRow.candidate_id == candidate_id)
+            .order_by(models.SearchProfileRow.created_at, models.SearchProfileRow.id)
         )
         return list(self.session.execute(stmt).scalars())
+
+    def exists(self, profile_id: str) -> bool:
+        return self.session.get(models.SearchProfileRow, profile_id) is not None
+
+    def active_one(self, candidate_id: str) -> SearchProfile | None:
+        """The candidate's single active search profile, or None when there is none.
+
+        `activate` keeps exactly one row active. A database written before that rule
+        may hold several; the most recently changed one wins, deterministically.
+        """
+
+        stmt = (
+            select(models.SearchProfileRow)
+            .where(
+                models.SearchProfileRow.candidate_id == candidate_id,
+                models.SearchProfileRow.is_active.is_(True),
+            )
+            .order_by(models.SearchProfileRow.updated_at.desc(), models.SearchProfileRow.id)
+            .limit(1)
+        )
+        row = self.session.execute(stmt).scalars().first()
+        return SearchProfile.model_validate(row.payload) if row is not None else None
+
+    def activate(self, candidate_id: str, profile_id: str) -> SearchProfile:
+        """Make `profile_id` the one active profile. The others stay stored, inactive."""
+
+        target = self.session.get(models.SearchProfileRow, profile_id)
+        if target is None or target.candidate_id != candidate_id:
+            raise NotFound("search_profile", profile_id)
+        for row in self.list_for_candidate(candidate_id):
+            wanted = row.id == profile_id
+            if row.is_active != wanted or (row.payload or {}).get("is_active") != wanted:
+                row.is_active = wanted
+                # The JSON payload is the profile; the column is its index. Keep both.
+                row.payload = {**(row.payload or {}), "is_active": wanted}
+        self.session.flush()
+        return SearchProfile.model_validate(target.payload)
 
 
 class CompanyRepository:
@@ -335,6 +374,12 @@ class CompanyRepository:
                     setattr(row, key, value)
         self.session.flush()
         return row
+
+    def find(self, name: str) -> models.Company | None:
+        stmt = select(models.Company).where(
+            models.Company.normalized_name == normalize_company(name)
+        )
+        return self.session.execute(stmt).scalars().first()
 
     def list_all(self) -> list[models.Company]:
         return list(self.session.execute(select(models.Company)).scalars())
@@ -660,6 +705,9 @@ class ResearchRepository:
             self.session.add(row)
         row.payload = payload
         row.engine = engine
+        # Re-researching an unchanged page writes an identical payload, which SQLAlchemy
+        # would not even UPDATE; freshness is judged on `updated_at`, so move it.
+        row.updated_at = utcnow()
         self.session.flush()
         return row
 
@@ -910,6 +958,16 @@ class OutcomeRepository:
         )
         return list(self.session.execute(stmt).scalars())
 
+    def recorded_since(
+        self, since: datetime | None, candidate_id: str | None = None
+    ) -> list[models.OutcomeRow]:
+        """Outcomes written after `since` (all of them when `since` is None)."""
+
+        rows = self.list_all(candidate_id)
+        if since is None:
+            return rows
+        return [row for row in rows if row.created_at is not None and row.created_at > since]
+
     def list_all(self, candidate_id: str | None = None) -> list[models.OutcomeRow]:
         stmt = select(models.OutcomeRow).order_by(models.OutcomeRow.occurred_at.desc())
         if candidate_id:
@@ -1038,6 +1096,102 @@ class DiscoveryRunRepository:
             .limit(1)
         )
         return self.session.execute(stmt).scalars().first()
+
+
+class PipelineRunRepository:
+    """Runs of the whole loop (`runs` table); not the per-discovery `discovery_runs`."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(
+        self,
+        *,
+        kind: str,
+        prepare: bool,
+        candidate_id: str | None,
+        search_profile_id: str | None,
+    ) -> models.PipelineRunRow:
+        row = models.PipelineRunRow(
+            kind=kind,
+            prepare=prepare,
+            status="QUEUED",
+            candidate_id=candidate_id,
+            search_profile_id=search_profile_id,
+            progress={},
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get(self, run_id: str) -> models.PipelineRunRow:
+        row = self.session.get(models.PipelineRunRow, run_id)
+        if row is None:
+            raise NotFound("run", run_id)
+        return row
+
+    def list_recent(self, limit: int = 20) -> list[models.PipelineRunRow]:
+        stmt = (
+            select(models.PipelineRunRow)
+            .order_by(models.PipelineRunRow.created_at.desc(), models.PipelineRunRow.id.desc())
+            .limit(max(1, limit))
+        )
+        return list(self.session.execute(stmt).scalars())
+
+    def unfinished(self) -> list[models.PipelineRunRow]:
+        stmt = select(models.PipelineRunRow).where(
+            models.PipelineRunRow.status.in_(("QUEUED", "RUNNING"))
+        )
+        return list(self.session.execute(stmt).scalars())
+
+    def latest_finished(
+        self, *, before_id: str | None = None, started_only: bool = False
+    ) -> models.PipelineRunRow | None:
+        """The newest run that reached COMPLETED or FAILED, optionally excluding one.
+
+        `started_only` skips a run that never began (a QUEUED run that was reaped), which
+        has no start time to measure "since the last run" from.
+        """
+
+        stmt = select(models.PipelineRunRow).where(
+            models.PipelineRunRow.status.in_(("COMPLETED", "FAILED"))
+        )
+        if started_only:
+            stmt = stmt.where(models.PipelineRunRow.started_at.is_not(None))
+        if before_id:
+            stmt = stmt.where(models.PipelineRunRow.id != before_id)
+        stmt = stmt.order_by(
+            models.PipelineRunRow.created_at.desc(), models.PipelineRunRow.id.desc()
+        ).limit(1)
+        return self.session.execute(stmt).scalars().first()
+
+    def latest_started(self, *, exclude_id: str | None = None) -> models.PipelineRunRow | None:
+        stmt = select(models.PipelineRunRow).where(models.PipelineRunRow.started_at.is_not(None))
+        if exclude_id:
+            stmt = stmt.where(models.PipelineRunRow.id != exclude_id)
+        stmt = stmt.order_by(
+            models.PipelineRunRow.started_at.desc(), models.PipelineRunRow.id.desc()
+        ).limit(1)
+        return self.session.execute(stmt).scalars().first()
+
+
+class AppStateRepository:
+    """Per-installation key/value state."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        row = self.session.get(models.AppStateRow, key)
+        return dict(row.value or {}) if row is not None else None
+
+    def set(self, key: str, value: dict[str, Any]) -> None:
+        row = self.session.get(models.AppStateRow, key)
+        if row is None:
+            self.session.add(models.AppStateRow(key=key, value=value))
+        else:
+            row.value = value
+        self.session.flush()
 
 
 class ModelCallRepository:

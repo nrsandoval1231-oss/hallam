@@ -138,9 +138,14 @@ class TailoredRésumé:
     skill_order: list[str] = field(default_factory=list)
     omitted_skills: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # Set only when a model proposed the summary/headline; both have passed the
+    # truth gate, and `verify_tailored_truth` checks them again.
+    generated_by: str = "template"
+    model_summary: str | None = None
+    model_headline: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "emphasis_terms": self.emphasis_terms,
             "role_order": self.role_order,
             "selected_bullets": self.selected_bullets,
@@ -149,6 +154,29 @@ class TailoredRésumé:
             "truth_summary": self.ledger.summary(),
             "notes": self.notes,
         }
+        if self.generated_by != "template":
+            out["generated_by"] = self.generated_by
+        return out
+
+
+@dataclass(slots=True)
+class TailoringOverrides:
+    """A model's tailoring proposal, already reduced to things code can verify.
+
+    Everything here is a *choice among candidate-authored content* except
+    `headline` and `summary`, which are free text and have passed the truth gate
+    before they reach this object. Bullets are carried as the candidate's own
+    strings (copied by code from their ids); a model never supplies bullet text.
+    """
+
+    headline: str | None = None
+    summary: str | None = None
+    # Indices into `profile.employment`, in the order to show the roles.
+    role_order: list[int] | None = None
+    # employment index -> accomplishment strings, verbatim and in display order.
+    bullets: dict[int, list[str]] = field(default_factory=dict)
+    skill_order: list[str] | None = None
+    generated_by: str = "template"
 
 
 def job_focus_tokens(job: CanonicalJob | Any) -> set[str]:
@@ -220,7 +248,9 @@ class ResumeTailor:
         master: ResumeDocument | None,
         job: CanonicalJob | Any,
         assessment: FitAssessmentSchema | None = None,
+        overrides: TailoringOverrides | None = None,
     ) -> TailoredRésumé:
+        overrides = overrides or TailoringOverrides()
         ledger = TruthLedger()
         focus = job_focus_tokens(job)
         job_title = normalize_text(getattr(job, "title", "") or "")
@@ -243,9 +273,17 @@ class ResumeTailor:
             ),
         )
 
+        if overrides.role_order is not None:
+            position = {index: rank for rank, index in enumerate(overrides.role_order)}
+            ordered_roles = sorted(
+                ordered_roles,
+                key=lambda pair: (position.get(pair[1][1], len(position)), pair[1][1]),
+            )
+
         lines: list[str] = []
         role_order: list[str] = []
         selected_bullets: list[str] = []
+        notes: list[str] = []
 
         contact = (
             profile.identity
@@ -255,7 +293,17 @@ class ResumeTailor:
         if contact.full_name:
             lines.append(f"# {contact.full_name}")
         headline = profile.headline or (master.headline if master else None)
-        if headline:
+        model_headline: str | None = None
+        if overrides.headline:
+            model_headline = normalize_text(overrides.headline)
+            lines.append(f"_{model_headline}_")
+            ledger.record(
+                f"headline (model-written, truth-gated): {model_headline}",
+                TruthLevel.INFERRED,
+                [Evidence("truth_gate", model_headline)],
+                artifact="tailored_resume",
+            )
+        elif headline:
             lines.append(f"_{normalize_text(headline)}_")
             ledger.record(
                 f"headline: {normalize_text(headline)}",
@@ -286,7 +334,17 @@ class ResumeTailor:
         lines.append("")
         lines.append("## Summary")
         summary_source = profile.summary or (master.summary if master else None)
-        if summary_source:
+        model_summary: str | None = None
+        if overrides.summary:
+            model_summary = normalize_text(overrides.summary)
+            lines.append(model_summary)
+            ledger.record(
+                "summary (model-written, truth-gated)",
+                TruthLevel.INFERRED,
+                [Evidence("truth_gate", model_summary)],
+                artifact="tailored_resume",
+            )
+        elif summary_source:
             lines.append(normalize_text(summary_source))
             ledger.record(
                 "summary (candidate's own words)",
@@ -346,6 +404,14 @@ class ResumeTailor:
             chosen = [
                 item for score, _position, item in ranked if score >= self.min_bullet_relevance
             ][: self.max_bullets_per_role]
+            role_index = _meta[1]
+            proposed = overrides.bullets.get(role_index)
+            if proposed:
+                chosen = list(proposed)[: self.max_bullets_per_role]
+            elif overrides.bullets and entry.accomplishments:
+                notes.append(
+                    f"model kept no valid bullet for {header}; used the deterministic choice"
+                )
             # Never leave a role empty: one bullet carries the role's substance.
             if not chosen and entry.accomplishments:
                 chosen = [entry.accomplishments[0]]
@@ -408,6 +474,16 @@ class ResumeTailor:
                 key=lambda triple: (-triple[0], triple[1]),
             )
             ordered_names = [s.name for _score, _position, s in ranked_skills]
+            if overrides.skill_order:
+                by_key = {normalize_text(n).lower(): n for n in ordered_names}
+                head: list[str] = []
+                for wanted in overrides.skill_order:
+                    canonical = by_key.get(normalize_text(wanted).lower())
+                    if canonical is not None and canonical not in head:
+                        head.append(canonical)
+                # Skills the model left out stay, after its choices: tailoring orders
+                # a candidate's skills, it does not delete them.
+                ordered_names = head + [n for n in ordered_names if n not in head]
             kept = ordered_names[: self.max_skills]
             omitted = ordered_names[self.max_skills :]
             lines.append("")
@@ -450,7 +526,14 @@ class ResumeTailor:
             notes=[
                 "Tailoring selected, reordered and relabelled candidate-authored content only; "
                 "no sentence was paraphrased."
+                if overrides.generated_by == "template"
+                else "Bullets were selected by id and copied verbatim; the summary and headline "
+                "were model-written and passed the truth gate.",
+                *notes,
             ],
+            generated_by=overrides.generated_by,
+            model_summary=model_summary,
+            model_headline=model_headline,
         )
 
     @staticmethod
@@ -475,12 +558,18 @@ class ResumeTailor:
         return picked
 
 
-def verify_tailored_truth(tailored: TailoredRésumé, profile: CandidateProfile) -> list[str]:
+def verify_tailored_truth(
+    tailored: TailoredRésumé, profile: CandidateProfile, evidence: Any | None = None
+) -> list[str]:
     """Independently re-check that no bullet claims anything unsupported.
 
     Returns a list of violations. An empty list is the only acceptable result
     before a package may be approved, and this function exists so the invariant is
     tested rather than asserted in a comment.
+
+    A model-written summary or headline is run through the truth gate's
+    deterministic rules (no model call) against `evidence` (an `EvidenceCorpus`).
+    Without one, only the profile counts, which is the stricter reading.
     """
 
     violations: list[str] = []
@@ -507,5 +596,18 @@ def verify_tailored_truth(tailored: TailoredRésumé, profile: CandidateProfile)
     for claim in tailored.ledger.claims:
         if claim.level is TruthLevel.VERIFIED and not claim.evidence:
             violations.append(f"VERIFIED claim without evidence: {claim.claim!r}")
+
+    model_texts = {
+        "summary": tailored.model_summary,
+        "headline": tailored.model_headline,
+    }
+    if any(model_texts.values()):
+        from .truth_gate import EvidenceCorpus, deterministic_check
+
+        corpus = evidence or EvidenceCorpus.build(profile)
+        for label, text in model_texts.items():
+            if text:
+                for violation in deterministic_check(text, corpus, tier="candidate"):
+                    violations.append(f"model-written {label} failed the truth gate: {violation}")
 
     return violations

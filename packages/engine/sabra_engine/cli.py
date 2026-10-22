@@ -22,6 +22,8 @@ from .candidate_intake import (
     SEED_SEARCH_PROFILE_ID,
     ensure_candidate,
     ensure_search_profile,
+    load_search_profile,
+    store_search_profile_file,
 )
 from .context import EngineContext
 
@@ -46,6 +48,10 @@ def _context() -> EngineContext:
     return EngineContext.create()
 
 
+def _replaced_message(profile_id: str, old_name: str) -> str:
+    return f"Replaced existing search {profile_id} (was {old_name!r})"
+
+
 @app.command("init")
 def init_command(
     candidate_name: str | None = typer.Option(
@@ -54,9 +60,26 @@ def init_command(
     profile: Path | None = typer.Option(
         None, "--profile", help="Owner-supplied candidate profile (YAML or JSON)"
     ),
+    search_profile: Path | None = typer.Option(
+        None,
+        "--search-profile",
+        help=(
+            "Search profile to load and activate (YAML or JSON; "
+            "see config/search_profile.example.yaml)"
+        ),
+    ),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Replace a stored search with the same id when --search-profile differs from it",
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Create the database, load the source registry and seed a search profile."""
+    """Create the database, load the source registry and set up a search profile.
+
+    Without --search-profile, a stored search profile is kept as it is; the built-in seed
+    profile is created only when the candidate has none.
+    """
 
     ctx = _context()
     try:
@@ -64,7 +87,14 @@ def init_command(
         candidate_id = ensure_candidate(
             ctx, profile_path=profile, display_name=candidate_name, create_placeholder=True
         )
-        search_id = ensure_search_profile(ctx, candidate_id)
+        replaced: str | None = None
+        if search_profile is not None:
+            stored = store_search_profile_file(
+                ctx, candidate_id, load_search_profile(search_profile), replace=replace
+            )
+            search_id, replaced = stored["id"], stored["replaced"]
+        else:
+            search_id = ensure_search_profile(ctx, candidate_id)
         payload = {
             "database_url": ctx.settings.database_url,
             "candidate_id": candidate_id,
@@ -73,6 +103,10 @@ def init_command(
             "sources_enabled": len(ctx.registry.enabled),
             "llm_provider": ctx.llm.name,
         }
+        if replaced is not None:
+            payload["replaced"] = _replaced_message(search_id, replaced)
+            if not as_json:
+                typer.echo(payload["replaced"])
         _emit(payload, as_json, "Initialised")
     finally:
         ctx.close()
@@ -89,9 +123,11 @@ def discover_command(
     """Run discovery across every enabled source (requirement 7)."""
 
     from .discovery import DiscoveryService
+    from .runs import RunService
 
     ctx = _context()
     try:
+        RunService.refuse_if_active(ctx)
         candidate = candidate_id or ensure_candidate(ctx)
         profile = search_profile_id or ensure_search_profile(ctx, candidate)
         result = DiscoveryService(ctx).run(
@@ -133,15 +169,26 @@ def rank_command(
     rescore: bool = typer.Option(
         False, "--rescore", help="Re-filter and re-assess opportunities already decided"
     ),
+    research: bool = typer.Option(
+        True,
+        "--research/--no-research",
+        help="Research the shortlist (company sites are read; a packet under 7 days old is kept)",
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Hard-filter, assess fit, rank and shortlist (requirements 11-13)."""
+    """Hard-filter, assess fit, rank, shortlist and research the shortlist (requirements 11-14).
+
+    Uses the active search profile unless --search-profile-id is given.
+    """
 
     from .candidate_intake import ensure_candidate, ensure_search_profile
     from .intelligence import IntelligenceService
+    from .research import ResearchService
+    from .runs import RunService, build_research_http
 
     ctx = _context()
     try:
+        RunService.refuse_if_active(ctx)
         candidate = candidate_id or ensure_candidate(ctx)
         profile = search_profile_id or ensure_search_profile(ctx, candidate)
         result = IntelligenceService(ctx).run(
@@ -150,8 +197,18 @@ def rank_command(
             shortlist_limit=shortlist_limit,
             rescore=rescore,
         )
+        research_summary: dict[str, Any] | None = None
+        if research:
+            with ctx.read_repos() as repos:
+                limit = shortlist_limit or repos.search_profiles.get(profile).shortlist_target
+            research_summary = ResearchService(ctx, http=build_research_http(ctx)).research_fresh(
+                candidate, search_profile_id=profile, limit=limit
+            )
         if as_json:
-            typer.echo(json.dumps(result.summary(), indent=2, default=str))
+            payload = result.summary()
+            if research_summary is not None:
+                payload["research"] = research_summary
+            typer.echo(json.dumps(payload, indent=2, default=str))
             return
         table = Table(title="Ranked opportunities")
         for column in ("#", "score", "title", "company", "location", "fit", "conf"):
@@ -168,6 +225,8 @@ def rank_command(
             )
         console.print(table)
         console.print_json(json.dumps(result.summary(), default=str))
+        if research_summary is not None:
+            console.print_json(json.dumps({"research": research_summary}, default=str))
     finally:
         ctx.close()
 
@@ -227,6 +286,229 @@ def status_command(as_json: bool = typer.Option(False, "--json")) -> None:
         _emit(payload, as_json, "Status")
     finally:
         ctx.close()
+
+
+searches_app = typer.Typer(help="Define, list and switch search profiles.")
+app.add_typer(searches_app, name="searches")
+
+
+def _profile_row(profile: Any, active_id: str | None) -> dict[str, Any]:
+    return {
+        "id": profile.id,
+        "name": profile.name,
+        "active": profile.id == active_id,
+        "target_titles": profile.target_titles,
+        "compensation_minimum": profile.compensation.minimum,
+        "compensation_target": profile.compensation.target,
+        "shortlist_target": profile.shortlist_target,
+        "prepare_target": profile.prepare_target,
+    }
+
+
+@searches_app.command("load")
+def searches_load(
+    path: Path = typer.Argument(..., help="Search profile file (YAML or JSON)"),
+    activate: bool = typer.Option(
+        True, "--activate/--no-activate", help="Make it the profile discover and rank use"
+    ),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Replace a stored search with the same id when the file differs from it",
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Store a search profile from a file.
+
+    A file whose id matches a stored search that is different (another name, or edited
+    content) is refused unless --replace is given; the same file again is harmless.
+    """
+
+    ctx = _context()
+    try:
+        candidate_id = ensure_candidate(ctx)
+        profile = load_search_profile(path)
+        stored = store_search_profile_file(
+            ctx, candidate_id, profile, replace=replace, activate=True if activate else None
+        )
+        profile_id = stored["id"]
+        with ctx.read_repos() as repos:
+            active = repos.search_profiles.active_one(candidate_id)
+            payload = _profile_row(
+                repos.search_profiles.get(profile_id), active.id if active else None
+            )
+        if stored["replaced"] is not None:
+            payload["replaced"] = _replaced_message(profile_id, stored["replaced"])
+            if not as_json:
+                typer.echo(payload["replaced"])
+        _emit(payload, as_json, "Loaded")
+    finally:
+        ctx.close()
+
+
+@searches_app.command("list")
+def searches_list(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List the stored search profiles; the active one is marked."""
+
+    from sabra_domain.schemas import SearchProfile
+
+    ctx = _context()
+    try:
+        candidate_id = ensure_candidate(ctx)
+        ensure_search_profile(ctx, candidate_id)
+        with ctx.read_repos() as repos:
+            active = repos.search_profiles.active_one(candidate_id)
+            active_id = active.id if active else None
+            rows = [
+                _profile_row(SearchProfile.model_validate(row.payload), active_id)
+                for row in repos.search_profiles.list_for_candidate(candidate_id)
+            ]
+        if as_json:
+            typer.echo(json.dumps(rows, indent=2, default=str))
+            return
+        table = Table(title="Search profiles")
+        for column in ("", "id", "name", "min", "target", "titles"):
+            table.add_column(column)
+        for row in rows:
+            table.add_row(
+                "*" if row["active"] else "",
+                row["id"],
+                row["name"],
+                str(row["compensation_minimum"] or "-"),
+                str(row["compensation_target"] or "-"),
+                ", ".join(row["target_titles"][:3]),
+            )
+        console.print(table)
+    finally:
+        ctx.close()
+
+
+@searches_app.command("show")
+def searches_show(
+    profile_id: str | None = typer.Argument(None, help="Profile id; the active one by default"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show one search profile in full."""
+
+    ctx = _context()
+    try:
+        candidate_id = ensure_candidate(ctx)
+        chosen = profile_id or ensure_search_profile(ctx, candidate_id)
+        with ctx.read_repos() as repos:
+            payload = repos.search_profiles.get(chosen).model_dump(mode="json")
+        _emit(payload, as_json, "Search profile")
+    finally:
+        ctx.close()
+
+
+@searches_app.command("activate")
+def searches_activate(
+    profile_id: str = typer.Argument(..., help="Profile id to make active"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Make a stored profile the one discover, rank and run use."""
+
+    from sabra_domain.enums import EntityType, EventType
+
+    ctx = _context()
+    try:
+        candidate_id = ensure_candidate(ctx)
+        with ctx.repos() as repos:
+            profile = repos.search_profiles.activate(candidate_id, profile_id)
+            repos.events.append(
+                EntityType.SEARCH_PROFILE,
+                profile_id,
+                EventType.SEARCH_PROFILE_ACTIVATED,
+                {"name": profile.name},
+            )
+        _emit(_profile_row(profile, profile_id), as_json, "Activated")
+    finally:
+        ctx.close()
+
+
+@app.command("run")
+def run_command(
+    kind: str = typer.Option(
+        "full", "--kind", help="discover, rank (rank + research), or full (everything)"
+    ),
+    prepare: bool = typer.Option(
+        False, "--prepare", help="Also prepare packages for the top shortlisted roles"
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Run the loop now: discover, rank, research the shortlist, optionally prepare.
+
+    The same run the dashboard's "Run now" starts. Nothing is submitted: preparing a
+    package waits for your approval.
+    """
+
+    from .runs import RunService, build_discovery_http, build_research_http
+
+    ctx = _context()
+    try:
+        service = RunService(
+            ctx,
+            discovery_http=build_discovery_http(ctx),
+            research_http=build_research_http(ctx),
+            on_update=None if as_json else _print_stage_changes(),
+        )
+        record = service.run_sync(kind, prepare)
+        if as_json:
+            typer.echo(json.dumps(record, indent=2, default=str))
+        else:
+            _print_run_table(record)
+        if record["status"] == "FAILED":
+            raise typer.Exit(code=1)
+    finally:
+        ctx.close()
+
+
+def _print_stage_changes() -> Any:
+    seen: dict[str, str] = {}
+
+    def show(progress: dict[str, Any]) -> None:
+        for name, stage in progress.get("stages", {}).items():
+            state = str(stage.get("status", ""))
+            if seen.get(name) != state:
+                seen[name] = state
+                console.print(f"[bold]{name}[/bold] {state}")
+
+    return show
+
+
+def _print_run_table(record: dict[str, Any]) -> None:
+    progress = record.get("progress") or {}
+    table = Table(title=f"Run {record['id']} - {record['status']}")
+    for column in ("stage", "status", "detail"):
+        table.add_column(column)
+    for name, stage in (progress.get("stages") or {}).items():
+        detail = ", ".join(
+            f"{key}={value}"
+            for key, value in stage.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        )
+        table.add_row(name, str(stage.get("status", "")), detail)
+    console.print(table)
+    sources = progress.get("sources") or []
+    if sources:
+        source_table = Table(title="Sources")
+        for column in ("source", "ok", "seen", "new", "ms", "error"):
+            source_table.add_column(column)
+        for item in sources:
+            source_table.add_row(
+                str(item.get("source_id")),
+                "yes" if item.get("ok") else "NO",
+                str(item.get("jobs_seen")),
+                str(item.get("jobs_new")),
+                str(item.get("elapsed_ms")),
+                str(item.get("error") or "")[:60],
+            )
+        console.print(source_table)
+    for warning in progress.get("warnings") or []:
+        console.print(f"[yellow]{warning}[/yellow]")
+    console.print(progress.get("summary") or "")
+    if record.get("error"):
+        console.print(f"[red]{record['error']}[/red]")
 
 
 answers_app = typer.Typer(help="Record and verify reusable application answers.")

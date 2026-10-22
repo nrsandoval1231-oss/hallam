@@ -28,6 +28,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -444,6 +445,51 @@ class DiscoveryRunRow(Base, TimestampMixin):
     jobs_unchanged: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     per_source: Mapped[dict[str, Any]] = mapped_column(JsonBlob, default=dict)
     errors: Mapped[list[Any]] = mapped_column(JsonBlob, default=list)
+
+
+class PipelineRunRow(Base, TimestampMixin):
+    """One execution of the loop: discover, rank, research, optionally prepare.
+
+    `updated_at` moves on every progress write, so a run whose process died shows up as
+    one that has stopped updating instead of as one that is still running.
+    """
+
+    __tablename__ = "runs"
+    __table_args__ = (
+        # At most one row may be QUEUED or RUNNING: the database itself refuses a second
+        # active run, whichever process (dashboard or CLI) tries to start it. The index is
+        # on a constant, so any two active rows collide.
+        Index(
+            "uq_runs_one_active",
+            text("(1)"),
+            unique=True,
+            sqlite_where=text("status IN ('QUEUED', 'RUNNING')"),
+            postgresql_where=text("status IN ('QUEUED', 'RUNNING')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("prun"))
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="QUEUED", nullable=False)
+    prepare: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    candidate_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    search_profile_id: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    progress: Mapped[dict[str, Any]] = mapped_column(JsonBlob, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class AppStateRow(Base):
+    """Small key/value store for per-installation state (for example `last_seen_at`)."""
+
+    __tablename__ = "app_state"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JsonBlob, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False
+    )
 
 
 class ModelCallRow(Base):

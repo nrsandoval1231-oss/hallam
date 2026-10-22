@@ -1,0 +1,217 @@
+# Sabra Job Engine - example search profile
+#
+# A search profile says what kind of job to look for. Copy this file, edit the values,
+# and load it with either:
+#
+#     uv run sabra init --search-profile path\to\my_search.yaml
+#     uv run sabra searches load path\to\my_search.yaml
+#
+# ...or edit the same fields in the browser on the Searches page (http://127.0.0.1:8787/searches).
+#
+# This example is a generic administrative / office search for the Dallas-Fort Worth area.
+# It is an example, not a recommendation: change every list to match the real search.
+#
+# Every field of the SearchProfile schema appears below, with what it does. Leave a field
+# out (or leave it blank) to use its default. Lists are YAML lists ("- item").
+#
+# Titles and words are matched case-insensitively, as whole words ("intern" does not match
+# "internal").
+
+# -- identity -------------------------------------------------------------------------------
+
+# Optional. A short unique id; leave it out. When left out, one is made from the name, so a
+# file with the same name is recognised as the same search. Loading a file whose id matches a
+# stored search that is different (another name, or edited content) is refused unless you add
+# --replace, so a copied example can never overwrite a search by accident.
+# id: srch_my_own_id
+
+# Required. The name shown on the Searches page and in the Today view.
+name: Administrative and office roles - Dallas-Fort Worth
+
+# Optional. Filled in automatically with the candidate this search is loaded for.
+# candidate_id: cand_...
+
+# Optional. Which search is active is chosen with `sabra searches activate <id>` or the
+# "Make this the active search" button; loading a file makes it active by default.
+# is_active: true
+
+# -- what roles ------------------------------------------------------------------------------
+
+# Job titles that are exactly what you want. A posting whose title contains these words
+# qualifies, and these also steer the ranking.
+target_titles:
+  - Administrative Assistant
+  - Office Manager
+  - Executive Assistant
+  - Receptionist
+  - Operations Coordinator
+
+# Other titles you would accept. They qualify a posting the same way target titles do.
+acceptable_titles:
+  - Administrative Coordinator
+  - Office Coordinator
+  - Front Desk Coordinator
+  - Executive Administrator
+  - Scheduling Coordinator
+  - Customer Service Coordinator
+
+# Titles to never show. A posting whose title contains one of these words is filtered out.
+excluded_titles:
+  - Intern
+  - Internship
+  - Warehouse
+  - Driver
+  - Software
+  - Engineer
+  - Nurse
+  - Sales Representative
+
+# Role "families" and "levels". Real postings rarely repeat your target titles word for
+# word ("Senior Administrative Specialist"). A title also qualifies when it contains one
+# family word AND one level word. These two lists say what counts as an office job (family)
+# and what makes it a job title (level).
+role_family_terms:
+  - administrative
+  - office
+  - receptionist
+  - front desk
+  - executive assistant
+  - operations
+  - scheduling
+  - clerk
+  - coordinator
+role_level_terms:
+  - assistant
+  - coordinator
+  - specialist
+  - manager
+  - associate
+  - administrator
+  - representative
+  - lead
+  - supervisor
+
+# Industries you prefer. Postings in these industries rank higher.
+industries:
+  - Healthcare
+  - Education
+  - Professional services
+  - Real estate
+
+# Industries to avoid. A posting in one of these is filtered out.
+excluded_industries:
+  - Multi-level marketing
+
+# Companies to never show, by name.
+excluded_companies: []
+
+# -- where -----------------------------------------------------------------------------------
+
+locations:
+  # Cities you would work in. A posting located in one of them qualifies.
+  cities:
+    - Dallas
+    - Fort Worth
+    - Plano
+    - Irving
+    - Arlington
+    - Frisco
+    - Richardson
+  # States you would work in (two-letter codes or full names).
+  states:
+    - TX
+  # Metro areas, as phrases.
+  metro_areas:
+    - Dallas-Fort Worth
+  # Which ways of working you accept.
+  allow_remote: true
+  allow_hybrid: true
+  allow_onsite: true
+  # true = a posting in another city can still qualify because you would move for it.
+  allow_relocation: false
+
+# -- pay -------------------------------------------------------------------------------------
+
+compensation:
+  # The lowest pay you would accept. A posting whose top of range is below this is filtered
+  # out; a posting that lists no pay is kept (an unstated salary is not a low salary).
+  minimum: 55000
+  # What you are aiming for. Postings near or above it rank higher.
+  target: 70000
+  currency: USD
+  # YEAR, MONTH or HOUR - the period the amounts above are in.
+  period: YEAR
+  # Whether commission or bonus pay is acceptable as part of the package.
+  accepts_commission: false
+  # Optional free-text note for yourself.
+  notes: Prefer salaried with benefits.
+
+# The most travel you would accept, as a percent of working time. Leave out for no limit.
+travel_max_percent: 10
+
+# -- type of job -----------------------------------------------------------------------------
+
+# Employment types you want: FULL_TIME, PART_TIME, CONTRACT, TEMPORARY, INTERNSHIP,
+# COMMISSION_ONLY.
+employment_types:
+  - FULL_TIME
+
+# Employment types to filter out.
+excluded_employment_types:
+  - INTERNSHIP
+  - COMMISSION_ONLY
+
+# Seniority labels read from titles: INTERN, ENTRY, SENIOR, MANAGER, DIRECTOR, UNKNOWN.
+# (Accepted and stored. Only the excluded list below is used by the filter today.)
+seniority_levels:
+  - ENTRY
+  - SENIOR
+  - MANAGER
+  - UNKNOWN
+# Seniority labels to filter out. A title that does not state a level is never excluded.
+excluded_seniority_levels:
+  - INTERN
+
+# -- words that must or must not appear --------------------------------------------------------
+
+# Words a posting should mention. (Accepted and stored; not used by the filter yet.)
+required_keywords: []
+
+# Phrases that filter a posting out when they appear in its title (and, for "mlm",
+# "multi-level marketing" and "unpaid", in its description).
+excluded_keywords:
+  - commission only
+  - 100% commission
+  - MLM
+  - multi-level marketing
+  - 1099 only
+  - unpaid
+
+# Requirements a posting may state that you cannot meet, for example "CPA". A posting that
+# demands one of them, when your profile shows no evidence of it, is filtered out. Only
+# applies once a resume has been loaded.
+minimum_qualifications: []
+
+# true = keep roles that are paid by commission only.
+allow_commission_only: false
+
+# -- freshness and volume --------------------------------------------------------------------
+
+# Ignore postings older than this many days. Use null for no limit.
+max_age_days: 45
+
+# Limit the search to some kinds of source: GREENHOUSE, LEVER, DIRECT_CAREERS.
+# (Accepted and stored; not used yet. Empty means every enabled source.)
+source_filter: []
+
+# How many roles the shortlist keeps.
+shortlist_target: 10
+
+# How many top roles "Run now" prepares application packages for (when asked to prepare).
+# Preparing a package never submits anything; you approve each one yourself.
+prepare_target: 3
+
+# -- bookkeeping -----------------------------------------------------------------------------
+
+# Set automatically when the search is created. Leave it out.
+# created_at: 2026-01-01T00:00:00Z

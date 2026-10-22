@@ -24,10 +24,31 @@ JOB_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
         {JobStatus.QUALIFIED, JobStatus.REJECTED, JobStatus.SHORTLISTED, JobStatus.EXPIRED}
     ),
     JobStatus.QUALIFIED: frozenset({JobStatus.SHORTLISTED, JobStatus.REJECTED, JobStatus.EXPIRED}),
+    # SHORTLISTED/RESEARCHED -> QUALIFIED is the demotion edge: a ranking pass that finds
+    # an opportunity no longer in the top shortlist moves it back (it stays qualified, and
+    # may be shortlisted again later). Declared so the move goes through the graph.
     JobStatus.SHORTLISTED: frozenset(
-        {JobStatus.RESEARCHED, JobStatus.PREPARED, JobStatus.REJECTED, JobStatus.EXPIRED}
+        {
+            JobStatus.QUALIFIED,
+            JobStatus.RESEARCHED,
+            JobStatus.PREPARED,
+            JobStatus.REJECTED,
+            JobStatus.EXPIRED,
+        }
     ),
-    JobStatus.RESEARCHED: frozenset({JobStatus.PREPARED, JobStatus.REJECTED, JobStatus.EXPIRED}),
+    # RESEARCHED -> AWAITING_APPROVAL: the package builder queues a package for approval
+    # from whatever pre-approval state the opportunity is in, and research (run with the
+    # ranking pass) leaves a shortlisted opportunity RESEARCHED. Preparing it must not
+    # fail on a state the pipeline itself put it in.
+    JobStatus.RESEARCHED: frozenset(
+        {
+            JobStatus.QUALIFIED,
+            JobStatus.PREPARED,
+            JobStatus.AWAITING_APPROVAL,
+            JobStatus.REJECTED,
+            JobStatus.EXPIRED,
+        }
+    ),
     JobStatus.PREPARED: frozenset(
         {JobStatus.AWAITING_APPROVAL, JobStatus.REJECTED, JobStatus.EXPIRED}
     ),

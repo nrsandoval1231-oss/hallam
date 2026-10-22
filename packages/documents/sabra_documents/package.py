@@ -28,6 +28,7 @@ from .answers import (
     unresolved_questions,
     verified_memory_answers,
 )
+from .generate import GenerationResult, PackageGenerator
 from .master_resume import ResumeDocument
 from .tailor import ResumeTailor, TailoredRésumé, verify_tailored_truth
 
@@ -40,6 +41,8 @@ class BuiltPackage:
     status: PackageStatus = PackageStatus.DRAFT
     violations: list[str] = field(default_factory=list)
     missing_inputs: list[str] = field(default_factory=list)
+    # Present only when a model was used (see `sabra_documents.generate`).
+    generation: dict[str, Any] | None = None
 
     @property
     def complete(self) -> bool:
@@ -50,7 +53,7 @@ class BuiltPackage:
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "status": str(self.status),
             "complete": self.complete,
             "content_hash": self.schema.content_hash,
@@ -60,6 +63,9 @@ class BuiltPackage:
             "truth_summary": (self.schema.truth_ledger or {}).get("summary", {}),
             "tailoring": self.tailored.as_dict(),
         }
+        if self.generation is not None:
+            out["generated_by"] = self.generation.get("generated_by", {})
+        return out
 
 
 def _provenance_verified(profile: CandidateProfile, path: str) -> bool:
@@ -204,9 +210,29 @@ class PackageFactory:
         assessment: FitAssessmentSchema | None = None,
         questions: list[str] | None = None,
         research: dict[str, Any] | None = None,
+        generator: PackageGenerator | None = None,
     ) -> BuiltPackage:
         ledger = TruthLedger()
-        tailored = self.tailor.tailor(profile, master, job, assessment)
+        # With a configured model, the generator proposes the tailoring, the cover
+        # letter and the fit narrative behind the truth gate. Whatever it cannot
+        # deliver (no model, a failed call, a text that will not pass the gate) is
+        # produced by the deterministic path below, exactly as without a model.
+        gen: GenerationResult | None = None
+        if generator is not None:
+            gen = generator.generate(
+                profile=profile,
+                master=master,
+                job=job,
+                assessment=assessment,
+                research=research,
+                tailor=self.tailor,
+                include_cover_letter=self.include_cover_letter,
+                entity=("opportunity", opportunity_id),
+            )
+        if gen is not None and gen.tailored is not None:
+            tailored = gen.tailored
+        else:
+            tailored = self.tailor.tailor(profile, master, job, assessment)
 
         # The tailored résumé's ledger is folded into the package ledger so the audit
         # trail covers the whole artifact set, not just the cover letter.
@@ -215,7 +241,7 @@ class PackageFactory:
         for question in tailored.ledger.unresolved:
             ledger.unresolved_question(question)
 
-        violations = verify_tailored_truth(tailored, profile)
+        violations = verify_tailored_truth(tailored, profile, gen.corpus if gen else None)
         missing: list[str] = []
         if not profile.identity.full_name:
             missing.append("identity.full_name")
@@ -232,7 +258,10 @@ class PackageFactory:
 
         cover_letter = None
         if self.include_cover_letter:
-            cover_letter = self._cover_letter(profile, job, tailored, ledger)
+            if gen is not None and gen.cover_body:
+                cover_letter = self._model_cover_letter(profile, gen, ledger)
+            else:
+                cover_letter = self._cover_letter(profile, job, tailored, ledger)
 
         answers = [r.answer for r in resolutions]
         # The whole of the owner's verified memory rides on the package, so a form's
@@ -245,6 +274,8 @@ class PackageFactory:
         )
         gaps = list(assessment.gaps) if assessment else []
         warnings = list(tailored.ledger.unresolved)
+        if gen is not None:
+            warnings.extend(gen.warnings)
         if violations:
             warnings.append(
                 f"{len(violations)} generated line(s) could not be traced to candidate data"
@@ -261,7 +292,7 @@ class PackageFactory:
             tailored_resume_markdown=tailored.markdown,
             cover_letter=cover_letter,
             candidate_summary=self._candidate_summary(profile, job, tailored),
-            fit_explanation=self._fit_explanation(assessment, job),
+            fit_explanation=self._fit_explanation(assessment, job, gen),
             qualification_gaps=gaps,
             answers=answers,
             applicant_name=identity.get("name"),
@@ -282,8 +313,8 @@ class PackageFactory:
             interview_preparation=self._interview_prep(job, assessment, profile),
             unresolved_questions=list(ledger.unresolved),
             warnings=warnings,
-            truth_ledger=ledger.as_dict(),
-            engine="deterministic",
+            truth_ledger=self._ledger_payload(ledger, gen),
+            engine=gen.generated_by_label if gen is not None and gen.used_model else "deterministic",
         )
         # The hash covers content only — never ids or timestamps — so an approval
         # bound to it cannot be replayed against edited content.
@@ -300,6 +331,7 @@ class PackageFactory:
             status=status,
             violations=violations,
             missing_inputs=missing,
+            generation=(gen.ledger_record() if gen is not None and gen.inputs_key else None),
         )
 
     # -- artifacts ------------------------------------------------------
@@ -382,6 +414,36 @@ class PackageFactory:
             )
         return "\n".join(lines)
 
+    @staticmethod
+    def _ledger_payload(ledger: TruthLedger, gen: GenerationResult | None) -> dict[str, Any]:
+        payload = ledger.as_dict()
+        if gen is not None and gen.inputs_key:
+            payload["generation"] = gen.ledger_record()
+        return payload
+
+    def _model_cover_letter(
+        self, profile: CandidateProfile, gen: GenerationResult, ledger: TruthLedger
+    ) -> str:
+        """A model-written body, already through the truth gate, in the standard frame."""
+
+        body = (gen.cover_body or "").strip()
+        ledger.record(
+            "cover letter body (model-written, truth-gated)",
+            TruthLevel.INFERRED,
+            [Evidence("truth_gate", body[:200])],
+            artifact="cover_letter",
+        )
+        for claim in gen.verified_claims.get("cover_letter", []):
+            # Judged by a model and quote-checked by code: INFERRED, not VERIFIED, so a
+            # reader can tell it from a fact the candidate stated outright.
+            ledger.record(
+                f"cover letter claim (audit-checked): {claim.claim}",
+                TruthLevel.INFERRED,
+                [Evidence("candidate_evidence", claim.evidence)],
+                artifact="cover_letter",
+            )
+        return "\n".join(["Dear Hiring Team,", "", body, "", _closing_line(profile)])
+
     def _candidate_summary(
         self, profile: CandidateProfile, job: CanonicalJob | Any, tailored: TailoredRésumé
     ) -> str:
@@ -403,15 +465,25 @@ class PackageFactory:
         return " ".join(parts)
 
     def _fit_explanation(
-        self, assessment: FitAssessmentSchema | None, job: CanonicalJob | Any
+        self,
+        assessment: FitAssessmentSchema | None,
+        job: CanonicalJob | Any,
+        gen: GenerationResult | None = None,
     ) -> str:
         if assessment is None:
             return "No fit assessment has been produced for this opportunity yet."
-        lines = [assessment.why_this_job]
+        narrative = gen.narrative if gen is not None else None
+        lines = [narrative.why_this_job.strip() if narrative else assessment.why_this_job]
         if assessment.strengths:
             lines.append("Strengths: " + "; ".join(assessment.strengths[:4]))
         if assessment.gaps:
             lines.append("Gaps: " + "; ".join(assessment.gaps[:4]))
+        if narrative is not None:
+            lines.append("Gap analysis: " + narrative.gap_analysis.strip())
+        if gen is not None and gen.strengths:
+            lines.append("Where the evidence matches: " + " ".join(gen.strengths))
+        if gen is not None and gen.gaps:
+            lines.append("Where it does not yet: " + " ".join(gen.gaps))
         lines.append(f"Confidence: {assessment.confidence:.2f} (engine: {assessment.engine}).")
         return "\n".join(lines)
 

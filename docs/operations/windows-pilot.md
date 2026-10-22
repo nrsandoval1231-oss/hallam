@@ -78,7 +78,7 @@ cd C:\Users\nrsan\hallam
 uv run sabra init --profile C:\Users\nrsan\hallam-private\candidates\profile.yaml
 ```
 
-Use the real profile path if the filename differs. Upload the résumé from the dashboard (Overview) if it is not already in that database. The résumé file itself stays outside git.
+Use the real profile path if the filename differs. Upload the résumé on the **Candidate** page (http://127.0.0.1:8787/candidate) if it is not already in that database: `.pdf`, `.docx` (text in headers and footers is read too), `.txt` and `.md` are accepted; anything else (`.rtf`, `.odt`, ...) is refused rather than guessed at. The résumé file itself stays outside git.
 
 Sensitive questions stay blank until you record an answer and verify it. Recording alone is not enough, and the engine will not invent a value.
 
@@ -104,6 +104,42 @@ On the answers page, **Verify** sends the value shown beside it. If the stored v
 
 The same actions are on http://127.0.0.1:8787/answers after the API is running (step 5). A row is usable on a form only when the list shows it verified.
 
+## 4a. Define the search, run it, and read the results from the browser
+
+Start the dashboard (step 5 has the command), then everything below can be done at http://127.0.0.1:8787 without the command line.
+
+**Candidate** (`/candidate`). Fill in **Your details** (name, email, phone, street address, city, state, postal code, country, LinkedIn, preferred headline) and press **Save my details**. The boxes start with what is stored, including values read from the résumé, and the tag beside each shows how sure Sabra is of it. Only a box you change, or one you tick **This is right** for, is stored as stated by you (VERIFIED) in a new profile version; every other value keeps its level. A confirmed value records what it was confirmed from. What you state wins over anything read from a résumé, whether the résumé was uploaded before or after. A blank box changes nothing. Packages read these values: the first and last name, email, phone, address and LinkedIn are what the form fillers type. Each row of the profile on that page shows its truth level: VERIFIED (you said it), INFERRED (read from the résumé, never typed onto a form until you confirm it), or UNKNOWN. The same page lists the master résumé versions and takes the upload.
+
+**Searches** (`/searches`). A search says what kind of job to look for. Edit the active search in place, or press **New search**. Titles, words, cities and the like are one per line. **Save search** writes it and records a `SEARCH_PROFILE_UPDATED` event; **Make this the active search** is what **Run now**, `sabra discover` and `sabra rank` use. Saving never wipes a field the form does not show (excluded companies, seniority levels and so on): they are sent back as they were.
+
+The same thing from a file: copy `config/search_profile.example.yaml` (every field is explained in it; the example is a generic Dallas-Fort Worth office/administrative search with a $70,000 target), edit it, and load it:
+
+```powershell
+uv run sabra searches load C:\Users\nrsan\hallam-private\my_search.yaml
+uv run sabra init --search-profile C:\Users\nrsan\hallam-private\my_search.yaml
+uv run sabra searches list
+uv run sabra searches show
+uv run sabra searches activate SEARCH_ID
+```
+
+Loading the same file again is harmless. If a file's id (or the one derived from its name) matches a stored search that is different, the load is refused; add `--replace` to replace it (`Replaced existing search <id> (was '<name>')` is printed). Leave `id:` out of your own files. A stored search is never overwritten or re-seeded by `sabra init`; the built-in medical-aesthetics profile is created only when the candidate has no search at all.
+
+**Today** (`/`). The first page. It lists what needs you: packages ready for approval, applications that need more information (and how many open questions), submissions waiting for your report, new high-fit roles since the last run began, and employer responses since you last pressed **Mark responses as seen**. **Run now** starts the whole loop in the background (discover, rank, research the shortlist; tick the box to also prepare packages for the top roles) and shows live progress, source by source. Only one run can be active at a time. The same run from PowerShell, with a progress table:
+
+```powershell
+uv run sabra run
+uv run sabra run --prepare
+uv run sabra run --kind rank
+```
+
+`--kind` is `discover`, `rank` (rank and research) or `full` (the default). A run never approves or submits anything. While it works the dashboard stays usable: ranking commits in batches. A run whose process was killed shows as FAILED ("abandoned") as soon as the next request notices the process is gone (or after an hour with no sign of life, when that cannot be checked), so it cannot block the next one. Ctrl-C ends the run as FAILED too. `sabra discover` and `sabra rank` refuse to start while a run is active, and the database itself allows only one active run.
+
+`sabra rank` also researches the shortlist now (company sites are read; a packet less than 7 days old is kept). One site that cannot be read never stops the run. Add `--no-research` to skip it.
+
+**Opportunities** (`/opportunities`). Each card shows the pay (or "not listed"), the confidence, the main reason, the biggest gap and the fit. **Prepare application** is unchanged. **Pass** moves the role to REJECTED (reason `OWNER_PASSED`) and it is never brought back by a later run. A package that was waiting for approval is withdrawn with it. Pass is refused once the application is approved or later.
+
+**Settings** (`/settings`). Read only: whether dry-run is on and the variable that changes it, the language-model provider, the database, the private and artifacts folders, the hand-off timeout, whether Playwright's Chromium is installed, the active search and the version.
+
 ## 5. Prepare packages, read them, and approve a batch
 
 ```powershell
@@ -112,7 +148,7 @@ uv run uvicorn --app-dir apps/api sabra_api.main:app --host 127.0.0.1 --port 878
 
 Then, in the browser on this PC:
 
-1. http://127.0.0.1:8787/ — the overview lists the shortlisted queue.
+1. http://127.0.0.1:8787/ — **Today**: what needs you, the run controls and the top of the queue.
 2. http://127.0.0.1:8787/opportunities — prepare a package for each role. Preparing an application that is already approved returns "already approved" and leaves the approved package in place.
 3. http://127.0.0.1:8787/applications — the list is the latest revision of each application. Open **Read package** before you approve. Copy the application id with **Copy**. Tick the complete packages and press **Approve selected**.
 4. An approved row says **Approved** and names the next step. **Apply** stays disabled while dry-run is on. A blocked or failed row can be applied to again once its cause is fixed, or rebuilt with **Refresh package** if the cause is a missing or wrong answer (section 6).
@@ -194,6 +230,25 @@ Turn dry-run back on when you are done:
 ```powershell
 $env:SABRA_AUTOMATION_DRY_RUN = "true"
 ```
+
+## 9. Run it every morning
+
+To have the loop run by itself, register a daily Windows Task Scheduler task. Nothing is registered until you run this yourself, from the checkout:
+
+```powershell
+cd C:\Users\nrsan\hallam
+.\scripts\schedule-windows.ps1 -At 06:30            # discover, rank, research
+.\scripts\schedule-windows.ps1 -At 06:30 -Prepare   # ...and prepare packages for the top roles
+.\scripts\schedule-windows.ps1 -Unregister          # remove it
+```
+
+The task is called "Sabra daily run". It runs as you, only while you are logged on (if the PC was off at 06:30 it runs when you next log on), and never starts a second run on top of one that is still going. Each run loads `C:\Users\nrsan\hallam-private\hallam-env.ps1` (pass `-PrivateDir` for another folder), then runs
+
+```powershell
+uv run sabra run --json >> <data_dir>\logs\run-<date>.log
+```
+
+`<data_dir>` is `C:\Users\nrsan\hallam-private\var` unless `hallam-env.ps1` sets `SABRA_DATA_DIR`. The task stops with an error, and runs nothing, if `hallam-env.ps1` is missing. The log is UTF-8 and holds the run's JSON record, per-source outcomes included; the dashboard's **Today** page shows the last run's summary. The scheduled run only discovers, ranks, researches and (with `-Prepare`) prepares. It does not approve, and it does not submit: dry-run stays the default, and a package still waits for you on the Applications page. The task runs `scripts\run-sabra-daily.ps1`; do not move it.
 
 ## What this build will not do
 

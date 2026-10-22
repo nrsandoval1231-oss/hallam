@@ -14,17 +14,73 @@ a model would happily make up if asked without evidence.
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 from sabra_domain.enums import EntityType, EventType, JobStatus
 from sabra_domain.errors import ProviderError
 from sabra_domain.schemas import ResearchPacketSchema
 from sabra_providers.http import HttpClient
 
 from .context import EngineContext, Repos
+
+# A research packet younger than this is reused rather than fetched again.
+FRESH_PACKET_DAYS = 7
+
+_LOCAL_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet")
+
+
+def refusal_for_url(url: str, *, resolve: bool = False) -> str | None:
+    """Why a company-site URL must not be fetched, or None when it is a public http(s) URL.
+
+    The website comes from a job board's own data, so it is not trusted: only http and
+    https are read, and never an address that is loopback, private, link-local or
+    otherwise not on the public internet. With `resolve`, the host name is also looked up
+    and every address it resolves to must be public (a public name that points at a private
+    address is refused too).
+    """
+
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").strip().lower().rstrip(".")
+    except ValueError:
+        return "not a valid URL"
+    if parts.scheme not in {"http", "https"}:
+        return f"only http and https sites are read, not {parts.scheme or 'a bare name'!r}"
+    if not host:
+        return "the URL has no host"
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not literal.is_global:
+            return f"{host} is not a public address"
+        return None
+    if host == "localhost" or host.endswith(_LOCAL_SUFFIXES) or "." not in host:
+        return f"{host} is not a public host name"
+    if resolve:
+        try:
+            addresses = {info[4][0] for info in socket.getaddrinfo(host, None)}
+        except OSError:
+            return None  # cannot be resolved: the fetch itself will fail and say so
+        for address in addresses:
+            try:
+                if not ipaddress.ip_address(address.split("%")[0]).is_global:
+                    return f"{host} resolves to a non-public address"
+            except ValueError:
+                return f"{host} resolves to an unreadable address"
+    return None
+
 
 _META_DESCRIPTION = re.compile(
     r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\'](.*?)["\']',
@@ -73,8 +129,29 @@ class ResearchService:
         if self._owns_http and self._http is not None:
             self._http.close()
 
+    def _website_for(self, opportunity_id: str) -> str | None:
+        """The company site this opportunity would be researched from (read-only)."""
+
+        with self.ctx.read_repos() as repos:
+            jobs = repos.opportunities.list_jobs(opportunity_id)
+            if not jobs:
+                return None
+            primary = _primary(jobs)
+            company = repos.companies.find(primary.company)
+            if company is not None and company.website:
+                return company.website
+            return f"https://{primary.company_domain}" if primary.company_domain else None
+
     def research(self, opportunity_id: str, *, fetch_homepage: bool = True) -> ResearchOutcome:
         outcome = ResearchOutcome(opportunity_id=opportunity_id)
+        # The company site is fetched before the write transaction opens. A slow site
+        # (two attempts at the discovery timeout) would otherwise hold SQLite's single
+        # write lock for the whole fetch and lock the dashboard out.
+        prefetched: tuple[str, tuple[str | None, list[str], str | None]] | None = None
+        if fetch_homepage:
+            website = self._website_for(opportunity_id)
+            if website:
+                prefetched = (website, self._fetch_site(website))
         with self.ctx.repos() as repos:
             opportunity = repos.opportunities.get(opportunity_id)
             jobs = repos.opportunities.list_jobs(opportunity_id)
@@ -118,7 +195,15 @@ class ResearchService:
                 )
 
             if packet.company_website and fetch_homepage:
-                description, fetched_sources, note = self._fetch_site(packet.company_website)
+                if prefetched is not None and prefetched[0] == packet.company_website:
+                    description, fetched_sources, note = prefetched[1]
+                else:
+                    # Never fetch while the write transaction is open (two attempts at the
+                    # discovery timeout would hold SQLite's one write lock for the whole
+                    # fetch). The site changed since the prefetch, so it is left for the
+                    # next research pass, which fetches it before opening a scope.
+                    description, fetched_sources = None, []
+                    note = "company site changed during research; it will be read next time"
                 if description:
                     packet.company_description = description
                     company_row.description = description
@@ -182,6 +267,61 @@ class ResearchService:
             outcome.inference_count = len(inferences)
         return outcome
 
+    def research_fresh(
+        self,
+        candidate_id: str,
+        *,
+        search_profile_id: str | None = None,
+        limit: int = 10,
+        max_age_days: int = FRESH_PACKET_DAYS,
+        progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Research the shortlist, skipping opportunities with a packet younger than a week.
+
+        One opportunity failing (an unreachable company site, a posting with no jobs)
+        is counted and recorded; it never stops the others and never raises. The result
+        is a plain summary the run records.
+        """
+
+        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+        with self.ctx.read_repos() as repos:
+            shortlist = repos.opportunities.shortlist(candidate_id)
+            if search_profile_id:
+                shortlist = [
+                    o for o in shortlist if (o.search_profile_id or "") == search_profile_id
+                ]
+            targets: list[tuple[str, bool]] = []
+            for opportunity in shortlist[: max(0, limit)]:
+                packet = repos.research.for_opportunity(opportunity.id)
+                fresh = packet is not None and (packet.updated_at or cutoff) >= cutoff
+                targets.append((opportunity.id, fresh))
+        summary: dict[str, Any] = {
+            "total": len(targets),
+            "researched": 0,
+            "skipped_fresh": 0,
+            "failed": 0,
+            "errors": [],
+        }
+        try:
+            for opportunity_id, fresh in targets:
+                if fresh:
+                    summary["skipped_fresh"] += 1
+                else:
+                    try:
+                        self.research(opportunity_id)
+                        summary["researched"] += 1
+                    except Exception as exc:  # noqa: BLE001 - one failure must not stop the rest
+                        summary["failed"] += 1
+                        summary["errors"].append(
+                            f"{opportunity_id}: {type(exc).__name__}: {exc}"[:300]
+                        )
+                if progress is not None:
+                    with suppress(Exception):  # observability only
+                        progress({"stage": "research", **summary})
+        finally:
+            self.close()
+        return summary
+
     def research_shortlist(self, candidate_id: str, *, limit: int = 10) -> list[ResearchOutcome]:
         with self.ctx.read_repos() as repos:
             targets = [o.id for o in repos.opportunities.shortlist(candidate_id)][:limit]
@@ -194,13 +334,33 @@ class ResearchService:
         return outcomes
 
     def _fetch_site(self, url: str) -> tuple[str | None, list[str], str | None]:
+        # An injected client (a test double) is not asked to resolve names; the real one is.
+        refusal = refusal_for_url(url, resolve=self._http is None)
+        if refusal is not None:
+            return None, [], f"company site not fetched: {refusal}"
         client = self._http
         owns = False
         if client is None:
+            settings = self.ctx.settings
+
+            def check_request(request: httpx.Request) -> None:
+                # Runs for every request, redirects included.
+                reason = refusal_for_url(str(request.url), resolve=True)
+                if reason is not None:
+                    raise httpx.RequestError(f"refused: {reason}")
+
             client = HttpClient(
-                timeout=self.ctx.settings.discovery_timeout_seconds,
+                client=httpx.Client(
+                    timeout=settings.discovery_timeout_seconds,
+                    follow_redirects=True,
+                    headers={
+                        "User-Agent": settings.discovery_user_agent,
+                        "Accept": "text/html;q=0.9,*/*;q=0.8",
+                    },
+                    event_hooks={"request": [check_request]},
+                ),
                 max_attempts=2,
-                user_agent=self.ctx.settings.discovery_user_agent,
+                timeout=settings.discovery_timeout_seconds,
             )
             owns = True
         try:
