@@ -26,12 +26,22 @@ Verified against real data, not scaffolding:
 
 `apps/api` is a FastAPI app with an HTML dashboard that covers the whole loop from the
 browser. Every page shares one navigation bar: `/` (Today: what needs your attention and
-**Run now**), `/opportunities` (cards with pay, confidence and the biggest gap; Prepare
-and Pass), `/applications` (batch approval), `/pipeline` (placeholder), `/candidate`
-(your details, résumé upload, the profile with its truth levels), `/searches` (define and
-switch search profiles), `/answers` (record and verify) and `/settings` (read only). JSON
-routes sit beside them: health, status, today, candidate, searches, runs, settings, the
-shortlist and package preparation. `make run-api` listens on http://127.0.0.1:8787.
+**Run now**; each count links to the page that acts on it), `/opportunities` (cards with
+pay, confidence and the biggest gap; Prepare and Pass), `/opportunities/{id}` (the
+posting, why it scored as it did, the hard-filter decision, verified facts apart from
+inferences, the application and the event history), `/applications` (batch approval; each
+row links to its review page), `/packages/{id}` (the application review: the opening, fit,
+résumé, cover letter, answers with their truth levels, unresolved questions, warnings and
+how each artifact was written, then one **Approve application** bound to the content hash),
+`/pipeline` (every application past approval by stage, with a **Record outcome** control
+and its history), `/candidate` (your details, résumé upload, the profile with its truth
+levels), `/searches` (define and switch search profiles), `/answers` (record and verify)
+and `/settings` (read only). JSON routes sit beside them: health, status, today, candidate,
+searches, runs, settings, the shortlist, opportunity detail, package review and reject,
+package preparation, the pipeline, the application ledger, outcomes, and the learning
+dataset (`/api/learning-records`, JSON lines). On the command line, `sabra outcome`,
+`sabra pipeline` and `sabra ledger export` cover the same ground. `make run-api` listens
+on http://127.0.0.1:8787.
 `apps/web` is still an empty scaffold.
 
 ### Honest gaps

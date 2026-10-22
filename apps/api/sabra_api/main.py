@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
+from html import escape
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sabra_automation.form_keys import answer_key_choices
@@ -43,22 +44,37 @@ from sabra_engine.candidate_intake import (
     save_owner_identity,
 )
 from sabra_engine.context import EngineContext
+from sabra_engine.display import compensation_text as _compensation_text
 from sabra_engine.documents import DocumentService, package_summary
 from sabra_engine.execution import ExecutionService
 from sabra_engine.handoff_manager import HANDOFFS
 from sabra_engine.intelligence import pass_opportunity
+from sabra_engine.ledger import (
+    CONTACT_MAX,
+    NOTE_MAX,
+    OUTCOME_LABELS,
+    LedgerService,
+    parse_occurred_at,
+)
+from sabra_engine.opportunity_detail import OpportunityDetailService
 from sabra_engine.refresh import PackageRefreshService
 from sabra_engine.runs import RunService
 from sqlalchemy.exc import OperationalError
 
 from .pages import (
     CANDIDATE_BODY,
-    PIPELINE_BODY,
     SETTINGS_BODY,
     TODAY_BODY,
     TODAY_CSS,
     page_shell,
     searches_body,
+)
+from .review_pages import (
+    DETAIL_CSS,
+    PIPELINE_CSS,
+    opportunity_detail_body,
+    pipeline_body,
+    review_body,
 )
 
 
@@ -123,6 +139,7 @@ async def sabra_error_handler(_request: Request, exc: SabraError) -> JSONRespons
             "no submission waiting",
             "already active",
             "cannot pass",
+            "cannot withdraw",
         )
     ):
         status = 409
@@ -436,34 +453,6 @@ def status() -> dict[str, Any]:
     return _status_payload()
 
 
-def _compensation_text(job: Any) -> str:
-    """The posted pay as a person would read it, or "not listed"."""
-
-    if job is None:
-        return "not listed"
-    low, high = job.salary_min, job.salary_max
-    if not low and not high:
-        return "not listed"
-    currency = job.salary_currency or "USD"
-    symbol = "$" if currency == "USD" else f"{currency} "
-
-    def money(value: float) -> str:
-        return f"{symbol}{value:,.0f}"
-
-    if low and high and low != high:
-        text = f"{money(low)} to {money(high)}"
-    elif low and high:
-        text = money(low)
-    elif low:
-        text = f"from {money(low)}"
-    else:
-        text = f"up to {money(high)}"
-    suffix = {"YEAR": "a year", "MONTH": "a month", "HOUR": "an hour"}.get(
-        str(job.salary_period or "").upper(), ""
-    )
-    return f"{text} {suffix}".strip()
-
-
 @app.get("/api/opportunities")
 def opportunity_list(all_profiles: bool = False) -> dict[str, Any]:
     """The ranked shortlist for the active search (`?all_profiles=true` for every search)."""
@@ -511,6 +500,17 @@ def opportunity_list(all_profiles: bool = False) -> dict[str, Any]:
         ctx.close()
 
 
+@app.get("/api/opportunities/{opportunity_id}")
+def opportunity_detail(opportunity_id: str) -> dict[str, Any]:
+    """The opportunity detail projection (PRD section 30)."""
+
+    ctx = EngineContext.create()
+    try:
+        return OpportunityDetailService(ctx).detail(opportunity_id)
+    finally:
+        ctx.close()
+
+
 class AnswerWrite(BaseModel):
     key: str
     value: str = ""
@@ -550,6 +550,19 @@ def _annotate_package(repos: Any, row: Any, *, dry_run: bool) -> dict[str, Any]:
         and application is not None
         and application.status == ApplicationStatus.AWAITING_APPROVAL.value
     )
+    # The same buckets the Today view counts, so a count links to exactly its rows.
+    application_status = application.status if application else None
+    if summary["approvable"]:
+        summary["attention"] = "ready"
+    elif row.status == PackageStatus.INCOMPLETE.value and application_status in {
+        ApplicationStatus.DRAFT.value,
+        ApplicationStatus.AWAITING_APPROVAL.value,
+    }:
+        summary["attention"] = "needs_information"
+    else:
+        # "handoffs" (an APPLYING row that is waiting for the person) needs the live
+        # handoff state, which `_package_rows` adds; see there.
+        summary["attention"] = None
     summary["cover_letter"] = payload.get("cover_letter")
     summary["hiring_manager_message"] = payload.get("hiring_manager_message")
     summary["tailored_resume_markdown"] = payload.get("tailored_resume_markdown")
@@ -605,7 +618,15 @@ def _package_rows() -> tuple[list[dict[str, Any]], bool]:
                 _annotate_package(repos, row, dry_run=dry_run)
                 for row in _latest_packages(repos, candidate.id)
             ]
-            return rows, dry_run
+        # The same rule as the Today count: an APPLYING row is a handoff only while it is
+        # waiting for the person's report, not while a run is still going.
+        service = _execution_service(ctx)
+        for summary in rows:
+            if summary["application_status"] == ApplicationStatus.APPLYING.value:
+                status = service.handoff_status(summary["application_id"])
+                if status["awaiting_person"]:
+                    summary["attention"] = "handoffs"
+        return rows, dry_run
     finally:
         ctx.close()
 
@@ -623,6 +644,35 @@ def package_detail(package_id: str) -> dict[str, Any]:
         with ctx.read_repos() as repos:
             row = repos.packages.get(package_id)
             return _annotate_package(repos, row, dry_run=ctx.settings.automation_dry_run)
+    finally:
+        ctx.close()
+
+
+@app.get("/api/packages/{package_id}/review")
+def package_review(package_id: str) -> dict[str, Any]:
+    """Everything the review page shows, in one payload (PRD section 31)."""
+
+    ctx = EngineContext.create()
+    try:
+        return ApprovalService(ctx).review(package_id)
+    finally:
+        ctx.close()
+
+
+class RejectRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+@app.post("/api/packages/{package_id}/reject")
+def reject_package(package_id: str, body: RejectRequest | None = None) -> dict[str, Any]:
+    """The owner rejects the application's current package. Nothing is submitted or deleted."""
+
+    ctx = EngineContext.create()
+    try:
+        outcome = ApprovalService(ctx).reject(
+            package_id, decided_by="owner", reason=body.reason if body else None
+        )
+        return outcome.as_dict()
     finally:
         ctx.close()
 
@@ -818,6 +868,85 @@ def pass_on_opportunity(opportunity_id: str) -> dict[str, Any]:
         return pass_opportunity(ctx, opportunity_id)
     finally:
         ctx.close()
+
+
+# ---------------------------------------------------------------------------
+# Pipeline, ledger, outcomes and the learning dataset
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/pipeline")
+def pipeline() -> dict[str, Any]:
+    """Every application past approval, grouped by stage (PRD sections 22-24)."""
+
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            candidate_id = candidate.id if candidate else None
+        outcome_kinds = [{"kind": kind, "label": label} for kind, label in OUTCOME_LABELS.items()]
+        if candidate_id is None:
+            return {"candidate_id": None, "board": [], "counts": {}, "outcome_kinds": outcome_kinds}
+        payload = LedgerService(ctx).pipeline(candidate_id).as_dict()
+        payload["outcome_kinds"] = outcome_kinds
+        return payload
+    finally:
+        ctx.close()
+
+
+@app.get("/api/applications/{application_id}/ledger")
+def application_ledger(application_id: str) -> dict[str, Any]:
+    """The durable application record: package, answers, submission, events and outcomes."""
+
+    ctx = EngineContext.create()
+    try:
+        return LedgerService(ctx).application_ledger(application_id).model_dump(mode="json")
+    finally:
+        ctx.close()
+
+
+class OutcomeRequest(BaseModel):
+    kind: str = Field(max_length=40)
+    # ISO date or datetime. Left out, it is now; a date or time with no zone is local time.
+    occurred_at: str | None = None
+    note: str | None = Field(default=None, max_length=NOTE_MAX)
+    contact: str | None = Field(default=None, max_length=CONTACT_MAX)
+
+
+@app.post("/api/applications/{application_id}/outcomes")
+def record_application_outcome(application_id: str, body: OutcomeRequest) -> dict[str, Any]:
+    """Record what an employer did. The lifecycle moves through the transition graph."""
+
+    ctx = EngineContext.create()
+    try:
+        return LedgerService(ctx).record_outcome(
+            application_id,
+            body.kind,
+            notes=body.note,
+            occurred_at=parse_occurred_at(body.occurred_at),
+            contact=body.contact,
+        )
+    finally:
+        ctx.close()
+
+
+@app.get("/api/learning-records")
+def learning_records() -> Response:
+    """The learning dataset (PRD section 25) as JSON lines, with every identity field removed."""
+
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            candidate_id = candidate.id if candidate else None
+        text = LedgerService(ctx).learning_jsonl(candidate_id) if candidate_id else ""
+    finally:
+        ctx.close()
+    return Response(
+        content=text,
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": 'attachment; filename="sabra-learning-records.jsonl"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1268,7 +1397,7 @@ OPPORTUNITIES_CSS = (
     "@media(max-width:700px){.row{flex-direction:column}.score{text-align:left}}"
 )
 
-OPPORTUNITIES_BODY = """<main><a href="/">Back to overview</a><h1>Opportunities</h1><p>Ranked roles from the current discovery and intelligence run.</p><section class="summary"><div class="stat"><strong>__OPPORTUNITIES__</strong> opportunities</div><div class="stat"><strong>__SHORTLISTED__</strong> shortlisted</div><div class="stat"><strong>__JOBS__</strong> jobs discovered</div></section><form class="filters" id="filters"><input name="location" placeholder="Location"><input name="min_salary" type="number" placeholder="Min salary"><input name="max_salary" type="number" placeholder="Max salary"><input name="industry" placeholder="Industry"><button type="submit">Filter jobs</button><button type="button" id="clear">Clear</button></form><section class="queue" id="queue"><h2>Shortlist</h2><div class="row"><div><strong>Loading shortlisted opportunities...</strong></div></div></section><p id="error"></p><script>function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}let all=[];function showError(message){const line=document.querySelector('#error');line.textContent=message||'The request failed.';}async function prepare(id){const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/prepare`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){const detail=typeof d.detail==='string'?d.detail:(text||'Preparation failed');showError(detail);alert(detail);return}showError('');alert(`Package ${d.status}. Unresolved questions: ${(d.unresolved_questions||[]).length}`)}async function pass(id){if(!confirm('Pass on this role? It leaves your list and will not come back.'))return;const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/pass`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){showError(typeof d.detail==='string'?d.detail:(text||'Pass failed'));return}showError('');all=all.filter(o=>o.id!==id);render(all)}function render(rows){const q=document.querySelector('#queue');q.innerHTML='<h2>Shortlist</h2>'+ (rows.length?rows.map(o=>`<div class="row"><div><strong>${esc(o.rank_position??'')}. ${esc(o.title)}</strong><br><span>${esc(o.company)} · ${esc(o.location||'Location not listed')} · ${esc(o.status)}</span><br><span class="card-line">Pay: ${esc(o.compensation_text||'not listed')} · Confidence: ${o.confidence==null?'not assessed':esc(Math.round(o.confidence*100)+'%')}</span><br><span>${esc(o.why_this_job||o.shortlist_reason||'Shortlisted by the ranking engine.')}</span><br><span class="card-line">Biggest gap: ${esc(o.primary_gap||'none noted')}</span></div><span class="score">${o.fit_score==null?'Fit pending':`Fit ${Math.round(o.fit_score*100)}%`}<br><button type="button" data-id="${esc(o.id)}">Prepare application</button><br><button type="button" class="pass" data-pass="${esc(o.id)}">Pass</button></span></div>`).join(''):'<div class="row"><div><strong>No jobs match those filters.</strong></div></div>');q.querySelectorAll('button[data-id]').forEach(btn=>btn.addEventListener('click',()=>prepare(btn.dataset.id)));q.querySelectorAll('button[data-pass]').forEach(btn=>btn.addEventListener('click',()=>pass(btn.dataset.pass)));}fetch('/api/opportunities').then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()}).then(d=>{all=d.opportunities;render(all)}).catch(error=>{document.querySelector('#queue').innerHTML='<h2>Shortlist</h2><div class="row"><div><strong>The opportunity queue could not be loaded.</strong></div></div>';showError(error.message)});document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),loc=(f.get('location')||'').toString().toLowerCase(),ind=(f.get('industry')||'').toString().toLowerCase(),min=Number(f.get('min_salary'))||0,max=Number(f.get('max_salary'))||Infinity;render(all.filter(o=>(!loc||`${o.location}`.toLowerCase().includes(loc))&&(!ind||`${o.company} ${o.title}`.toLowerCase().includes(ind))&&(!min||o.salary_max>=min)&&(!isFinite(max)||o.salary_min<=max)))});document.querySelector('#clear').onclick=()=>{document.querySelector('#filters').reset();render(all)};</script></main>"""
+OPPORTUNITIES_BODY = """<main><a href="/">Back to overview</a><h1>Opportunities</h1><p>Ranked roles from the current discovery and intelligence run.</p><section class="summary"><div class="stat"><strong>__OPPORTUNITIES__</strong> opportunities</div><div class="stat"><strong>__SHORTLISTED__</strong> shortlisted</div><div class="stat"><strong>__JOBS__</strong> jobs discovered</div></section><form class="filters" id="filters"><input name="location" placeholder="Location"><input name="min_salary" type="number" placeholder="Min salary"><input name="max_salary" type="number" placeholder="Max salary"><input name="industry" placeholder="Industry"><button type="submit">Filter jobs</button><button type="button" id="clear">Clear</button></form><section class="queue" id="queue"><h2>Shortlist</h2><div class="row"><div><strong>Loading shortlisted opportunities...</strong></div></div></section><p id="error"></p><script>function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}let all=[];function showError(message){const line=document.querySelector('#error');line.textContent=message||'The request failed.';}async function prepare(id){const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/prepare`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){const detail=typeof d.detail==='string'?d.detail:(text||'Preparation failed');showError(detail);alert(detail);return}showError('');alert(`Package ${d.status}. Unresolved questions: ${(d.unresolved_questions||[]).length}`)}async function pass(id){if(!confirm('Pass on this role? It leaves your list and will not come back.'))return;const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/pass`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){showError(typeof d.detail==='string'?d.detail:(text||'Pass failed'));return}showError('');all=all.filter(o=>o.id!==id);render(all)}function render(rows){const q=document.querySelector('#queue');q.innerHTML='<h2>Shortlist</h2>'+ (rows.length?rows.map(o=>`<div class="row"><div><strong>${esc(o.rank_position??'')}. <a href="/opportunities/${encodeURIComponent(o.id)}">${esc(o.title)}</a></strong><br><span>${esc(o.company)} · ${esc(o.location||'Location not listed')} · ${esc(o.status)}</span><br><span class="card-line">Pay: ${esc(o.compensation_text||'not listed')} · Confidence: ${o.confidence==null?'not assessed':esc(Math.round(o.confidence*100)+'%')}</span><br><span>${esc(o.why_this_job||o.shortlist_reason||'Shortlisted by the ranking engine.')}</span><br><span class="card-line">Biggest gap: ${esc(o.primary_gap||'none noted')}</span></div><span class="score">${o.fit_score==null?'Fit pending':`Fit ${Math.round(o.fit_score*100)}%`}<br><button type="button" data-id="${esc(o.id)}">Prepare application</button><br><button type="button" class="pass" data-pass="${esc(o.id)}">Pass</button></span></div>`).join(''):'<div class="row"><div><strong>No jobs match those filters.</strong></div></div>');q.querySelectorAll('button[data-id]').forEach(btn=>btn.addEventListener('click',()=>prepare(btn.dataset.id)));q.querySelectorAll('button[data-pass]').forEach(btn=>btn.addEventListener('click',()=>pass(btn.dataset.pass)));}fetch('/api/opportunities').then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()}).then(d=>{all=d.opportunities;render(all)}).catch(error=>{document.querySelector('#queue').innerHTML='<h2>Shortlist</h2><div class="row"><div><strong>The opportunity queue could not be loaded.</strong></div></div>';showError(error.message)});document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),loc=(f.get('location')||'').toString().toLowerCase(),ind=(f.get('industry')||'').toString().toLowerCase(),min=Number(f.get('min_salary'))||0,max=Number(f.get('max_salary'))||Infinity;render(all.filter(o=>(!loc||`${o.location}`.toLowerCase().includes(loc))&&(!ind||`${o.company} ${o.title}`.toLowerCase().includes(ind))&&(!min||o.salary_max>=min)&&(!isFinite(max)||o.salary_min<=max)))});document.querySelector('#clear').onclick=()=>{document.querySelector('#filters').reset();render(all)};</script></main>"""
 
 
 @app.get("/opportunities", response_class=HTMLResponse)
@@ -1282,9 +1411,49 @@ def opportunities() -> str:
     return page_shell("Opportunities", body, active="/opportunities", css=OPPORTUNITIES_CSS)
 
 
+def _exists(load: Any) -> bool:
+    """Whether a lookup by id finds its row (used to give a missing id a real 404 page)."""
+
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            load(repos)
+        return True
+    except NotFound:
+        return False
+    finally:
+        ctx.close()
+
+
+def _not_found_page(title: str, message: str, back_href: str, back_label: str, active: str) -> HTMLResponse:
+    body = (
+        f'<main class="wrap"><p><a href="{escape(back_href)}">{escape(back_label)}</a></p>'
+        f"<h1>{escape(title)}</h1><p>{escape(message)}</p></main>"
+    )
+    return HTMLResponse(page_shell(title, body, active=active), status_code=404)
+
+
+@app.get("/opportunities/{opportunity_id}", response_class=HTMLResponse, response_model=None)
+def opportunity_detail_page(opportunity_id: str) -> Any:
+    if not _exists(lambda repos: repos.opportunities.get(opportunity_id)):
+        return _not_found_page(
+            "Opportunity not found",
+            "No opportunity has this id. It may belong to a different database.",
+            "/opportunities",
+            "Back to opportunities",
+            "/opportunities",
+        )
+    return page_shell(
+        "Opportunity",
+        opportunity_detail_body(opportunity_id),
+        active="/opportunities",
+        css=DETAIL_CSS,
+    )
+
+
 @app.get("/pipeline", response_class=HTMLResponse)
 def pipeline_page() -> str:
-    return page_shell("Pipeline", PIPELINE_BODY, active="/pipeline")
+    return page_shell("Pipeline", pipeline_body(), active="/pipeline", css=DETAIL_CSS + PIPELINE_CSS)
 
 
 @app.get("/candidate", response_class=HTMLResponse)
@@ -1315,6 +1484,7 @@ def applications_page() -> str:
         "Applications",
         """<main><a href="/">Back to overview</a><h1>Applications</h1>
 <p>Select complete packages and approve them together. Each approval is stored against that package's content hash, so a later edit invalidates it. The list shows the latest revision of each application.</p>
+<p id="filter-note" class="why"></p>
 <form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button> <button type="button" id="refresh-all">Refresh all unsubmitted</button></form>
 <dialog id="confirm-refresh">
 <p>Refresh every approved, blocked or failed application that has not been submitted? Each approval is revoked. You will need to approve the new packages.</p>
@@ -1327,16 +1497,21 @@ def applications_page() -> str:
 <script>
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function readBody(r){const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}return {ok:r.ok,d,text};}
+const FILTERS={ready:'ready for approval',needs_information:'needs more information',handoffs:'waiting for your report'};
+const FILTER=(()=>{try{const f=new URLSearchParams(location.search).get('filter');return Object.prototype.hasOwnProperty.call(FILTERS,f)?f:'';}catch(e){return '';}})();
 async function load(){
   const line=document.querySelector('#result');
+  const note=document.querySelector('#filter-note');
   const r=await fetch('/api/packages');
   const body=await readBody(r);
   const list=document.querySelector('#list');
   if(!body.ok){list.textContent='Packages could not be loaded.';line.textContent=body.d.detail||body.text||'Request failed';return;}
   const d=body.d;
   const dry=d.automation_dry_run!==false;
-  const rows=(d.packages||[]);
-  if(!rows.length){list.textContent='No packages yet.';return;}
+  const everything=(d.packages||[]);
+  const rows=FILTER?everything.filter(p=>p.attention===FILTER):everything;
+  note.innerHTML=FILTER?`Showing only: ${esc(FILTERS[FILTER])} (${rows.length} of ${everything.length}). <a href="/applications">Show all</a>`:'';
+  if(!rows.length){list.textContent=FILTER?'Nothing in this view.':'No packages yet.';return;}
   list.innerHTML=rows.map(p=>{
     const label=p.review_label||(p.approvable?'ready to approve':'not approvable');
     const next=p.next_step?`<span class="why">${esc(p.next_step)}</span>`:'';
@@ -1459,37 +1634,23 @@ load();
     )
 
 
-@app.get("/packages/{package_id}", response_class=HTMLResponse)
-def package_page(package_id: str) -> str:
-    safe_id = package_id.replace("&", "").replace("<", "").replace('"', "")
+@app.get("/packages/{package_id}", response_class=HTMLResponse, response_model=None)
+def package_page(package_id: str) -> Any:
+    """The application review page (PRD section 31)."""
+
+    if not _exists(lambda repos: repos.packages.get(package_id)):
+        return _not_found_page(
+            "Package not found",
+            "No application package has this id. It may belong to a different database.",
+            "/applications",
+            "Back to applications",
+            "/applications",
+        )
     return page_shell(
-        "Package",
-        """<main><a href="/applications">Back to applications</a><h1 id="title">Package</h1>
-<p id="meta"></p><p id="error"></p>
-<section><h2>Cover letter</h2><div id="cover"></div></section>
-<section><h2>Hiring manager note</h2><div id="hiring"></div></section>
-<section><h2>Answers</h2><div id="answers"></div></section>
-<section><h2>Unresolved</h2><div id="unresolved"></div></section>
-<section><h2>Tailored resume</h2><pre id="resume"></pre></section>
-<script>
-const id="__PACKAGE_ID__";
-function text(sel, value){document.querySelector(sel).textContent=value||'';}
-fetch('/api/packages/'+encodeURIComponent(id)).then(async r=>{
-  const raw=await r.text();
-  let d={};
-  try{d=JSON.parse(raw)}catch(e){d={detail:raw}}
-  if(!r.ok){text('#error', d.detail||raw||'This package could not be loaded.');return;}
-  text('#title', (d.title||'Package')+' at '+(d.company||'the company'));
-  text('#meta', (d.status||'')+' · application '+(d.application_id||'')+' · hash '+(d.content_hash||''));
-  text('#cover', d.cover_letter||'No cover letter on this package.');
-  text('#hiring', d.hiring_manager_message||'No hiring-manager note on this package.');
-  text('#answers', (d.answers||[]).map(a=>(a.question_key||'')+': '+(a.answer||'(blank)')).join('\\n')||'No answers.');
-  text('#unresolved', (d.unresolved_questions||[]).join('\\n')||'None.');
-  text('#resume', d.tailored_resume_markdown||'');
-}).catch(error=>{text('#error', error.message);});
-</script></main>""".replace("__PACKAGE_ID__", safe_id),
+        "Review application",
+        review_body(package_id),
         active="/applications",
-        css="""body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:32px;letter-spacing:-.04em}pre,section{background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;white-space:pre-wrap}p{color:#6c7f7a}code{font-size:12px}""",
+        css=DETAIL_CSS,
     )
 
 

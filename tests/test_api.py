@@ -111,8 +111,8 @@ def test_package_list_keeps_only_the_latest_revision(prepared, monkeypatch) -> N
     assert rows[0]["package_id"] != prepared.package_id
     page = TestClient(app).get(f"/packages/{rows[0]['package_id']}")
     assert page.status_code == 200
-    assert "Cover letter" in page.text
-    assert "Hiring manager note" in page.text
+    assert "4. Cover letter" in page.text
+    assert "Approve application" in page.text
     detail = TestClient(app).get(f"/api/packages/{rows[0]['package_id']}")
     assert detail.status_code == 200
     assert detail.json()["content_hash"]

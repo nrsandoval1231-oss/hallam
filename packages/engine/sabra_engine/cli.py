@@ -724,6 +724,126 @@ def handoff_outcome_command(
         ctx.close()
 
 
+@app.command("outcome")
+def outcome_command(
+    application_id: str = typer.Argument(..., help="Application the employer's action concerns"),
+    kind: str = typer.Argument(
+        ...,
+        help=(
+            "employer_response, recruiter_contact, phone_screen, interview, offer, "
+            "rejection, withdrawal or no_response"
+        ),
+    ),
+    note: str | None = typer.Option(None, "--note", help="What happened, in your words"),
+    at: str | None = typer.Option(
+        None,
+        "--at",
+        help="When it happened: an ISO date or datetime (default: now). No zone means local time.",
+    ),
+    contact: str | None = typer.Option(None, "--contact", help="Who got in touch"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Record what an employer did with an application.
+
+    The opportunity moves through the lifecycle (applied, response, screen, interview,
+    offer, rejected, withdrawn) only along edges the transition graph allows, and an
+    event is written either way. A kind the lifecycle cannot follow from where it is now
+    is recorded without moving it; the result says so.
+    """
+
+    from .ledger import LedgerService, parse_occurred_at
+
+    ctx = _context()
+    try:
+        result = LedgerService(ctx).record_outcome(
+            application_id,
+            kind,
+            notes=note,
+            occurred_at=parse_occurred_at(at),
+            contact=contact,
+        )
+        _emit(result, as_json, "Outcome recorded")
+    finally:
+        ctx.close()
+
+
+@app.command("pipeline")
+def pipeline_command(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Show every application past approval, grouped by where it stands."""
+
+    from sabra_domain.errors import NotFound
+
+    from .ledger import LedgerService
+
+    ctx = _context()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            candidate_id = candidate.id if candidate else None
+        if candidate_id is None:
+            raise NotFound("candidate", "primary")
+        payload = LedgerService(ctx).pipeline(candidate_id).as_dict()
+        if as_json:
+            _emit(payload, True)
+            return
+        table = Table(title="Pipeline")
+        for column in ("Stage", "Company", "Role", "Status", "Submitted", "Last event", "Application"):
+            table.add_column(column)
+        shown = 0
+        for stage in payload["board"]:
+            for row in stage["applications"]:
+                shown += 1
+                last = row["last_event"] or {}
+                table.add_row(
+                    stage["label"],
+                    row["company"],
+                    row["title"],
+                    row["application_status"],
+                    (row["submitted_at"] or "")[:16].replace("T", " "),
+                    f"{last.get('event_type', '')} {(last.get('occurred_at') or '')[:10]}".strip(),
+                    row["application_id"],
+                )
+        if shown:
+            console.print(table)
+        else:
+            typer.echo("Nothing is past approval yet.")
+    finally:
+        ctx.close()
+
+
+ledger_app = typer.Typer(help="The application ledger and the learning dataset.")
+app.add_typer(ledger_app, name="ledger")
+
+
+@ledger_app.command("export")
+def ledger_export(
+    path: Path = typer.Argument(..., help="File to write, one JSON record per line (.jsonl)"),
+    force: bool = typer.Option(False, "--force", help="Replace the file if it already exists"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Write the learning dataset: job features, candidate features, strategy, artifacts, outcome.
+
+    One line per application. Names, email, phone, address and the candidate's id are
+    removed, so the file can be shared for analysis.
+    """
+
+    from sabra_domain.errors import NotFound
+
+    from .ledger import LedgerService
+
+    ctx = _context()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            candidate_id = candidate.id if candidate else None
+        if candidate_id is None:
+            raise NotFound("candidate", "primary")
+        result = LedgerService(ctx).write_learning_export(candidate_id, path, overwrite=force)
+        _emit(result, as_json, "Exported")
+    finally:
+        ctx.close()
+
+
 def main() -> None:
     try:
         app()

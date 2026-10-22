@@ -142,7 +142,7 @@ def test_today_renders_run_progress_and_the_queue_as_text() -> None:
     nodes = render(dashboard(), payload)
     attention = assert_inert(nodes["#attention"]["innerHTML"], "packages ready for approval")
     hrefs = {attrs.get("href") for tag, attrs in attention.tags if tag == "a"}
-    assert hrefs == {"/applications", "/opportunities"}
+    assert hrefs == {"/applications?filter=ready", "/applications?filter=needs_information", "/opportunities"}
     assert "5 open questions" in attention.joined
     progress = assert_inert(nodes["#run-progress"]["innerHTML"], EVIL)
     assert progress.joined.count(EVIL) >= 5

@@ -156,6 +156,39 @@ Then, in the browser on this PC:
 
 Each approval is stored against that package's content hash. If the package changes later, that approval no longer authorizes submission.
 
+### Read one role, then review one application
+
+- Click a role's title on **Opportunities** to open its detail page (`/opportunities/ID`). It shows the posting, why Sabra recommends it, every fit component with its reason, strengths, gaps and risks, whether it passed the hard filter and why, what is verified about the company apart from what is only inferred, where the application stands, and the event history. **Prepare application** and **Pass** are there too, and are disabled once an approval exists. An id that does not exist shows a 404 page.
+- **Read package** on the Applications page (or **Review application** on a role) opens the review page (`/packages/ID`). Read it top to bottom: the original opening (the description is collapsed), the fit analysis, the tailored résumé, the cover letter, each proposed answer with its truth level and whether it is verified or sensitive, the unresolved questions, and the warnings. Warnings include how each artifact was written: which were model-written and which came from the template, what the truth gate rejected, regenerated or replaced with the template, and the model token counts. The recruiter and hiring-manager messages and the interview preparation are in a collapsed section.
+- The **Decision** box shows the content hash the approval will be bound to. **Approve application** approves exactly this package at exactly that hash; it is disabled, with the reason, when the package is INCOMPLETE, not truth-clean, superseded by a newer revision, or already approved. **Refresh package** rebuilds it (revoking an earlier approval first when there is one) and opens the new revision. **Reject** withdraws the application and passes on the role; it is not offered for an approved application (refresh it first) or a submitted one.
+- On **Today**, each count opens the right page: ready for approval, needs more information and waiting-for-your-report open Applications filtered to just those rows (press **Show all** to clear the filter); new high-fit opens Opportunities; employer responses opens Pipeline.
+
+### Record what employers do
+
+Open http://127.0.0.1:8787/pipeline. Every application past approval is listed under its stage: approved, applying / handoff, applied, response, screen, interview, offer, rejected by employer, withdrawn, expired. Each shows the company, role, when and how it was submitted and its last event. **History** shows its outcomes and events; **Review** opens the package.
+
+Use **Record outcome** to say what happened: employer response, recruiter contact, phone screen, interview, offer, rejection, withdrawal or no response. A note, the contact's name and the date it happened are optional (the date defaults to now; a future date is refused). Each outcome writes an event and moves the opportunity (and its postings) along the job lifecycle: applied, response, screen, interview, offer, rejected by employer, withdrawn. A withdrawal also withdraws the application. The application row itself stays APPLIED through response, screen, interview, offer and rejection; the opportunity carries those stages. An outcome that does not fit where the lifecycle is (a phone screen after an interview, anything after a rejection) is recorded without moving it, and the page says so. No new lifecycle edges were added. Employer outcomes can be recorded only for a submitted application. The one exception is a withdrawal, which is refused while a submission is in progress or waiting for your report (report how it ended first), and for a blocked or failed application that may have reached the employer. A withdrawal moves the application and the role together or not at all. An outcome cannot be dated before the application was submitted.
+
+From PowerShell:
+
+```powershell
+uv run sabra pipeline                     # the same list, by stage
+uv run sabra outcome APPLICATION_ID interview --note "Panel on Friday" --at 2026-10-24
+uv run sabra outcome APPLICATION_ID rejection --contact "Pat Lee"
+```
+
+`--at` takes an ISO date or datetime; a value with no time zone is read as local time. Kinds can be typed in any case (`phone-screen` works).
+
+### Export the learning dataset
+
+Every application becomes one line of evidence: job features, candidate features, strategy, artifact ids and the latest outcome.
+
+```powershell
+uv run sabra ledger export learning.jsonl
+```
+
+The command refuses to replace an existing file unless you add `--force`. The same data downloads from http://127.0.0.1:8787/api/learning-records. Names, email, phone, address, the candidate id, outcome notes and contacts are never in the export; any string that still looks like an email address is replaced. Outcome notes and contacts stay in the ledger only.
+
 ## 6. Refresh packages after you verify new answers
 
 An approved package keeps the contact fields it had when it was built. Verified answers recorded later (phone, street address, city, state, postal code, country) are not copied into that frozen package, and Prepare on an approved application stays refused.
@@ -249,6 +282,38 @@ uv run sabra run --json >> <data_dir>\logs\run-<date>.log
 ```
 
 `<data_dir>` is `C:\Users\nrsan\hallam-private\var` unless `hallam-env.ps1` sets `SABRA_DATA_DIR`. The task stops with an error, and runs nothing, if `hallam-env.ps1` is missing. The log is UTF-8 and holds the run's JSON record, per-source outcomes included; the dashboard's **Today** page shows the last run's summary. The scheduled run only discovers, ranks, researches and (with `-Prepare`) prepares. It does not approve, and it does not submit: dry-run stays the default, and a package still waits for you on the Applications page. The task runs `scripts\run-sabra-daily.ps1`; do not move it.
+
+## 10. Model-assisted drafting (optional)
+
+Add these lines to `C:\Users\nrsan\hallam-private\sabra.env` and restart the dashboard
+(or dot-source `hallam-env.ps1` again in the window that runs the CLI). Never put the key
+anywhere inside the git checkout.
+
+```text
+SABRA_LLM_PROVIDER=anthropic
+SABRA_LLM_API_KEY=<your Anthropic key>
+SABRA_LLM_MODEL=claude-opus-5-5
+```
+
+With a provider set, the engine uses the model for three things only: choosing and
+ordering the résumé's bullets, skills, headline and summary; writing the cover-letter
+body; and writing the fit narrative (why this job, gap analysis). Bullets are never
+written by the model: it returns bullet ids and the engine copies the candidate's own
+text. Scores, ranking, approval and submission stay deterministic. With no provider
+set, or if the model fails, the package is built exactly as before and carries a
+"model unavailable" warning when a call failed. `SABRA_LLM_PROVIDER=openai_compatible`
+with `SABRA_LLM_BASE_URL` works the same way against any OpenAI-style endpoint.
+
+**Truth gate.** Every model-written text is checked before it can enter a package.
+Numbers, durations, names, titles, dates, certifications and skills must appear in
+the candidate's profile or master résumé (the job posting and company research are
+never evidence about the candidate, in any grammatical person), and a second model
+call must quote supporting evidence for each claim. A text that fails is regenerated
+once with the problems fed back, then replaced by the deterministic template. Each
+package records, per artifact, whether it was `model:<provider>/<model>` or `template`,
+plus the gate result and per-call token counts, in its truth ledger under
+`generation`; the review page shows this under Warnings. Approval still binds to the
+content hash of the final texts. Model calls are logged in the `model_calls` table.
 
 ## What this build will not do
 

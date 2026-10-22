@@ -626,6 +626,9 @@ def test_ledger_contains_every_field_requirement_22_names(prepared) -> None:
 
 
 def test_events_are_append_only_and_ordered(prepared) -> None:
+    from p2b_support import mark_applied
+
+    mark_applied(prepared)
     ledger = LedgerService(prepared.ctx)
     before = ledger.application_ledger(prepared.application_id).events
     ledger.record_outcome(prepared.application_id, OutcomeKind.RECRUITER_CONTACT, notes="called")
@@ -669,24 +672,38 @@ def test_outcome_capture_advances_the_lifecycle(prepared) -> None:
         assert repos.opportunities.get(prepared.opportunity_id).status == JobStatus.RESPONSE.value
 
 
-def test_outcome_on_an_unsubmitted_application_records_without_advancing(prepared) -> None:
-    """Recording an outcome must not invent a lifecycle step that never happened."""
+def test_outcome_on_an_unsubmitted_application_is_refused_and_leaves_nothing(prepared) -> None:
+    """An employer outcome needs a submitted application.
+
+    This used to record the outcome without advancing the lifecycle. The row then still
+    showed up as an outcome in the pipeline, the Today count and the learning export of an
+    application that never reached the employer, so it is refused instead and nothing is
+    written.
+    """
+
+    from sabra_domain.errors import ValidationFailure
 
     ledger = LedgerService(prepared.ctx)
-    result = ledger.record_outcome(
-        prepared.application_id, OutcomeKind.RECRUITER_CONTACT, notes="premature"
-    )
-    assert result["applied_state"] is None
+    before = ledger.application_ledger(prepared.application_id).events
+    with pytest.raises(ValidationFailure, match="only a submitted application"):
+        ledger.record_outcome(
+            prepared.application_id, OutcomeKind.RECRUITER_CONTACT, notes="premature"
+        )
     with prepared.ctx.read_repos() as repos:
+        assert repos.outcomes.for_application(prepared.application_id) == []
         assert (
             repos.applications.get(prepared.application_id).status
             == ApplicationStatus.AWAITING_APPROVAL.value
         )
+    assert ledger.application_ledger(prepared.application_id).events == before
 
 
 def test_no_response_outcome_does_not_mutate_state(prepared) -> None:
     """Silence is an observation, not a lifecycle transition."""
 
+    from p2b_support import mark_applied
+
+    mark_applied(prepared)
     ledger = LedgerService(prepared.ctx)
     result = ledger.record_outcome(prepared.application_id, OutcomeKind.NO_RESPONSE)
     assert result["applied_state"] is None
@@ -711,6 +728,9 @@ def test_pipeline_groups_the_nineteen_states_into_stages(prepared) -> None:
 def test_learning_records_preserve_features_and_strategy(prepared) -> None:
     """Requirement 25: evidence collected before anyone knows what will matter."""
 
+    from p2b_support import mark_applied
+
+    mark_applied(prepared)
     ledger = LedgerService(prepared.ctx)
     ledger.record_outcome(prepared.application_id, OutcomeKind.INTERVIEW, notes="Interview booked")
     records = ledger.learning_records(prepared.candidate_id)

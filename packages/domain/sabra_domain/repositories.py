@@ -78,6 +78,34 @@ class EventRepository:
             stmt = stmt.limit(limit)
         return list(self.session.execute(stmt).scalars())
 
+    def latest_for_entities(
+        self, entity_type: EntityType | str, entity_ids: Iterable[str]
+    ) -> dict[str, models.EventRow]:
+        """The most recent event of each entity (an entity with none is absent).
+
+        One query per 400 ids: the newest `seq` of each entity is found with a GROUP BY and
+        joined back to its row, so only one event per entity is loaded, however long its log.
+        """
+
+        ids = list(dict.fromkeys(entity_ids))
+        latest: dict[str, models.EventRow] = {}
+        for start in range(0, len(ids), 400):
+            newest = (
+                select(func.max(models.EventRow.seq).label("seq"))
+                .where(
+                    models.EventRow.entity_type == str(entity_type),
+                    models.EventRow.entity_id.in_(ids[start : start + 400]),
+                )
+                .group_by(models.EventRow.entity_id)
+                .subquery()
+            )
+            stmt: Select = select(models.EventRow).join(
+                newest, models.EventRow.seq == newest.c.seq
+            )
+            for row in self.session.execute(stmt).scalars():
+                latest[row.entity_id] = row
+        return latest
+
     def recent(self, limit: int = 50) -> list[models.EventRow]:
         stmt = select(models.EventRow).order_by(models.EventRow.seq.desc()).limit(limit)
         return list(self.session.execute(stmt).scalars())
@@ -592,6 +620,29 @@ class OpportunityRepository:
                 job.rejection = rejection
         self.session.flush()
         return row
+
+    def get_many(self, opportunity_ids: Iterable[str]) -> dict[str, models.Opportunity]:
+        """Opportunities by id, one query per 400 ids; an unknown id is simply absent."""
+
+        ids = list(dict.fromkeys(opportunity_ids))
+        found: dict[str, models.Opportunity] = {}
+        for start in range(0, len(ids), 400):
+            stmt = select(models.Opportunity).where(
+                models.Opportunity.id.in_(ids[start : start + 400])
+            )
+            for row in self.session.execute(stmt).scalars():
+                found[row.id] = row
+        return found
+
+    def count_ranked(self, candidate_id: str, search_profile_id: str) -> int:
+        """How many opportunities of one search have a rank score (rank position is per search)."""
+
+        stmt = select(func.count()).where(
+            models.Opportunity.candidate_id == candidate_id,
+            models.Opportunity.search_profile_id == search_profile_id,
+            models.Opportunity.rank_score.is_not(None),
+        )
+        return int(self.session.execute(stmt).scalar_one())
 
     def set_rank(self, opportunity_id: str, rank_score: float, position: int | None) -> None:
         row = self.get(opportunity_id)

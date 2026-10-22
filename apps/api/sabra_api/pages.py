@@ -145,10 +145,12 @@ TODAY_BODY = """<main class="wrap">
 </main>
 <script>
 __ESC__
+// Each count links to the page that acts on it; the Applications page reads ?filter= and
+// shows just the rows the count is made of.
 const ATTENTION=[
-  ['ready_for_approval','packages ready for approval','/applications'],
-  ['needs_information','applications need more information','/applications'],
-  ['handoffs_waiting','submissions waiting for your report','/applications'],
+  ['ready_for_approval','packages ready for approval','/applications?filter=ready'],
+  ['needs_information','applications need more information','/applications?filter=needs_information'],
+  ['handoffs_waiting','submissions waiting for your report','/applications?filter=handoffs'],
   ['new_high_fit','new high-fit opportunities since the last run','/opportunities'],
   ['employer_responses','employer responses since you last looked','/pipeline']
 ];
@@ -236,19 +238,6 @@ document.querySelector('#run-now').addEventListener('click',runNow);
 loadToday();refresh();
 </script>
 """.replace("__ESC__", ESC_JS)
-
-
-# ---------------------------------------------------------------------------
-# Pipeline (placeholder)
-# ---------------------------------------------------------------------------
-
-PIPELINE_BODY = """<main class="wrap">
-<h1>Pipeline</h1>
-<section class="card"><p><strong>Coming next.</strong> Employer responses, screens, interviews and
-offers will be tracked here. For now, record an outcome from the command line and it will show up
-under <a href="/">Today</a> as an employer response.</p></section>
-</main>
-"""
 
 
 # ---------------------------------------------------------------------------
