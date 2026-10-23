@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from .pages import ESC_JS
+from .pages import ASK_JS, ESC_JS
 
 # ---------------------------------------------------------------------------
 # Shared
@@ -184,7 +184,7 @@ async function prepare(){
   if(again.ok)render(again.d);
 }
 async function pass(){
-  if(!confirm('Pass on this role? It leaves your list and will not come back.'))return;
+  if(!await ask('Pass on this role? It leaves your list and will not come back.',{confirmLabel:'Pass'}))return;
   const line=document.querySelector('#line');
   const b=await readBody(await fetch('/api/opportunities/'+encodeURIComponent(OPP_ID)+'/pass',{method:'POST'}));
   if(!b.ok){line.textContent=detailOf(b,'Pass failed');return;}
@@ -199,7 +199,7 @@ load();
 
 def opportunity_detail_body(opportunity_id: str) -> str:
     return (
-        OPPORTUNITY_DETAIL_BODY.replace("__ESC__", ESC_JS)
+        OPPORTUNITY_DETAIL_BODY.replace("__ESC__", ESC_JS + ASK_JS)
         .replace("__FORMAT__", FORMAT_JS)
         .replace("__ID__", js_string(opportunity_id))
     )
@@ -318,7 +318,7 @@ async function refresh(){
 async function reject(){
   const d=review;
   if(!d||!d.actions.can_reject||busy)return;
-  if(!confirm('Reject this application? The role leaves your list.'))return;
+  if(!await ask('Reject this application? The role leaves your list.',{confirmLabel:'Reject'}))return;
   busy=true;
   const line=document.querySelector('#line');
   try{
@@ -335,7 +335,7 @@ load();
 
 def review_body(package_id: str) -> str:
     return (
-        REVIEW_BODY.replace("__ESC__", ESC_JS)
+        REVIEW_BODY.replace("__ESC__", ESC_JS + ASK_JS)
         .replace("__FORMAT__", FORMAT_JS)
         .replace("__ID__", js_string(package_id))
     )

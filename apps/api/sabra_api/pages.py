@@ -64,6 +64,17 @@ SHELL_CSS = (
     ".wrap [hidden]{display:none}"
     ".line{color:var(--muted);min-height:1.4em}"
     ".err{color:var(--warn)}"
+    "dialog{border:1px solid var(--line);border-radius:12px;padding:22px;max-width:440px;"
+    "background:#fff;color:var(--ink)}"
+    "dialog::backdrop{background:rgba(24,51,47,.45)}"
+    "dialog p{margin:0 0 16px;color:var(--ink)}"
+    "dialog input{width:100%;padding:8px;border:1px solid #cbd9d1;border-radius:7px;"
+    "font:inherit;margin:0 0 14px}"
+    "dialog [hidden]{display:none}"
+    "dialog .ask-actions{display:flex;gap:8px;justify-content:flex-end}"
+    "dialog button{background:var(--ink);color:#fff;border:0;border-radius:8px;padding:9px 15px;"
+    "font:inherit;font-weight:700;cursor:pointer}"
+    "dialog button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}"
     "@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}.wrap{padding:20px 16px}}"
 )
 
@@ -78,6 +89,50 @@ ESC_JS = (
     "return b.d.errors.map(e=>e.field+': '+e.message).join('; ');"
     "return b.text||fallback;}"
 )
+
+
+# The page's own confirmation dialog. The Claude desktop app's embedded browser suppresses
+# native confirm()/prompt()/alert() (confirm() returns false, so the button silently did
+# nothing), so a control that needs an explicit yes uses this `<dialog>` instead. It holds
+# no script: each page's script carries `ASK_JS`.
+ASK_DIALOG_HTML = (
+    '<dialog id="ask-dialog" aria-labelledby="ask-text"><p id="ask-text"></p>'
+    '<input id="ask-input" type="text" autocomplete="off" aria-label="Confirmation" hidden>'
+    '<div class="ask-actions"><button type="button" class="secondary" id="ask-cancel">Cancel'
+    '</button><button type="button" id="ask-ok">Confirm</button></div></dialog>'
+)
+
+# `ask(message)` resolves true on Confirm and false on Cancel or Escape.
+# `ask(message, {input: true})` also shows a text box and resolves to what was typed, or
+# null on Cancel or Escape.
+ASK_JS = r"""function ask(message,opts){
+  opts=opts||{};
+  const dialog=document.querySelector('#ask-dialog'),text=document.querySelector('#ask-text'),
+    input=document.querySelector('#ask-input'),ok=document.querySelector('#ask-ok'),
+    cancel=document.querySelector('#ask-cancel');
+  return new Promise(resolve=>{
+    let settled=false;
+    const finish=value=>{
+      if(settled)return;
+      settled=true;
+      ok.onclick=null;cancel.onclick=null;dialog.onclose=null;input.onkeydown=null;
+      if(dialog.open){if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');}
+      resolve(value);
+    };
+    text.textContent=message;
+    input.hidden=!opts.input;input.value='';
+    ok.textContent=opts.confirmLabel||'Confirm';
+    ok.onclick=()=>finish(opts.input?input.value:true);
+    cancel.onclick=()=>finish(opts.input?null:false);
+    // close() queues its event, so a stale one can arrive after the next question has
+    // reopened the dialog; only a dialog that is really closed counts as a Cancel.
+    dialog.onclose=()=>{if(!dialog.open)finish(opts.input?null:false);};
+    input.onkeydown=e=>{if(e&&e.key==='Enter'){if(e.preventDefault)e.preventDefault();ok.onclick();}};
+    if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+    if(opts.input&&input.focus)input.focus();
+  });
+}
+"""
 
 
 def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
@@ -98,7 +153,7 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         f"<title>Sabra | {escape(title)}</title>"
         f"<style>{SHELL_CSS}{css}</style></head>\n"
         '<body><header class="topnav"><span class="brand">Sabra</span>'
-        f'<nav aria-label="Main">{links}</nav></header>\n{body}</body></html>'
+        f'<nav aria-label="Main">{links}</nav></header>\n{body}{ASK_DIALOG_HTML}</body></html>'
     )
 
 
@@ -304,12 +359,26 @@ function renderResumes(list){
   if(!list||!list.length)return '<p>No resume stored yet.</p>';
   return list.map(r=>`<div class="stage"><strong>Version ${esc(r.version)}</strong>${r.is_master?' <span class="pill VERIFIED">master</span>':''} · ${esc(r.label||'')} · ${esc(r.source_format)} · ${esc(String(r.content_hash||'').slice(0,12))}</div>`).join('');
 }
+function renderUnparsed(list){
+  // The master is the version Sabra builds packages from, so its unread lines come first.
+  // A version stored before unread lines were recorded has a count but no list.
+  const unlisted=r=>r.unparsed_lines==null&&Number(r.unparsed_line_count)>0;
+  const rows=(list||[]).filter(r=>(r.unparsed_lines&&r.unparsed_lines.length)||(r.warnings&&r.warnings.length)||unlisted(r));
+  if(!rows.length)return '';
+  return rows.map(r=>{
+    const lines=r.unparsed_lines||[],notes=r.warnings||[];
+    return `<div class="stage unparsed"><strong>Version ${esc(r.version)}</strong>`+
+      (lines.length?`<p>These lines were not understood:</p><ul>${lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:'')+
+      (unlisted(r)?`<p>${esc(r.unparsed_line_count)} line(s) were not understood, but this version was stored before they were recorded. Upload the resume again to list them.</p>`:'')+
+      (notes.length?`<p>Check these:</p><ul>${notes.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:'')+`</div>`;
+  }).join('');
+}
 async function load(){
   const b=await readBody(await fetch('/api/candidate'));
   if(!b.ok){document.querySelector('#profile').textContent=detailOf(b,'The profile could not be loaded.');return;}
   const d=b.d;
   document.querySelector('#profile').innerHTML=renderSections(d.sections);
-  document.querySelector('#resumes').innerHTML=renderResumes(d.resumes);
+  document.querySelector('#resumes').innerHTML=renderResumes(d.resumes)+renderUnparsed(d.resumes);
   const form=document.querySelector('#identity-form');
   const ident=d.identity||{};
   const levels=d.identity_levels||{};
@@ -353,7 +422,8 @@ document.querySelector('#resume-form').addEventListener('submit',async e=>{
   line.textContent='Uploading and reading...';
   const body=new FormData();body.append('resume',file);
   const b=await readBody(await fetch('/api/candidate/resume',{method:'POST',body}));
-  line.textContent=b.ok?'Resume stored as inferred evidence. Confirm your details above to make them yours.':detailOf(b,'Upload failed');
+  const unread=b.ok&&b.d&&b.d.unparsed_lines?b.d.unparsed_lines.length:0;
+  line.textContent=b.ok?'Resume stored as inferred evidence. Confirm your details above to make them yours.'+(unread?' '+unread+' line(s) were not understood; they are listed above.':''):detailOf(b,'Upload failed');
   if(b.ok)load();
 });
 load();

@@ -66,10 +66,17 @@ def letter_with(sentence: str) -> CoverLetterDraft:
 # The deterministic path does not drift (S8)
 # ---------------------------------------------------------------------------
 
-# Measured against HEAD (before any model work) on tests/fixtures/master_resume_sample.txt.
-GOLDEN_HASH_NO_ASSESSMENT = "5ec7d03c79bf54f828b4e7d68e406dfc855ae97e374ec0ef5191a83435339d5c"
-GOLDEN_HASH_WITH_ASSESSMENT = "3934635ff9876076bfe891f21b5334f58b1afeab95575b84edf7c72892849035"
-GOLDEN_HASH_SENIOR_DIRECTOR = "235f4f2508ed4e73e9038507ddd310382114731903cf5b283529f266542ba22b"
+# Measured on tests/fixtures/master_resume_sample.txt. Re-pinned twice, each time for one
+# reviewed reason, and the rendered markdown differs by nothing else:
+#   1. the template "Directly relevant experience: ..." line left the tailored resume and
+#      "My background covers ..." left the cover letter
+#      (5ec7d03c / 3934635f / 235f4f25 -> 13d8af98 / 56216c28 / e36843bb);
+#   2. the parser now reads the graduation year from the fixture's education line, so the
+#      only further change is "(2012)" on the education line and end_date "2012" in the
+#      education payload (-> the values below).
+GOLDEN_HASH_NO_ASSESSMENT = "6cec870f6e374fc84415a176478e82a753613a44c48b3a157fa16f174b5c3a57"
+GOLDEN_HASH_WITH_ASSESSMENT = "02216b1d44df93b251492f0b205a0e2464b79da73392724a7b780bbd1e8890ed"
+GOLDEN_HASH_SENIOR_DIRECTOR = "e1cadc17e040dfd2d1a54bbe0e28d05645d350b013dcf91a7ca537938e4f354a"
 
 
 def golden_build(generator=None, *, assessment=None, **job_overrides):
@@ -95,6 +102,17 @@ def test_the_no_model_path_hashes_exactly_as_before_the_model_work() -> None:
     for provider in (NullProvider(), FakeProvider().script("tailoring", LLMError("down"))):
         built = golden_build(PackageGenerator(provider), assessment=sup.assessment())
         assert built.schema.content_hash == GOLDEN_HASH_WITH_ASSESSMENT
+
+
+def test_no_template_skills_sentence_in_the_résumé_or_the_letter() -> None:
+    schema = golden_build(assessment=sup.assessment()).schema
+    assert "Directly relevant experience" not in schema.tailored_resume_markdown
+    assert "My background covers" not in (schema.cover_letter or "")
+    ledger_text = str(schema.truth_ledger)
+    assert "alignment sentence" not in ledger_text
+    # the Skills section still carries the terms, so nothing was lost
+    assert "## Skills" in schema.tailored_resume_markdown
+    assert "Territory management" in schema.tailored_resume_markdown
 
 
 # ---------------------------------------------------------------------------

@@ -31,3 +31,10 @@ ones. They were captured by `scripts/_capture_fixtures.py`.
   page fragment. No live source in the seed vertical publishes capturable JSON-LD
   (their careers pages route to a Greenhouse or Lever board), so this exercises the
   parser against the documented shape. It is not evidence that such a source exists.
+
+- `stored_package_main_3934635f.json` — an `ApplicationPackageSchema` serialised by the
+  code on `main` before `EmploymentEntry.is_break` and `EducationEntry.minors` existed,
+  built from `master_resume_sample.txt` (fictional). Its `content_hash` is the literal
+  `3934635f...`; a test recomputes it from the branch's `semantic_payload()` so an
+  approval bound to a package stored earlier cannot be invalidated by a schema change.
+  Do not regenerate it.

@@ -73,6 +73,10 @@ class EmploymentEntry(BaseModel):
     quota_attainment: str | None = None
     technologies: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    # A stated gap in employment ("Career break — full-time parenting"). It is the
+    # candidate's own text and counts as evidence, but it is not an employer: it earns
+    # no tenure, is never typed into an employment-history form, and has no bullets.
+    is_break: bool = False
 
 
 class EducationEntry(BaseModel):
@@ -85,6 +89,7 @@ class EducationEntry(BaseModel):
     end_date: str | None = None
     honors: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    minors: list[str] = Field(default_factory=list)
 
 
 class CertificationEntry(BaseModel):
@@ -589,6 +594,20 @@ class ApplicationAnswerSchema(BaseModel):
     sensitive: bool = False
 
 
+def _entry_payload(entry: BaseModel, optional_fields: tuple[str, ...]) -> dict[str, Any]:
+    """An entry's JSON form for hashing, leaving out optional fields still at their default.
+
+    A field added after packages were approved must not change the content hash those
+    approvals are bound to, so it joins the payload only when the entry actually uses it.
+    """
+
+    data = entry.model_dump(mode="json")
+    for name in optional_fields:
+        if not data.get(name):
+            data.pop(name, None)
+    return data
+
+
 class ApplicationPackageSchema(BaseModel):
     """The reviewable artifact set (requirement 15).
 
@@ -656,8 +675,8 @@ class ApplicationPackageSchema(BaseModel):
             "applicant_country": self.applicant_country,
             "applicant_street_address": self.applicant_street_address,
             "applicant_linkedin": self.applicant_linkedin,
-            "employment": [e.model_dump(mode="json") for e in self.employment],
-            "education": [e.model_dump(mode="json") for e in self.education],
+            "employment": [_entry_payload(e, ("is_break",)) for e in self.employment],
+            "education": [_entry_payload(e, ("minors",)) for e in self.education],
             "recruiter_message": self.recruiter_message,
             "hiring_manager_message": self.hiring_manager_message,
             "interview_preparation": self.interview_preparation,

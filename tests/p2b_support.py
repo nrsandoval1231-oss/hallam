@@ -177,11 +177,34 @@ const vm = require('node:vm');
 const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
 const nodes = {};
 const calls = [];
+const shown = [];
+// The page's own <dialog>. Native confirm()/prompt() are deliberately absent from the
+// context, so a page that still calls one fails here instead of passing silently.
+// `input.dialog` is 'auto' (the "person" answers at once: Confirm when `input.confirm` is
+// not false, else Cancel, typing `input.typed` first when given) or 'manual' (the test
+// drives #ask-ok / #ask-cancel itself).
 const make = () => ({
   innerHTML: '', textContent: '', value: '', disabled: false, checked: false, hidden: false,
   dataset: {}, listeners: {}, addEventListener(type, callback) { this.listeners[type] = callback },
   querySelectorAll() { return [] }, querySelector() { return make() }, closest() { return make() },
-  reset() {}
+  reset() {}, focus() {}, setAttribute() {}, open: false,
+  showModal() {
+    this.open = true;
+    shown.push({text: node('#ask-text').textContent, input: !node('#ask-input').hidden,
+                label: node('#ask-ok').textContent});
+    if (input.dialog === 'manual') return;
+    setImmediate(() => {
+      if (input.confirm !== false) {
+        if (input.typed !== undefined && input.typed !== null) node('#ask-input').value = input.typed;
+        const ok = node('#ask-ok').onclick; if (ok) ok();
+      } else {
+        const cancel = node('#ask-cancel').onclick; if (cancel) cancel();
+      }
+    });
+  },
+  // Like a browser, close() queues its `close` event instead of firing it at once, so a
+  // handler left over from an earlier question can see it after the dialog reopened.
+  close() { this.open = false; setImmediate(() => { if (this.onclose) this.onclose({}) }) }
 });
 const node = selector => nodes[selector] ||= make();
 const respond = (url, options) => {
@@ -197,7 +220,7 @@ const ctx = {
   document: {querySelector: node, querySelectorAll: () => []},
   fetch: async (url, options) => respond(url, options),
   FormData: class { constructor(values) { this.values = values } get(key) { return this.values[key] } },
-  alert() {}, confirm() { return input.confirm !== false }, console,
+  console, setImmediate,
   setInterval() { return 1 }, clearInterval() {},
   Date, Math, JSON, Object, Array, String, Number, encodeURIComponent, URLSearchParams,
   location: {search: input.search || '', href: ''}
@@ -209,7 +232,7 @@ vm.runInContext(input.script, ctx);
   await settle(); await settle();
   if (input.expression) await vm.runInContext('(async () => {' + input.expression + '})()', ctx);
   await settle(); await settle();
-  process.stdout.write(JSON.stringify({nodes, calls, href: ctx.location.href}));
+  process.stdout.write(JSON.stringify({nodes, calls, shown, href: ctx.location.href}));
 })().catch(error => { console.error(error); process.exit(1) });
 """
 
@@ -223,8 +246,16 @@ def render(
     statuses: dict | None = None,
     search: str = "",
     confirm: bool = True,
+    typed: str | None = None,
+    dialog: str = "auto",
 ) -> dict:
-    """Run a page's script under node and return `{nodes, calls, href}`."""
+    """Run a page's script under node and return `{nodes, calls, shown, href}`.
+
+    `shown` lists every dialog the page opened (its text, whether it had a text box, and
+    the label on its Confirm button). By default the person answers at once; pass
+    `confirm=False` to Cancel, `typed=` to type into the text box first, or
+    `dialog="manual"` to drive the buttons from `expression`.
+    """
 
     if shutil.which("node") is None:
         pytest.skip("node is not installed")
@@ -240,6 +271,8 @@ def render(
                 statuses=statuses or {},
                 search=search,
                 confirm=confirm,
+                typed=typed,
+                dialog=dialog,
             )
         ),
         text=True,

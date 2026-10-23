@@ -89,7 +89,7 @@ const ctx = {
     const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body);
     return {ok: reply.status < 400, status: reply.status, text: async () => text};
   },
-  alert() {}, confirm() { return true }, console, setInterval() { return 1 }, clearInterval() {},
+  console, setInterval() { return 1 }, clearInterval() {},
   Date, Math, JSON, Object, Array, String, Number, Set, encodeURIComponent
 };
 vm.createContext(ctx);

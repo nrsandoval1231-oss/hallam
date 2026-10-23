@@ -213,7 +213,7 @@ def extract_candidate_features(profile: CandidateProfile) -> CandidateFeatures:
     evidence: set[str] = set()
 
     for entry in profile.employment:
-        if not entry.title:
+        if entry.is_break or not entry.title:
             continue
         titles.append(entry.title)
         normalized = normalize_title(entry.title)
@@ -256,10 +256,11 @@ def extract_candidate_features(profile: CandidateProfile) -> CandidateFeatures:
         evidence |= token_set(" ".join(project.outcomes))
 
     total_years: float | None = None
-    starts = [e.start_date for e in profile.employment if e.start_date]
+    worked = [e for e in profile.employment if not e.is_break]
+    starts = [e.start_date for e in worked if e.start_date]
     if starts:
         years = []
-        for entry in profile.employment:
+        for entry in worked:
             try:
                 start_year = int(str(entry.start_date)[:4])
             except (TypeError, ValueError):

@@ -39,7 +39,7 @@ const ctx = {
   fetch: async () => ({ok:true, json:async()=>input.payload,
     text:async()=>JSON.stringify(input.payload)}),
   FormData: class { constructor(values) { this.values = values } get(key) { return this.values[key] } },
-  alert() {}, console
+  console
 };
 vm.createContext(ctx);
 vm.runInContext(input.script, ctx);
