@@ -328,7 +328,10 @@ def test_the_handoff_path_still_fills_when_a_document_cannot_be_made(
     filled, skipped = adapter.apply_to_page(page, _package(), form)
     assert "first_name" in filled
     assert any(item.startswith(DOCUMENT_ERROR) for item in skipped)
-    assert page.files == {}
+    # The résumé is the document that could not be made: it is never replaced by Markdown.
+    # The cover letter has its own renderer and is still attached.
+    assert "#resume" not in page.files
+    assert not any(str(path).endswith(".md") for path in page.files.values())
 
 
 def test_without_settings_documents_go_under_the_configured_artifacts_dir_not_the_cwd(

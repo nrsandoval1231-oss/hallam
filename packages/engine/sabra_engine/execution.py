@@ -703,7 +703,9 @@ class ExecutionService:
         # Render the files first: a document that cannot be produced stops the run before
         # the employer's page is even opened.
         try:
-            adapter.prepare_documents(package)
+            adapter.prepare_documents(
+                package, job=job, dated=self._package_date(application_id)
+            )
         except SafetyStop as stop:
             return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
         with adapter.session(url):
@@ -738,7 +740,12 @@ class ExecutionService:
                 ),
             )
         try:
-            rendered = adapter.prepare_documents(package) or {}
+            rendered = (
+                adapter.prepare_documents(
+                    package, job=job, dated=self._package_date(application_id)
+                )
+                or {}
+            )
         except SafetyStop as stop:
             return self._blocked_by_stop(application_id, opportunity_id, adapter, stop)
         documents = {str(label): str(path) for label, path in dict(rendered).items()}
@@ -752,6 +759,27 @@ class ExecutionService:
             manual=True,
             documents=documents,
         )
+
+    def _package_date(self, application_id: str) -> str | None:
+        """The day the application's package was prepared, as "October 23, 2026".
+
+        It is the cover letter's date line. It comes from the stored package, not the
+        clock, so every render of the same approved package carries the same date: the
+        calendar day, on this host, on which the package was created. A package whose date
+        cannot be read simply has no date line.
+        """
+
+        try:
+            with self.ctx.read_repos() as repos:
+                application = repos.applications.get(application_id)
+                created = repos.packages.get(application.package_id).created_at
+        except Exception:  # noqa: BLE001 - the date line is optional; never block on it
+            return None
+        if not isinstance(created, datetime):
+            return None
+        if created.tzinfo is not None:
+            created = created.astimezone()
+        return f"{created:%B} {created.day}, {created.year}"
 
     def _still_claimed(self, application_id: str) -> bool:
         """Compare-and-set: the row is still APPLYING, checked under the write lock."""
