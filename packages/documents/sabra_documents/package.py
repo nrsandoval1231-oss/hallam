@@ -247,7 +247,7 @@ class PackageFactory:
             missing.append("identity.full_name")
         if not profile.identity.email:
             missing.append("identity.email")
-        if not profile.employment:
+        if not any(not e.is_break for e in profile.employment):
             missing.append("employment")
         if not profile.skills:
             missing.append("skills")
@@ -306,7 +306,11 @@ class PackageFactory:
             applicant_country=identity.get("country"),
             applicant_street_address=identity.get("street_address"),
             applicant_linkedin=identity.get("linkedin"),
-            employment=_verified_section(profile, "employment"),
+            # A career break is a stated gap, not an employer: it must never be typed into
+            # an employment-history block.
+            employment=[
+                e for e in _verified_section(profile, "employment") if not e.is_break
+            ],
             education=_verified_section(profile, "education"),
             recruiter_message=self._recruiter_message(profile, job, tailored),
             hiring_manager_message=self._hiring_manager_message(profile, job, tailored, assessment),
@@ -390,16 +394,6 @@ class PackageFactory:
                     [Evidence("candidate_profile.accomplishments")],
                     artifact="cover_letter",
                 )
-
-        if tailored.emphasis_terms:
-            lines.append("")
-            lines.append("My background covers " + ", ".join(tailored.emphasis_terms[:6]) + ".")
-            ledger.record(
-                "cover letter alignment sentence",
-                TruthLevel.INFERRED,
-                [Evidence("candidate_profile.skills")],
-                artifact="cover_letter",
-            )
 
         lines.append("")
         lines.append(
@@ -539,7 +533,7 @@ class PackageFactory:
             lines.append("Gaps to address proactively:")
             for gap in assessment.gaps[:4]:
                 lines.append(f"- {gap}")
-        if not profile.employment:
+        if not any(not e.is_break for e in profile.employment):
             lines.append("")
             lines.append(
                 "- No candidate history is available, so no role-specific talking points "

@@ -58,7 +58,7 @@ const ctx = {
   fetch: async () => ({ok:true, json:async()=>input.payload,
     text:async()=>JSON.stringify(input.payload)}),
   FormData: class { constructor(values) { this.values = values } get(key) { return this.values[key] } },
-  alert() {}, confirm() { return true }, console, setInterval() { return 1 }, clearInterval() {},
+  console, setInterval() { return 1 }, clearInterval() {},
   Date, Math, JSON, Object, Array, String, Number, encodeURIComponent
 };
 vm.createContext(ctx);

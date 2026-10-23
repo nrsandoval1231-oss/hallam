@@ -64,6 +64,7 @@ from sabra_engine.sources import SourcesService
 from sqlalchemy.exc import OperationalError
 
 from .pages import (
+    ASK_JS,
     CANDIDATE_BODY,
     SETTINGS_BODY,
     TODAY_BODY,
@@ -283,9 +284,15 @@ def _truth_sections(profile: Any) -> list[dict[str, Any]]:
         )
 
     employment_level = level("employment", bool(profile.employment))
+    def employment_label(entry: Any) -> str:
+        label = " at ".join(filter(None, [entry.title, entry.employer])) or "Position"
+        if entry.is_break and "career break" not in label.lower():
+            label += " (career break)"
+        return label
+
     employment = [
         {
-            "label": " at ".join(filter(None, [entry.title, entry.employer])) or "Position",
+            "label": employment_label(entry),
             "detail": " – ".join(filter(None, [entry.start_date, entry.end_date])),
             "level": employment_level,
         }
@@ -356,6 +363,14 @@ def candidate_profile() -> dict[str, Any]:
                     "source_format": row.source_format,
                     "content_hash": row.content_hash,
                     "created_at": row.created_at.isoformat() if row.created_at else None,
+                    # None, not [], for a version stored before the lines were recorded.
+                    "unparsed_lines": (
+                        list(row.parsed["unparsed_lines"])
+                        if "unparsed_lines" in (row.parsed or {})
+                        else None
+                    ),
+                    "unparsed_line_count": (row.parsed or {}).get("unparsed_line_count"),
+                    "warnings": list((row.parsed or {}).get("warnings") or []),
                 }
                 for row in repos.resumes.list_for_candidate(candidate.id)
                 # Tailored resumes belong to a package; these are the owner's own versions.
@@ -430,7 +445,7 @@ async def upload_resume(resume: Annotated[UploadFile, File(...)]) -> dict[str, A
     ctx = EngineContext.create()
     try:
         candidate_id = ensure_candidate(ctx, display_name=None, create_placeholder=True)
-        resume_id = DocumentService(ctx).ingest_master_resume(
+        report = DocumentService(ctx).ingest_master_resume_report(
             candidate_id,
             text,
             label=resume.filename or "Master resume",
@@ -439,7 +454,9 @@ async def upload_resume(resume: Annotated[UploadFile, File(...)]) -> dict[str, A
         )
         return {
             "candidate_id": candidate_id,
-            "resume_id": resume_id,
+            "resume_id": report["resume_id"],
+            "unparsed_lines": report["unparsed_lines"],
+            "warnings": report["warnings"],
             "source_format": source_format,
             "truth_level": TruthLevel.INFERRED.value,
             "message": (
@@ -1540,7 +1557,7 @@ OPPORTUNITIES_CSS = (
     "@media(max-width:700px){.row{flex-direction:column}.score{text-align:left}}"
 )
 
-OPPORTUNITIES_BODY = """<main><a href="/">Back to overview</a><h1>Opportunities</h1><p>Ranked roles from the current discovery and intelligence run.</p><section class="summary"><div class="stat"><strong>__OPPORTUNITIES__</strong> opportunities</div><div class="stat"><strong>__SHORTLISTED__</strong> shortlisted</div><div class="stat"><strong>__JOBS__</strong> jobs discovered</div></section><form class="filters" id="filters"><input name="location" placeholder="Location"><input name="min_salary" type="number" placeholder="Min salary"><input name="max_salary" type="number" placeholder="Max salary"><input name="industry" placeholder="Industry"><button type="submit">Filter jobs</button><button type="button" id="clear">Clear</button></form><section class="queue" id="queue"><h2>Shortlist</h2><div class="row"><div><strong>Loading shortlisted opportunities...</strong></div></div></section><p id="error"></p><script>function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}let all=[];function showError(message){const line=document.querySelector('#error');line.textContent=message||'The request failed.';}async function prepare(id){const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/prepare`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){const detail=typeof d.detail==='string'?d.detail:(text||'Preparation failed');showError(detail);alert(detail);return}showError('');alert(`Package ${d.status}. Unresolved questions: ${(d.unresolved_questions||[]).length}`)}async function pass(id){if(!confirm('Pass on this role? It leaves your list and will not come back.'))return;const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/pass`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){showError(typeof d.detail==='string'?d.detail:(text||'Pass failed'));return}showError('');all=all.filter(o=>o.id!==id);render(all)}function render(rows){const q=document.querySelector('#queue');q.innerHTML='<h2>Shortlist</h2>'+ (rows.length?rows.map(o=>`<div class="row"><div><strong>${esc(o.rank_position??'')}. <a href="/opportunities/${encodeURIComponent(o.id)}">${esc(o.title)}</a></strong><br><span>${esc(o.company)} · ${esc(o.location||'Location not listed')} · ${esc(o.status)}</span><br><span class="card-line">Pay: ${esc(o.compensation_text||'not listed')} · Confidence: ${o.confidence==null?'not assessed':esc(Math.round(o.confidence*100)+'%')}</span><br><span>${esc(o.why_this_job||o.shortlist_reason||'Shortlisted by the ranking engine.')}</span><br><span class="card-line">Biggest gap: ${esc(o.primary_gap||'none noted')}</span></div><span class="score">${o.fit_score==null?'Fit pending':`Fit ${Math.round(o.fit_score*100)}%`}<br><button type="button" data-id="${esc(o.id)}">Prepare application</button><br><button type="button" class="pass" data-pass="${esc(o.id)}">Pass</button></span></div>`).join(''):'<div class="row"><div><strong>No jobs match those filters.</strong></div></div>');q.querySelectorAll('button[data-id]').forEach(btn=>btn.addEventListener('click',()=>prepare(btn.dataset.id)));q.querySelectorAll('button[data-pass]').forEach(btn=>btn.addEventListener('click',()=>pass(btn.dataset.pass)));}fetch('/api/opportunities').then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()}).then(d=>{all=d.opportunities;render(all)}).catch(error=>{document.querySelector('#queue').innerHTML='<h2>Shortlist</h2><div class="row"><div><strong>The opportunity queue could not be loaded.</strong></div></div>';showError(error.message)});document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),loc=(f.get('location')||'').toString().toLowerCase(),ind=(f.get('industry')||'').toString().toLowerCase(),min=Number(f.get('min_salary'))||0,max=Number(f.get('max_salary'))||Infinity;render(all.filter(o=>(!loc||`${o.location}`.toLowerCase().includes(loc))&&(!ind||`${o.company} ${o.title} ${o.industry??''}`.toLowerCase().includes(ind))&&(!min||o.salary_max>=min)&&(!isFinite(max)||o.salary_min<=max)))});document.querySelector('#clear').onclick=()=>{document.querySelector('#filters').reset();render(all)};</script></main>"""
+OPPORTUNITIES_BODY = """<main><a href="/">Back to overview</a><h1>Opportunities</h1><p>Ranked roles from the current discovery and intelligence run.</p><section class="summary"><div class="stat"><strong>__OPPORTUNITIES__</strong> opportunities</div><div class="stat"><strong>__SHORTLISTED__</strong> shortlisted</div><div class="stat"><strong>__JOBS__</strong> jobs discovered</div></section><form class="filters" id="filters"><input name="location" placeholder="Location"><input name="min_salary" type="number" placeholder="Min salary"><input name="max_salary" type="number" placeholder="Max salary"><input name="industry" placeholder="Industry"><button type="submit">Filter jobs</button><button type="button" id="clear">Clear</button></form><section class="queue" id="queue"><h2>Shortlist</h2><div class="row"><div><strong>Loading shortlisted opportunities...</strong></div></div></section><p id="error"></p><p id="status"></p><script>__ASK__function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}let all=[];function showError(message){document.querySelector('#status').textContent='';document.querySelector('#error').textContent=message||'The request failed.';}function showStatus(message){document.querySelector('#error').textContent='';document.querySelector('#status').textContent=message||'';}async function prepare(id){const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/prepare`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){const detail=typeof d.detail==='string'?d.detail:(text||'Preparation failed');showError(detail);return}showStatus(`Package ${d.status}. Unresolved questions: ${(d.unresolved_questions||[]).length}`)}async function pass(id){if(!await ask('Pass on this role? It leaves your list and will not come back.',{confirmLabel:'Pass'}))return;const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/pass`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){showError(typeof d.detail==='string'?d.detail:(text||'Pass failed'));return}showStatus('Passed. This role will not come back.');all=all.filter(o=>o.id!==id);render(all)}function render(rows){const q=document.querySelector('#queue');q.innerHTML='<h2>Shortlist</h2>'+ (rows.length?rows.map(o=>`<div class="row"><div><strong>${esc(o.rank_position??'')}. <a href="/opportunities/${encodeURIComponent(o.id)}">${esc(o.title)}</a></strong><br><span>${esc(o.company)} · ${esc(o.location||'Location not listed')} · ${esc(o.status)}</span><br><span class="card-line">Pay: ${esc(o.compensation_text||'not listed')} · Confidence: ${o.confidence==null?'not assessed':esc(Math.round(o.confidence*100)+'%')}</span><br><span>${esc(o.why_this_job||o.shortlist_reason||'Shortlisted by the ranking engine.')}</span><br><span class="card-line">Biggest gap: ${esc(o.primary_gap||'none noted')}</span></div><span class="score">${o.fit_score==null?'Fit pending':`Fit ${Math.round(o.fit_score*100)}%`}<br><button type="button" data-id="${esc(o.id)}">Prepare application</button><br><button type="button" class="pass" data-pass="${esc(o.id)}">Pass</button></span></div>`).join(''):'<div class="row"><div><strong>No jobs match those filters.</strong></div></div>');q.querySelectorAll('button[data-id]').forEach(btn=>btn.addEventListener('click',()=>prepare(btn.dataset.id)));q.querySelectorAll('button[data-pass]').forEach(btn=>btn.addEventListener('click',()=>pass(btn.dataset.pass)));}fetch('/api/opportunities').then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()}).then(d=>{all=d.opportunities;render(all)}).catch(error=>{document.querySelector('#queue').innerHTML='<h2>Shortlist</h2><div class="row"><div><strong>The opportunity queue could not be loaded.</strong></div></div>';showError(error.message)});document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),loc=(f.get('location')||'').toString().toLowerCase(),ind=(f.get('industry')||'').toString().toLowerCase(),min=Number(f.get('min_salary'))||0,max=Number(f.get('max_salary'))||Infinity;render(all.filter(o=>(!loc||`${o.location}`.toLowerCase().includes(loc))&&(!ind||`${o.company} ${o.title} ${o.industry??''}`.toLowerCase().includes(ind))&&(!min||o.salary_max>=min)&&(!isFinite(max)||o.salary_min<=max)))});document.querySelector('#clear').onclick=()=>{document.querySelector('#filters').reset();render(all)};</script></main>"""
 
 
 @app.get("/opportunities", response_class=HTMLResponse)
@@ -1550,6 +1567,7 @@ def opportunities() -> str:
         OPPORTUNITIES_BODY.replace("__OPPORTUNITIES__", str(data["opportunities"]))
         .replace("__SHORTLISTED__", str(data["shortlisted"]))
         .replace("__JOBS__", str(data["jobs_discovered"]))
+        .replace("__ASK__", ASK_JS)
     )
     return page_shell("Opportunities", body, active="/opportunities", css=OPPORTUNITIES_CSS)
 
@@ -1638,7 +1656,7 @@ def applications_page() -> str:
 </dialog>
 <p id="result"></p>
 <script>
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+__ASK__function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function readBody(r){const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}return {ok:r.ok,d,text};}
 const FILTERS={ready:'ready for approval',needs_information:'needs more information',handoffs:'waiting for your report'};
 const FILTER=(()=>{try{const f=new URLSearchParams(location.search).get('filter');return Object.prototype.hasOwnProperty.call(FILTERS,f)?f:'';}catch(e){return '';}})();
@@ -1680,26 +1698,29 @@ async function load(){
     line.textContent=refreshed.ok?'Package refreshed. Approve the new revision; the previous approval no longer applies.':(refreshed.d.detail||refreshed.text||'Refresh failed');
     if(refreshed.ok) load();
   }));
-  list.querySelectorAll('button.apply').forEach(btn=>btn.addEventListener('click',async()=>{
-    if(btn.disabled)return;
-    const id=btn.dataset.id;
-    const ok=confirm(btn.dataset.manual==='1'?'Open this posting in your browser? Sabra cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.');
-    if(!ok)return;
-    inflight.add(id);
-    setApplyDisabled(id,true);
-    try{
-      const response=await fetch('/api/applications/'+encodeURIComponent(id)+'/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
-      const applied=await readBody(response);
-      line.textContent=applied.ok?(applied.d.outcome+': '+(applied.d.detail||'')):(applied.d.detail||applied.text||'Apply failed');
-    }finally{
-      inflight.delete(id);
-    }
-    await load();
-  }));
+  list.querySelectorAll('button.apply').forEach(btn=>btn.addEventListener('click',()=>applyOne(btn)));
   list.querySelectorAll('.handoff').forEach(box=>refreshHandoff(box.dataset.id,box));
   inflight.forEach(id=>setApplyDisabled(id,true));
 }
 const inflight=new Set();
+async function applyOne(btn){
+  if(btn.disabled)return;
+  const id=btn.dataset.id;
+  const line=document.querySelector('#result');
+  const manual=btn.dataset.manual==='1';
+  const ok=await ask(manual?'Open this posting in your browser? Sabra cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.',{confirmLabel:manual?'Open in browser':'Submit'});
+  if(!ok)return;
+  inflight.add(id);
+  setApplyDisabled(id,true);
+  try{
+    const response=await fetch('/api/applications/'+encodeURIComponent(id)+'/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+    const applied=await readBody(response);
+    line.textContent=applied.ok?(applied.d.outcome+': '+(applied.d.detail||'')):(applied.d.detail||applied.text||'Apply failed');
+  }finally{
+    inflight.delete(id);
+  }
+  await load();
+}
 function setApplyDisabled(id,disabled){
   document.querySelectorAll('button.apply').forEach(b=>{if(b.dataset.id===id)b.disabled=disabled||b.dataset.dry==='1';});
 }
@@ -1709,7 +1730,7 @@ function forceSection(id,s){
 }
 function wireForce(box,id){
   box.querySelectorAll('button.force-report').forEach(b=>b.addEventListener('click',async()=>{
-    const typed=prompt('Forcing a report records an outcome without Sabra seeing it. Type the application id to confirm: '+id);
+    const typed=await ask('Forcing a report records an outcome without Sabra seeing it. Type the application id to confirm: '+id,{input:true,confirmLabel:'Force report'});
     if(typed===null)return;
     const forced=await readBody(await fetch('/api/applications/'+encodeURIComponent(id)+'/handoff/force',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome:b.dataset.outcome,confirm_id:typed})}));
     document.querySelector('#result').textContent=forced.ok?('Recorded as forced. The application is now '+forced.d.application_status+'.'):(forced.d.detail||forced.text||'Forced report refused');
@@ -1777,7 +1798,7 @@ document.querySelector('#refresh-all').addEventListener('click',async()=>{
   load();
 });
 load();
-</script></main>""",
+</script></main>""".replace("__ASK__", ASK_JS),
         active="/applications",
         css="""body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}.row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:10px 0}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-weight:700}button.copy,button.apply,button.refresh-one{padding:6px 10px;margin-left:8px}button:disabled{background:#9aada6;cursor:not-allowed}button.outcome,button.force-report{padding:6px 10px;margin:6px 8px 0 0}.force{margin-top:10px;padding-top:8px;border-top:2px solid #b3261e}button.force-report{background:#b3261e}.handoff{margin-top:8px;padding:8px;border:1px dashed #9aada6;border-radius:8px}code{font-size:12px}.why{color:#6c7f7a;display:block;margin-top:6px}dialog{border:1px solid #dce6df;border-radius:12px;padding:22px;max-width:440px;background:#fff;color:#18332f}dialog::backdrop{background:rgba(24,51,47,.45)}dialog p{margin:0 0 16px;color:#18332f}dialog button{margin-right:8px}""",
     )

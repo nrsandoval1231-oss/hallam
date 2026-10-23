@@ -81,6 +81,8 @@ from pydantic import BaseModel, Field
 from sabra_domain.schemas import CandidateProfile
 from sabra_llm.base import LLMProvider, Recorder
 
+from .master_resume import looks_like_break_note
+
 # ---------------------------------------------------------------------------
 # Normalisation
 # ---------------------------------------------------------------------------
@@ -677,6 +679,11 @@ def profile_evidence_text(profile: CandidateProfile) -> str:
             )
             if p
         )
+        if entry.is_break:
+            # The candidate's own statement of a gap: evidence for what they wrote, but not
+            # a role, and any duration in it ("10 years away") is not years of experience.
+            lines.append(f"Career break: {head}")
+            continue
         lines.append(f"Role: {head}")
         if entry.summary:
             lines.append(entry.summary)
@@ -702,6 +709,7 @@ def profile_evidence_text(profile: CandidateProfile) -> str:
                     item.institution,
                     " - ".join(p for p in (item.start_date, item.end_date) if p),
                     *item.honors,
+                    *(f"Minor in {m}" for m in item.minors),
                 )
                 if p
             )
@@ -831,6 +839,8 @@ def _month_index(value: str | None, *, end: bool) -> int | None:
 
 
 def _entry_span(entry: Any) -> tuple[int, int] | None:
+    if getattr(entry, "is_break", False):
+        return None  # a career break is not tenure; it never supports "N years of experience"
     start = _month_index(entry.start_date, end=False)
     if start is None:
         return None
@@ -842,15 +852,22 @@ def _entry_span(entry: Any) -> tuple[int, int] | None:
 
 
 def _tenure_years(profile: CandidateProfile) -> Decimal:
-    """Whole years (rounded DOWN) from the earliest start to the latest end.
+    """Whole years of work: the union of the dated, non-break roles, each stretch rounded DOWN.
 
-    Rounding down fails closed: 7.6 years of dates never supports "8 years"."""
+    Overlapping or back-to-back roles form one stretch; time between stretches (a career break
+    or any other gap) counts for nothing. Rounding down fails closed: 7.6 years of dates never
+    supports "8 years"."""
 
-    spans = [s for s in (_entry_span(e) for e in profile.employment) if s]
+    spans = sorted(s for s in (_entry_span(e) for e in profile.employment) if s)
     if not spans:
         return Decimal(0)
-    months = max(e for _s, e in spans) - min(s for s, _e in spans)
-    return Decimal(months // 12)
+    stretches = [list(spans[0])]
+    for start, end in spans[1:]:
+        if start <= stretches[-1][1] + 1:
+            stretches[-1][1] = max(stretches[-1][1], end)
+        else:
+            stretches.append([start, end])
+    return Decimal(sum((end - start) // 12 for start, end in stretches))
 
 
 def _employer_spans(profile: CandidateProfile) -> dict[str, Decimal]:
@@ -956,9 +973,15 @@ class EvidenceCorpus:
         # Only a duration that is plainly about experience raises the cap: an "N years"
         # phrase next to "experience"/"career"/..., or one in the summary or headline. A
         # contract term or a growth period ("a 15-year agreement") is not experience.
+        # A note about a gap ("Career break: 10 years away from my career") is not experience.
+        worked_norm = norm(
+            "\n".join(
+                line for line in self.candidate_text.split("\n") if not looks_like_break_note(line)
+            )
+        )
         stated = []
-        for duration in find_durations(self.candidate_norm):
-            if _EXPERIENCE_WORD.match(self.candidate_norm[duration.end : duration.end + 70]):
+        for duration in find_durations(worked_norm):
+            if _EXPERIENCE_WORD.match(worked_norm[duration.end : duration.end + 70]):
                 stated.append(duration.years)
         stated.extend(d.years for d in find_durations(norm(self.summary_text)))
         self.stated_years = stated

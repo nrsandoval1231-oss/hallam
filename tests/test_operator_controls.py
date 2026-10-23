@@ -439,7 +439,8 @@ def test_dashboard_exposes_batch_approval_and_answer_verification() -> None:
     assert ">Copy<" in applications.text
     assert ">Apply<" in applications.text
     assert "SABRA_AUTOMATION_DRY_RUN" in applications.text
-    assert "confirm(" in applications.text
+    assert 'id="ask-dialog"' in applications.text
+    assert "confirm(" not in applications.text
     answers_body = answers.text
     for key in (
         "us_citizen",

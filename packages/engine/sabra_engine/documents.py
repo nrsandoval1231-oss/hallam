@@ -84,6 +84,33 @@ class DocumentService:
         new version rather than mutating the old one, so history is preserved.
         """
 
+        return self.ingest_master_resume_report(
+            candidate_id,
+            text,
+            label=label,
+            source_format=source_format,
+            source_path=source_path,
+            parsed=parsed,
+            promote_identity=promote_identity,
+        )["resume_id"]
+
+    def ingest_master_resume_report(
+        self,
+        candidate_id: str,
+        text: str,
+        *,
+        label: str | None = "Master résumé",
+        source_format: str = "text",
+        source_path: str | None = None,
+        parsed: dict[str, Any] | None = None,
+        promote_identity: bool = True,
+    ) -> dict[str, Any]:
+        """Store the master résumé; return its id and what the parser could not read.
+
+        `unparsed_lines` and `warnings` are kept with the stored version too, so the
+        Candidate page can list them whenever the owner opens it.
+        """
+
         document = parse_master_resume(text, parsed=parsed)
         with self.ctx.repos() as repos:
             repos.candidates.get(candidate_id)
@@ -104,6 +131,7 @@ class DocumentService:
                     "projects": [p.model_dump(mode="json") for p in document.projects],
                     "contact": document.contact.model_dump(mode="json"),
                     "unparsed_line_count": len(document.unparsed_lines),
+                    "unparsed_lines": list(document.unparsed_lines),
                     "warnings": document.warnings,
                 },
             )
@@ -122,7 +150,11 @@ class DocumentService:
             )
             if promote_identity:
                 self._merge_resume_into_profile(repos, candidate_id, document)
-            return row.id
+            return {
+                "resume_id": row.id,
+                "unparsed_lines": list(document.unparsed_lines),
+                "warnings": list(document.warnings),
+            }
 
     def _merge_resume_into_profile(self, repos: Repos, candidate_id: str, document) -> None:
         """Fold résumé-derived values into the profile as INFERRED.

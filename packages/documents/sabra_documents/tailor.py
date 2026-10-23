@@ -267,6 +267,7 @@ class ResumeTailor:
         ordered_roles = sorted(
             zip(profile.employment, scored_roles, strict=True),
             key=lambda pair: (
+                pair[0].is_break,  # a career break is listed after the real roles
                 -pair[1][0],
                 _recency_sort_key(pair[1][1], pair[0].start_date),
                 pair[1][1],
@@ -277,7 +278,11 @@ class ResumeTailor:
             position = {index: rank for rank, index in enumerate(overrides.role_order)}
             ordered_roles = sorted(
                 ordered_roles,
-                key=lambda pair: (position.get(pair[1][1], len(position)), pair[1][1]),
+                key=lambda pair: (
+                    pair[0].is_break,
+                    position.get(pair[1][1], len(position)),
+                    pair[1][1],
+                ),
             )
 
         lines: list[str] = []
@@ -366,16 +371,10 @@ class ResumeTailor:
                 artifact="tailored_resume",
             )
 
+        # The matched terms are kept as data (`emphasis_terms`, used for the candidate
+        # summary) but are not written into the document: a "Directly relevant experience"
+        # sentence only repeated the Skills section as a mechanical template.
         emphasis = self._emphasis_terms(profile, focus)
-        if emphasis:
-            sentence = f"Directly relevant experience: {', '.join(emphasis[:8])}."
-            lines.append(sentence)
-            ledger.record(
-                f"alignment sentence: {sentence}",
-                TruthLevel.INFERRED,
-                [Evidence("candidate_profile.skills"), Evidence("candidate_profile.employment")],
-                artifact="tailored_resume",
-            )
 
         # --- experience ----------------------------------------------------
         lines.append("")
@@ -384,9 +383,26 @@ class ResumeTailor:
             header_bits = [normalize_text(entry.title), normalize_text(entry.employer)]
             header = " — ".join(bit for bit in header_bits if bit)
             dates = " - ".join(bit for bit in (entry.start_date, entry.end_date) if bit)
+            if (
+                entry.is_break
+                and entry.start_date
+                and entry.end_date
+                and entry.start_date in header
+                and entry.end_date in header
+            ):
+                dates = ""  # the candidate's wording already carries them
             lines.append("")
             lines.append(f"**{header}**" + (f" | {dates}" if dates else ""))
             role_order.append(header)
+            if entry.is_break:
+                # One line, no bullets: the candidate's own statement of the gap.
+                ledger.record(
+                    f"career break: {header}" + (f" | {dates}" if dates else ""),
+                    TruthLevel.VERIFIED,
+                    [Evidence("candidate_profile.employment.career_break")],
+                    artifact="tailored_resume",
+                )
+                continue
             ledger.record(
                 f"role: {header}" + (f" | {dates}" if dates else ""),
                 TruthLevel.VERIFIED,
@@ -443,7 +459,8 @@ class ResumeTailor:
                     p for p in (normalize_text(item.degree), normalize_text(item.institution)) if p
                 )
                 dates = " - ".join(p for p in (item.start_date, item.end_date) if p)
-                lines.append(f"- {line}" + (f" ({dates})" if dates else ""))
+                minors = "".join(f"; Minor in {normalize_text(m)}" for m in item.minors if m)
+                lines.append(f"- {line}" + (f" ({dates})" if dates else "") + minors)
                 ledger.record(
                     f"education: {line}",
                     TruthLevel.VERIFIED,
