@@ -303,6 +303,11 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
     ) -> None:
         super().__init__(dry_run=dry_run, settings=settings, page_factory=page_factory)
         self._evidence_dir = evidence_dir
+        # What the cover letter's recipient block and date line are drawn from, per
+        # opportunity: `{opportunity_id: (company, role title, date)}`. Set by
+        # `prepare_documents`. An opportunity with no entry gets a letter with no company
+        # line and no date, never another opportunity's.
+        self._letter_context: dict[str, tuple[str, str, str | None]] = {}
 
     # -- contract -------------------------------------------------------
 
@@ -1165,6 +1170,22 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             base = Path(configured)
         return base / "applications" / package.opportunity_id
 
+    @staticmethod
+    def _contact_line(package: ApplicationPackageSchema) -> str:
+        """The letterhead's contact line when there is no résumé header to copy."""
+
+        place = ", ".join(p for p in (package.applicant_city, package.applicant_state) if p)
+        return " | ".join(
+            part
+            for part in (
+                package.applicant_email,
+                package.applicant_phone,
+                place,
+                package.applicant_linkedin,
+            )
+            if part
+        )
+
     def _document_stem(self, package: ApplicationPackageSchema) -> str:
         """`First-Last` for the uploaded file's name, from the verified name only.
 
@@ -1184,9 +1205,9 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                     words.append(cleaned.title() if cleaned.isupper() else cleaned)
         return "-".join(words) or "Candidate"
 
-    @staticmethod
-    def _document_key(package: ApplicationPackageSchema) -> tuple[Any, ...]:
+    def _document_key(self, package: ApplicationPackageSchema) -> tuple[Any, ...]:
         return (
+            self._letter_context.get(package.opportunity_id),
             package.opportunity_id,
             package.applicant_name,
             package.applicant_first_name,
@@ -1195,15 +1216,34 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
             package.cover_letter,
         )
 
-    def prepare_documents(self, package: ApplicationPackageSchema) -> dict[str, Path]:
+    def prepare_documents(
+        self,
+        package: ApplicationPackageSchema,
+        *,
+        job: Any = None,
+        dated: str | None = None,
+    ) -> dict[str, Path]:
         """Render the PDFs now, before any browser or page exists.
 
         Called by the execution service ahead of opening the session, so a document that
         cannot be produced blocks the application before the employer's site is touched.
         Raises `SafetyStop` (UNSUPPORTED_FILE_REQUIREMENT) on failure. The result is
         cached for `prepare`.
+
+        `job` supplies the company and role title for the cover letter's recipient block;
+        `dated` is the package's prepared date, already formatted ("October 23, 2026"),
+        for its date line. Neither is read from the clock here, so a re-render of the same
+        approved package is byte-identical.
         """
 
+        opportunity = package.opportunity_id
+        if job is not None:
+            company = str(getattr(job, "company", "") or "").strip()
+            role_title = str(getattr(job, "title", "") or "").strip()
+            self._letter_context[opportunity] = (company, role_title, dated)
+        elif dated is not None:
+            known = self._letter_context.get(opportunity, ("", "", None))
+            self._letter_context[opportunity] = (known[0], known[1], dated)
         notes: list[str] = []
         report: dict[str, Any] = {}
         documents = self._prepare_documents(package, notes, report)
@@ -1247,6 +1287,9 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
 
         stem = self._document_stem(package)
         who = package.applicant_name or "Candidate"
+        company, role_title, dated = self._letter_context.get(
+            package.opportunity_id, ("", "", None)
+        )
         documents: dict[str, Path] = {}
         for key, text, md_name, pdf_name, label in (
             (
@@ -1272,14 +1315,35 @@ class GreenhouseApplicationAdapter(ApplicationAdapter):
                 base = self._artifact_dir(package)
                 base.mkdir(parents=True, exist_ok=True)
                 (base / md_name).write_text(text or "", encoding="utf-8")
-                pdf = renderer.render_resume_pdf(text or "", title=f"{who} - {label}")
+                unmapped = renderer.count_unmapped(text or "")
+                if key == "cover_letter":
+                    # The letterhead repeats the résumé's, so the two documents match.
+                    head = renderer.extract_letterhead(package.tailored_resume_markdown or "")
+                    pdf = renderer.render_cover_letter_pdf(
+                        text or "",
+                        candidate_name=package.applicant_name or head.name,
+                        headline=head.headline,
+                        contact_line=head.contact_line or self._contact_line(package),
+                        company=company,
+                        role_title=role_title,
+                        dated=dated,
+                        title=f"{who} - {label}",
+                    )
+                    # The recipient lines are left out when the fonts cannot draw them;
+                    # the headline is drawn with '?' as in the résumé. Both are counted.
+                    unmapped += sum(
+                        renderer.count_unmapped(part)
+                        for part in (company, role_title, head.headline)
+                    )
+                else:
+                    pdf = renderer.render_resume_pdf(text or "", title=f"{who} - {label}")
                 path = base / pdf_name
                 path.write_bytes(pdf)
                 report[key] = {
                     "file": pdf_name,
                     "sha256": hashlib.sha256(pdf).hexdigest(),
                     "bytes": len(pdf),
-                    "unmapped_characters": renderer.count_unmapped(text or ""),
+                    "unmapped_characters": unmapped,
                 }
             except Exception as exc:  # noqa: BLE001 - reported, and nothing else is uploaded
                 skipped.append(

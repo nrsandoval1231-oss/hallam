@@ -78,10 +78,16 @@ class ManualHandoffAdapter(ApplicationAdapter):
     def application_url(self, job: CanonicalJob | Any) -> str:
         return manual_apply_url(job)
 
-    def prepare_documents(self, package: ApplicationPackageSchema) -> dict[str, Path]:
+    def prepare_documents(
+        self,
+        package: ApplicationPackageSchema,
+        *,
+        job: Any = None,
+        dated: str | None = None,
+    ) -> dict[str, Path]:
         """Render the PDFs the person will attach. Raises `SafetyStop` if one cannot be made."""
 
-        return self._documents.prepare_documents(package)
+        return self._documents.prepare_documents(package, job=job, dated=dated)
 
     def _refuse(self) -> SafetyStop:
         return SafetyStop(

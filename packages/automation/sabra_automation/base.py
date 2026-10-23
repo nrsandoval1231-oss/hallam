@@ -227,8 +227,13 @@ class ApplicationAdapter(ABC):
         # returns False if the application is no longer the caller's to submit.
         self.pre_click_check: Callable[[], bool] | None = None
 
-    def prepare_documents(self, package: ApplicationPackageSchema) -> Any:
+    def prepare_documents(
+        self, package: ApplicationPackageSchema, *, job: Any = None, dated: str | None = None
+    ) -> Any:
         """Produce the files this adapter will upload, before any browser opens.
+
+        `job` and `dated` (the package's prepared date, formatted) feed the cover letter's
+        recipient block and date line.
 
         The default has nothing to produce. An adapter that renders documents overrides
         this and raises `SafetyStop` if one cannot be made, so the failure is found
