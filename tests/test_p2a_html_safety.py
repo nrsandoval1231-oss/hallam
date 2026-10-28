@@ -161,34 +161,41 @@ def test_home_renders_metrics_featured_progress_and_upcoming_as_text() -> None:
             "active_run": None,
         },
     }
+    payload["morning_brief"] = {"narrative": EVIL, "headline": EVIL}
+    payload["reference_metrics"] = {"analyzed": 0, "high_confidence": 2, "ready": 2, "updates": 0}
+    payload["brief_items"] = [
+        {"title": EVIL, "detail": EVIL, "href": href}
+        for href in ("/applications?filter=ready", "/applications?filter=needs_information", "/opportunities")
+    ]
+    payload["top_opportunities"] = [payload["featured"], *payload["recent"]]
+    payload["recent_activity"] = [{"label": EVIL, "detail": EVIL, "occurred_at": "2026-10-21T10:00:00Z", "href": "/pipeline"}]
     nodes = render(dashboard(), payload)
-    upcoming = assert_inert(nodes["#upcoming-list"]["innerHTML"], "ready for your review")
-    hrefs = {attrs.get("href") for tag, attrs in upcoming.tags if tag == "a"}
+    briefing = assert_inert(nodes["#brief-list"]["innerHTML"], EVIL)
+    hrefs = {attrs.get("href") for tag, attrs in briefing.tags if tag == "a"}
     assert hrefs == {"/applications?filter=ready", "/applications?filter=needs_information", "/opportunities"}
-    assert "5 open questions" in upcoming.joined
     progress = assert_inert(nodes["#run-progress"]["innerHTML"], EVIL)
     assert progress.joined.count(EVIL) >= 5
-    assert_inert(nodes["#featured"]["innerHTML"], EVIL)
-    assert "94% match" in Markup(nodes["#featured"]["innerHTML"]).joined
-    recent = assert_inert(nodes["#recent-list"]["innerHTML"], EVIL)
-    assert any(
-        attrs.get("href") == "/opportunities/opp_2" for tag, attrs in recent.tags if tag == "a"
-    )
-    assert "88%" in recent.joined
-    bars = Markup(nodes["#progress-bars"]["innerHTML"])
-    assert "Shortlisted" in bars.joined and "Offers" in bars.joined
-    assert nodes["#today-sub"]["textContent"].startswith("Searching: " + EVIL)
+    opportunities = assert_inert(nodes["#opportunity-list"]["innerHTML"], EVIL)
+    assert "94% match" in opportunities.joined and "88% match" in opportunities.joined
+    assert any(attrs.get("href") == "/opportunities/opp_2" for tag, attrs in opportunities.tags if tag == "a")
+    # The only image allowed here is the known bundled icon, never source HTML.
+    activity = nodes["#activity-list"]["innerHTML"].replace('<img src="/brand/icons/check-circle.svg" alt="">', "")
+    assert_inert(activity, EVIL)
+    assert nodes["#home-summary"]["textContent"] == EVIL
 
 
-def test_home_with_nothing_to_do_says_so_and_offers_the_resume_when_missing() -> None:
-    payload = {"today": {"counts": {}, "has_resume": False}, "recent": [], "generated_at": "x"}
+def test_home_empty_states_offer_actual_setup_and_never_invent_activity() -> None:
+    payload = {"today": {"counts": {}, "has_resume": False}, "recent": [], "generated_at": "x",
+               "brief_items": [{"title": "Add your master résumé", "detail": "Needed to prepare packages", "href": "/candidate"}],
+               "recent_activity": [], "top_opportunities": []}
     nodes = render(dashboard(), payload)
-    text = Markup(nodes["#upcoming-list"]["innerHTML"])
-    assert 'href="/candidate"' in nodes["#upcoming-list"]["innerHTML"]
-    assert "Upload your resume" in text.joined
-    assert "No featured opportunity yet" in nodes["#featured"]["innerHTML"]
-    ok = render(dashboard(), {"today": {"counts": {}, "has_resume": True}, "recent": []})
-    assert "Nothing needs your attention right now." in ok["#upcoming-list"]["innerHTML"]
+    assert 'href="/candidate"' in nodes["#brief-list"]["innerHTML"]
+    assert "Add your master résumé" in Markup(nodes["#brief-list"]["innerHTML"]).joined
+    assert "No shortlisted opportunities yet" in nodes["#opportunity-list"]["innerHTML"]
+    assert "No recent activity has been recorded." in nodes["#activity-list"]["innerHTML"]
+    ok = render(dashboard(), {"brief_items": [], "recent_activity": [], "top_opportunities": [],
+                              "today": {"counts": {}, "has_resume": True}})
+    assert "Nothing needs your attention right now." in ok["#brief-list"]["innerHTML"]
 
 
 def test_the_candidate_page_renders_profile_rows_and_resume_versions_as_text() -> None:

@@ -17,6 +17,10 @@ from __future__ import annotations
 from html import escape
 
 from .artemis_theme import EDITORIAL_CSS
+from .reference_home import HOME_CSS as REFERENCE_HOME_CSS
+from .reference_home import home_body as reference_home_body
+from .reference_plan import PLAN_BODY as REFERENCE_PLAN_BODY
+from .reference_theme import REFERENCE_CSS
 
 # (label, path). The path is also the key `page_shell(active=...)` matches.
 # The five frozen primary destinations; the remaining work surfaces (Profile, Searches,
@@ -24,9 +28,9 @@ from .artemis_theme import EDITORIAL_CSS
 NAV_LINKS: tuple[tuple[str, str], ...] = (
     ("Home", "/"),
     ("Opportunities", "/opportunities"),
-    ("Applications", "/applications"),
     ("Research", "/research"),
     ("Career Plan", "/career-plan"),
+    ("Applications", "/applications"),
 )
 
 MENU_LINKS: tuple[tuple[str, str], ...] = (
@@ -241,6 +245,7 @@ function _veloraChrome(){
     };
     const openBtn=$('#velora-ask-open');
     if(openBtn)openBtn.addEventListener('click',openDlg);
+    const mobileAsk=$('#mobile-ask-open');if(mobileAsk)mobileAsk.addEventListener('click',openDlg);
     const send=async question=>{
       const out=$('#velora-ask-out');if(!out)return;
       out.hidden=false;
@@ -322,9 +327,8 @@ ESC_JS = ESC_JS + CHROME_JS
 LOGO_MARK_SVG = (
     '<svg class="mark" viewBox="0 0 64 64" role="img" aria-label="Artemis" '
     'xmlns="http://www.w3.org/2000/svg">'
-    '<path d="M7 55 26.25 9h6.8L16.7 55Z" fill="#142D29"/>'
-    '<path d="m57 55-19.25-46h-6.8L47.3 55Z" fill="#142D29"/>'
-    '<path d="m22.5 38 19 .15 2.55 6.1-24.1-.15Z" fill="#142D29"/>'
+    '<path d="M8 57 29.5 7H32L12 57Z" fill="#142D29"/>'
+    '<path d="M31.5 7H35L57 57H48.5Z" fill="#142D29"/>'
     '</svg>'
 )
 
@@ -390,7 +394,7 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         'system. Find the right opportunities. Present your best self. Move with confidence.">'
         '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
         f"<title>Artemis | {escape(title)}</title>"
-        f"<style>{SHELL_CSS}{css}{EDITORIAL_CSS}</style></head>\n"
+        f"<style>{SHELL_CSS}{css}{EDITORIAL_CSS}{REFERENCE_CSS}</style></head>\n"
         '<body><a class="skip-link" href="#main-content">Skip to content</a><header class="topnav">'
         f'<a class="brand" href="/">{LOGO_MARK_SVG}<span class="word">ARTEMIS</span></a>'
         f'<nav class="primary" aria-label="Main">{links}</nav>'
@@ -402,8 +406,8 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         '<details class="usermenu" id="velora-usermenu"><summary class="avatar" '
         'id="velora-avatar" aria-label="Account">·</summary>'
         f'<div class="menu">{account}</div></details>'
-        '<details class="navtoggle"><summary aria-label="Menu">☰</summary>'
-        f'<div class="mobilemenu">{menu}</div></details>'
+        '<details class="navtoggle"><summary aria-label="Menu"><img src="/brand/icons/menu.svg" width="18" height="18" alt=""></summary>'
+        f'<div class="mobilemenu">{menu}<button type="button" id="mobile-ask-open">Ask Artemis</button></div></details>'
         '</div></header>\n'
         f"{body}{ASK_DIALOG_HTML}{ASK_ARTEMIS_HTML}</body></html>"
     )
@@ -413,307 +417,11 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
 # Home
 # ---------------------------------------------------------------------------
 
-HOME_CSS = (
-    ".home{max-width:1360px;margin:0 auto;padding:34px 40px 80px}"
-    ".hero-row{display:grid;grid-template-columns:1fr 1.15fr;gap:28px;align-items:stretch}"
-    ".hero{padding:26px 0 0}"
-    ".hero h1{font-size:48px;letter-spacing:-.03em;line-height:1.06;margin:14px 0 14px}"
-    ".hero .lede{font-size:17px;color:var(--muted);max-width:34rem;margin:0}"
-    ".hero-actions{display:flex;align-items:center;gap:16px;margin-top:22px;flex-wrap:wrap}"
-    ".hero .check{font-size:13px;color:var(--muted)}"
-    ".home button{background:linear-gradient(140deg,#3E5769,var(--ink));color:#fff;border:0;"
-    "border-radius:11px;padding:10px 18px;cursor:pointer;font:inherit;font-weight:600}"
-    ".home button:hover{filter:brightness(1.08)}"
-    ".home button:disabled{background:var(--slate);cursor:not-allowed}"
-    ".home button.ghost{background:var(--glass-soft);color:var(--ink);border:1px solid var(--silver);"
-    "backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}"
-    ".home button.ghost:hover{background:var(--glass);filter:none}"
-    ".metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-content:start}"
-    ".metric{position:relative;display:block;padding:18px 20px;text-decoration:none;color:var(--ink)}"
-    ".metric .m-icon{width:40px;height:40px;border-radius:12px;display:flex;"
-    "align-items:center;justify-content:center;background:rgba(166,184,167,.30)}"
-    ".metric strong{display:block;font-size:30px;font-weight:700;font-family:Sora,Inter,sans-serif;"
-    "line-height:1.1;margin-top:14px}"
-    ".metric .m-label{display:block;color:var(--muted);font-size:13px;margin-top:2px}"
-    ".metric .m-arrow{position:absolute;right:16px;top:50%;transform:translateY(-50%);"
-    "color:var(--slate);font-size:19px}"
-    "#run-log{margin-top:18px}"
-    "#run-log>summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:600;list-style:none}"
-    "#run-log>summary::-webkit-details-marker{display:none}"
-    "#run-log>summary::before{content:'▸ ';color:var(--slate)}"
-    "#run-log[open]>summary::before{content:'▾ '}"
-    "#run-progress .glass{padding:16px 20px;margin-top:10px}"
-    ".home-grid{display:grid;grid-template-columns:1.45fr 1fr;gap:28px;margin-top:30px;"
-    "align-items:start}"
-    ".col-main,.col-side{display:grid;gap:28px}"
-    ".featured{padding:30px 32px}"
-    ".featured .f-head{display:flex;justify-content:space-between;align-items:center;gap:12px}"
-    ".match-pill{display:inline-flex;align-items:center;gap:7px;background:rgba(217,234,226,.85);"
-    "color:#2F5D48;border-radius:999px;padding:4px 13px;font-size:12px;font-weight:700;"
-    "letter-spacing:.06em;white-space:nowrap}"
-    ".match-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:#4E8A6B}"
-    ".featured h2{font-size:34px;letter-spacing:-.02em;margin:14px 0 2px}"
-    ".featured .f-company{font-weight:600;color:var(--ink);margin:0 0 12px;font-size:16px}"
-    ".f-meta{display:flex;gap:22px;flex-wrap:wrap;color:var(--muted);font-size:13.5px;margin:0 0 14px}"
-    ".f-meta span{display:inline-flex;align-items:center;gap:6px}"
-    ".featured .f-why{color:var(--muted);max-width:58%;margin:0 0 20px;position:relative;z-index:1}"
-    ".featured .actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:relative;z-index:1}"
-    ".featured .f-head,.featured h2,.featured .f-company,.featured .f-meta{position:relative;z-index:1}"
-    ".featured .f-art{position:absolute;right:-90px;bottom:-90px;width:250px;height:210px;"
-    "pointer-events:none;opacity:.7}"
-    ".featured .f-art i{position:absolute;border-radius:16px;border:1px solid rgba(255,255,255,.8);"
-    "background:linear-gradient(150deg,rgba(166,184,167,.35),rgba(232,229,220,.12));"
-    "backdrop-filter:blur(4px);box-shadow:0 16px 34px rgba(20,45,41,.10);"
-    "transform:skewY(-8deg) rotate(6deg)}"
-    ".featured .f-art i:nth-child(1){inset:30px 90px 40px 40px}"
-    ".featured .f-art i:nth-child(2){inset:60px 40px 10px 100px;opacity:.75}"
-    ".featured .f-art i:nth-child(3){inset:0 150px 110px 0;opacity:.55}"
-    ".board{padding:22px 24px}"
-    ".board h2{display:flex;justify-content:space-between;align-items:baseline;"
-    "font-size:16.5px;margin:0 0 6px}"
-    ".board h2 a{font-size:12.5px;color:var(--muted);font-weight:600}"
-    ".board h2 a:hover{color:var(--ink)}"
-    ".opp-row{display:flex;align-items:center;gap:14px;padding:14px 0;"
-    "border-top:1px solid var(--line);text-decoration:none;color:var(--ink)}"
-    ".opp-row:first-of-type{border-top:0}"
-    ".opp-row .co-mark{width:42px;height:42px;border-radius:12px;flex:none;display:flex;"
-    "align-items:center;justify-content:center;font-family:Sora,Inter,sans-serif;font-weight:700;"
-    "font-size:16px;color:#fff;background:linear-gradient(140deg,var(--sky),var(--storm))}"
-    ".opp-row .o-body{flex:1;min-width:0}"
-    ".opp-row .o-title{font-weight:600;font-size:14.5px}"
-    ".opp-row .o-sub{color:var(--muted);font-size:13px}"
-    ".opp-row .o-fit{font-weight:700;font-size:14px;color:var(--ink);background:rgba(217,234,226,.8);"
-    "border-radius:8px;padding:3px 10px}"
-    ".opp-row:hover{background:rgba(255,255,255,.35);border-radius:12px}"
-    ".bars{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:end;"
-    "margin-top:16px;min-height:150px}"
-    ".bar{display:grid;gap:8px;justify-items:center;align-content:end;height:100%}"
-    ".bar .v{font-size:13px;font-weight:700}"
-    ".bar .col{width:100%;max-width:64px;border-radius:9px 9px 4px 4px;"
-    "background:linear-gradient(180deg,rgba(166,184,167,.9),rgba(113,140,154,.55));"
-    "box-shadow:inset 0 1px 0 rgba(255,255,255,.6);min-height:6px}"
-    ".bar .k{font-size:12px;color:var(--muted)}"
-    ".todo{list-style:none;margin:6px 0 0;padding:0}"
-    ".todo li{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}"
-    ".todo li:first-child{border-top:0}"
-    ".todo .dot{width:9px;height:9px;border-radius:50%;background:var(--storm);margin-top:7px;flex:none}"
-    ".todo a{font-weight:600;color:var(--ink)}"
-    ".todo a:hover{color:var(--storm)}"
-    ".todo .n{display:inline-block;min-width:22px;height:22px;border-radius:999px;"
-    "background:rgba(166,184,167,.35);color:var(--ink);font-size:12px;font-weight:700;"
-    "text-align:center;line-height:22px;margin-right:6px}"
-    ".todo .hint{color:var(--muted);font-size:13px;display:block}"
-    ".empty-note{color:var(--muted);padding:8px 0}"
-    "@media(max-width:1100px){.hero h1{font-size:42px}.metrics{grid-template-columns:1fr 1fr}}"
-    "@media(max-width:960px){.home{padding:20px 16px 56px}.hero-row,.home-grid{grid-template-columns:1fr}"
-    ".hero{padding-top:6px}.featured h2{font-size:26px}.featured .f-art{display:none}}"
-)
-
-HOME_BODY = """<main class="home">
-<section class="hero-row" aria-label="Morning Brief">
-  <div class="hero">
-    <p class="eyebrow">Your career, in focus</p>
-    <h1>Your next move is taking shape.</h1>
-    <p class="lede">Find what others miss. Pursue what matters.</p>
-    <p class="line" id="today-sub"></p>
-    <div class="brief-copy" id="morning-brief" aria-live="polite"></div>
-    <div class="brief-action" id="next-action"></div>
-    <div class="hero-actions">
-      <button type="button" id="run-now">Run search</button>
-      <label class="check"><input type="checkbox" id="run-prepare"> Also prepare packages for the top roles (nothing is submitted)</label>
-    </div>
-    <p class="line" id="run-line"></p>
-    <details id="run-log"><summary>Latest run</summary><div id="run-progress"></div></details>
-  </div>
-  <div class="metrics" id="metrics">
-    <a class="metric glass interactive" href="/opportunities"><span class="m-icon">__I_MATCH__</span><strong data-metric="matches">–</strong><span class="m-label">Matches</span><span class="m-arrow">›</span></a>
-    <a class="metric glass interactive" href="/applications"><span class="m-icon">__I_APPS__</span><strong data-metric="applications">–</strong><span class="m-label">Applications</span><span class="m-arrow">›</span></a>
-    <a class="metric glass interactive" href="/pipeline"><span class="m-icon">__I_TALKS__</span><strong data-metric="interviews">–</strong><span class="m-label">Interviews</span><span class="m-arrow">›</span></a>
-    <a class="metric glass interactive" href="/pipeline"><span class="m-icon">__I_OFFERS__</span><strong data-metric="offers">–</strong><span class="m-label">Offers</span><span class="m-arrow">›</span></a>
-  </div>
-</section>
-<section class="home-grid">
-  <div class="col-main">
-    <section class="glass elevated featured" id="featured"><p class="empty-note">Loading the featured opportunity…</p></section>
-    <section class="glass board"><h2>Recent opportunities <a href="/opportunities">View all →</a></h2><div id="recent-list"><p class="empty-note">Loading…</p></div></section>
-  </div>
-  <div class="col-side">
-    <section class="glass board"><h2>Your progress</h2><div class="bars" id="progress-bars"></div></section>
-    <section class="glass board" id="upcoming"><h2>Upcoming items</h2><ul class="todo" id="upcoming-list"><li><span class="hint">Loading…</span></li></ul><p class="line" id="seen-line"></p></section>
-  </div>
-</section>
-<p class="line" id="status-line"></p>
-<footer class="brand-note">Maximum intelligence. Minimum complexity.</footer>
-</main>
-<script>
-__ESC__
-// Each count links to the page that acts on it; the Applications page reads ?filter= and
-// shows just the rows the count is made of.
-const UPCOMING={
-  ready_for_approval:['application package(s) ready for your review','/applications?filter=ready'],
-  needs_information:['application(s) need more information','/applications?filter=needs_information'],
-  handoffs_waiting:['submission(s) waiting for your report','/applications?filter=handoffs'],
-  new_high_fit:['new high-fit opportunities since the last run','/opportunities'],
-  employer_responses:['employer response(s) since you last looked','/pipeline']
-};
-let pollTimer=null;
-function renderRun(run){
-  if(!run)return '';
-  const p=run.progress||{};
-  const stages=Object.entries(p.stages||{}).map(([name,st])=>{
-    const counts=Object.entries(st).filter(([k,v])=>typeof v==='number').map(([k,v])=>esc(k.replace(/_/g,' '))+' '+esc(v)).join(' · ');
-    return `<div class="stage"><strong>${esc(name)}</strong> ${esc(st.status||'')}${counts?' · '+counts:''}</div>`;
-  }).join('');
-  const sources=(p.sources||[]).map(s=>`<div class="stage">${esc(s.display_name||s.source_id)}: ${s.ok?'ok':'FAILED'}, ${esc(s.jobs_seen)} seen, ${esc(s.jobs_new)} new${s.error?' · '+esc(s.error):''}</div>`).join('');
-  const warn=(p.warnings||[]).map(w=>`<div class="stage">${esc(w)}</div>`).join('');
-  const err=run.error?`<div class="stage err">${esc(run.error)}</div>`:'';
-  return `<div class="glass soft"><div><strong>${esc(run.status)}</strong> · ${esc(run.kind)}${p.summary?' · '+esc(p.summary):''}</div>${stages}${warn}${err}<details><summary>Sources (${(p.sources||[]).length})</summary>${sources||'<div class="stage">None yet.</div>'}</details></div>`;
-}
-function pctOf(x){return x==null?'':Math.round(Number(x)*100)+'%';}
-function renderFeatured(f){
-  const box=document.querySelector('#featured');
-  if(!f){box.innerHTML='<p class="eyebrow">Featured opportunity</p><h2>No featured opportunity yet</h2><p class="f-why">Run a search and Artemis will rank what it finds. The strongest match appears here.</p>';return;}
-  const meta=[
-    f.location||'Location not listed',
-    f.industry||'',
-    f.compensation_text||'',
-    f.arrangement||''
-  ].filter(Boolean).map(m=>`<span>${esc(m)}</span>`).join('');
-  const match=f.fit_score==null?'':`<span class="match-pill">${esc(pctOf(f.fit_score))} match</span>`;
-  box.innerHTML=`<div class="f-head"><p class="eyebrow">Featured opportunity</p>${match}</div>
-  <h2>${esc(f.title)}</h2><p class="f-company">${esc(f.company)}</p>
-  <p class="f-meta">${meta}</p>
-  <p class="f-why">${esc(f.why_this_job||'Shortlisted by the ranking engine.')}</p>
-  <div class="actions"><a class="btn" href="/opportunities/${encodeURIComponent(f.id)}">Review opportunity →</a><button type="button" class="ghost" id="f-tailor" data-id="${esc(f.id)}">Tailor application</button></div>
-  <div class="f-art" aria-hidden="true"><i></i><i></i><i></i></div>`;
-  const t=box.querySelector('#f-tailor');
-  if(t)t.addEventListener('click',()=>tailor(t.dataset.id));
-}
-async function tailor(id){
-  const line=document.querySelector('#status-line');
-  line.textContent='Preparing the package…';
-  const b=await readBody(await fetch('/api/opportunities/'+encodeURIComponent(id)+'/prepare',{method:'POST'}));
-  if(!b.ok){line.textContent=detailOf(b,'Preparation failed');return;}
-  line.innerHTML=`Package ${esc(b.d.status)}. <a href="/packages/${encodeURIComponent(b.d.package_id)}">Review the application</a>`;
-}
-function renderRecent(rows){
-  const box=document.querySelector('#recent-list');
-  if(!rows||!rows.length){box.innerHTML='<p class="empty-note">No additional shortlisted opportunities.</p>';return;}
-  box.innerHTML=rows.map(o=>{
-    const initials=(o.company||'?').trim().split(/\\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
-    const sub=[o.company,o.location||'',o.compensation_text||''].filter(Boolean).join(' · ');
-    return `<a class="opp-row" href="/opportunities/${encodeURIComponent(o.id)}"><span class="co-mark">${esc(initials)}</span><span class="o-body"><span class="o-title">${esc(o.title)}</span><br><span class="o-sub">${esc(sub)}</span></span>${o.fit_score==null?'':`<span class="o-fit">${esc(pctOf(o.fit_score))}</span>`}</a>`;
-  }).join('');
-}
-function renderProgress(p){
-  const order=[['shortlisted','Shortlisted'],['applied','Applied'],['interviews','Interviews'],['offers','Offers']];
-  const max=Math.max(1,...order.map(([k])=>p[k]|0));
-  document.querySelector('#progress-bars').innerHTML=order.map(([k,label])=>{
-    const v=p[k]|0,h=Math.max(6,Math.round(120*v/max));
-    return `<div class="bar"><span class="v">${esc(v)}</span><span class="col" style="height:${h}px"></span><span class="k">${esc(label)}</span></div>`;
-  }).join('');
-}
-function renderUpcoming(d){
-  const c=(d.today&&d.today.counts)||{};
-  const items=Object.keys(UPCOMING).filter(k=>c[k]>0).map(k=>{
-    const label=k==='new_high_fit'?(c[k]===1?'role':'roles')+' recorded on your shortlist':({ready_for_approval:'application package'+(c[k]===1?'':'s')+' ready for your review',needs_information:'application'+(c[k]===1?' needs':'s need')+' more information',handoffs_waiting:'submission'+(c[k]===1?'':'s')+' waiting for your report',employer_responses:'employer response'+(c[k]===1?'':'s')+' since you last looked'})[k]||UPCOMING[k][0];
-    const extra=k==='needs_information'&&d.today.open_questions?` <span class="hint">${esc(d.today.open_questions)} open questions</span>`:'';
-    return `<li><span class="dot"></span><span><a href="${UPCOMING[k][1]}"><span class="n">${esc(c[k])}</span> ${esc(label)}</a>${extra}</span></li>`;
-  });
-  if(d.today&&d.today.has_resume===false)items.push('<li><span class="dot"></span><span><a href="/candidate">Upload your resume</a><span class="hint">Packages cannot be prepared without it.</span></span></li>');
-  document.querySelector('#upcoming-list').innerHTML=items.join('')||'<li><span class="hint">Nothing needs your attention right now.</span></li>';
-  const seen=document.querySelector('#seen-line');
-  if(c.employer_responses>0){seen.innerHTML='<button type="button" class="secondary" id="mark-seen">Mark responses as seen</button>';const b=document.querySelector('#mark-seen');if(b)b.addEventListener('click',markSeen);}
-  else seen.textContent='';
-}
-function renderHome(d){
-  document.querySelector('#today-sub').textContent=(d.search_profile_name?`Searching: ${d.search_profile_name}. `:'')+(d.automation_dry_run===false?'Real submission is ON.':'Dry run is on: nothing is submitted.');
-  const brief=d.morning_brief||{};
-  const briefBox=document.querySelector('#morning-brief');
-  if(briefBox)briefBox.innerHTML='<p class="eyebrow">Morning Brief</p>'+(brief.narrative?'<p>'+esc(brief.narrative)+'</p>':'<p>Your search, clearly in view. Run a search to build your first brief.</p>')+(brief.run_at?'<p class="brief-baseline">'+(brief.run_status==='COMPLETED'?'Completed run: ':'Run recorded: ')+esc(new Date(brief.run_at).toLocaleString())+'. Counts below describe that run, not a calendar-day comparison.</p>':'')+((brief.changes||[]).length?'<ul class="brief-changes">'+brief.changes.map(c=>'<li><strong>'+esc(c.value)+'</strong> '+esc(c.label)+(c.detail?'<span>'+esc(c.detail)+'</span>':'')+'</li>').join('')+'</ul>':'');
-  const action=d.next_action||{};
-  const actionBox=document.querySelector('#next-action');
-  if(actionBox)actionBox.innerHTML=action.label?'<span class="eyebrow">Your next move</span><a class="btn" href="'+esc(action.href)+'">'+esc(action.label)+' →</a><p>'+esc(action.reason||'')+'</p>':'';
-  const m=d.metrics||{};
-  document.querySelectorAll('[data-metric]').forEach(e=>{e.textContent=m[e.dataset.metric]??0;});
-  renderFeatured(d.featured);
-  renderRecent((d.recent||[]).filter(o=>!d.featured||o.id!==d.featured.id));
-  renderProgress(d.progress||{});
-  renderUpcoming(d);
-  const last=(d.today&&(d.today.active_run||d.today.last_run))||null;
-  document.querySelector('#run-log').hidden=!last;
-  document.querySelector('#run-progress').innerHTML=renderRun(last);
-  document.querySelector('#run-now').disabled=!!(d.today&&d.today.active_run);
-  if(d.today&&d.today.active_run){document.querySelector('#run-log').open=true;poll(d.today.active_run.id);}
-  const t=d.generated_at||((d.today||{}).generated_at);
-  document.querySelector('#status-line').textContent=t?'Updated '+new Date(t).toLocaleTimeString()+'.':'';
-}
-async function markSeen(){await fetch('/api/today/seen',{method:'POST'});loadHome();}
-async function loadHome(){
-  const sub=document.querySelector('#today-sub');
-  try{
-    const b=await readBody(await fetch('/api/home'));
-    if(!b.ok)throw new Error(detailOf(b,'The overview could not be loaded.'));
-    renderHome(b.d);
-  }catch(error){sub.textContent=error.message;}
-}
-function poll(id){
-  if(pollTimer)return;
-  pollTimer=setInterval(async()=>{
-    const b=await readBody(await fetch('/api/runs/'+encodeURIComponent(id)));
-    if(!b.ok)return;
-    document.querySelector('#run-progress').innerHTML=renderRun(b.d);
-    if(b.d.status==='COMPLETED'||b.d.status==='FAILED'){clearInterval(pollTimer);pollTimer=null;document.querySelector('#run-now').disabled=false;loadHome();}
-  },2000);
-}
-async function runNow(){
-  const line=document.querySelector('#run-line');
-  line.textContent='';
-  const prepare=!!(document.querySelector('#run-prepare')||{}).checked;
-  const b=await readBody(await fetch('/api/runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'full',prepare:prepare})}));
-  if(!b.ok){line.textContent=detailOf(b,'The run could not start.');return;}
-  document.querySelector('#run-now').disabled=true;
-  const log=document.querySelector('#run-log');log.hidden=false;log.open=true;
-  document.querySelector('#run-progress').innerHTML=renderRun(b.d);
-  poll(b.d.id);
-}
-document.querySelector('#run-now').addEventListener('click',runNow);
-loadHome();
-</script>
-"""
-
-_ICONS = {
-    "match": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
-        'stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2.5"/>'
-        '<path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
-    ),
-    "apps": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
-        'stroke-width="1.8" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>'
-        '<path d="M14 3v6h6"/><path d="M9 13h6M9 17h4"/></svg>'
-    ),
-    "talks": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
-        'stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/>'
-        '<path d="M3.5 20c.6-3.4 2.9-5 5.5-5s4.9 1.6 5.5 5"/>'
-        '<circle cx="17" cy="9" r="2.4"/><path d="M16 15.2c2.3.3 3.9 1.8 4.4 4.3"/></svg>'
-    ),
-    "offers": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
-        'stroke-width="1.8" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>'
-    ),
-}
+HOME_CSS = REFERENCE_HOME_CSS
 
 
 def home_body() -> str:
-    return (
-        HOME_BODY.replace("__ESC__", ESC_JS)
-        .replace("__I_MATCH__", _ICONS["match"])
-        .replace("__I_APPS__", _ICONS["apps"])
-        .replace("__I_TALKS__", _ICONS["talks"])
-        .replace("__I_OFFERS__", _ICONS["offers"])
-    )
+    return reference_home_body(ESC_JS)
 
 
 # ---------------------------------------------------------------------------
@@ -1196,54 +904,7 @@ PLAN_CSS = (
     "@media(max-width:700px){.plan-grid{grid-template-columns:1fr}}"
 )
 
-PLAN_BODY = """<main class="wrap">
-<h1>Career Plan</h1>
-<p>Your active search is your career objective: the roles you want, the limits you set, and how far along you are. Edit it on the <a href="/searches">Searches page</a>.</p>
-<p class="line" id="line"></p>
-<div id="plan"><section class="card"><p>Loading...</p></section></div>
-</main>
-<script>
-__ESC__
-function meter(v,t,label){
-  const pct=t?Math.min(100,Math.round(100*v/t)):0;
-  return `<p style="margin:10px 0 2px"><strong>${esc(v)}</strong> of ${esc(t)} ${esc(label)}</p><div class="plan-meter"><i style="width:${pct}%"></i></div>`;
-}
-function chips(items){return items&&items.length?items.map(i=>`<span class="pill" style="margin:0 6px 6px 0">${esc(i)}</span>`).join(' '):'<span class="muted">None set.</span>';}
-function render(d){
-  const box=document.querySelector('#plan');
-  const s=d.search;
-  const actions=(d.actions||[]).map(a=>`<li><a href="${esc(a.href)}">${esc(a.label)}</a>${a.reason?'<p>'+esc(a.reason)+'</p>':''}</li>`).join('');
-  const gaps=(d.skill_gaps||[]).map(g=>`<div class="gap-row"><span>${esc(g.gap)}</span><span class="n">${esc(g.count)}</span></div>`).join('');
-  const objective=s?`<section class="card"><h2>${esc(s.name)}</h2>
-    <h3>Target roles</h3><p>${chips(s.target_titles)}</p>
-    ${(s.acceptable_titles||[]).length?'<h3>Also acceptable</h3><p>'+chips(s.acceptable_titles)+'</p>':''}
-    ${(s.excluded_titles||[]).length?'<h3>Excluded</h3><p>'+chips(s.excluded_titles)+'</p>':''}
-    <p class="muted">${esc(d.search_summary||'')}</p>
-    <h3>Your stated constraints</h3><p>${chips([...(s.excluded_titles||[]),...(s.excluded_industries||[]),...(s.excluded_keywords||[])])}</p>
-    <p class="muted">${esc(s.travel_max_percent==null?'Travel limit not set.':'Travel up to '+s.travel_max_percent+'%.')} ${esc((s.locations&&s.locations.countries||[]).length?'Countries: '+s.locations.countries.join(', '):'Country constraint not set.')} These are search preferences you control, not inferred candidate qualifications.</p>
-    <p><a href="/searches">Edit this search</a></p></section>`
-    :'<section class="card"><h2>No active search yet</h2><p>Define what you are looking for and Artemis starts working toward it.</p><p><a class="btn" href="/searches">Create a search</a></p></section>';
-  const p=d.progress||{};
-  box.innerHTML=objective+`<div class="plan-grid"><section class="card"><h2>Progress toward the goal</h2>
-    ${s?meter(p.shortlisted||0,s.shortlist_target||0,'shortlisted'):''}
-    ${s?meter(p.prepared||0,s.prepare_target||0,'application packages prepared'):''}
-    <p class="muted">A run discovers, filters, scores, ranks and shortlists, then prepares packages for the top roles.</p></section>
-    <section class="card"><h2>Recommended actions</h2>
-    <ul class="plan-actions">${actions||'<li>Nothing right now. Run a search when you are ready.</li>'}</ul></section></div>
-    <section class="card"><h2>Skill gaps across your shortlist</h2>
-    <p class="muted">Inferences from the fit engine, not verified deficits in your experience. Check the evidence in each opportunity before acting.</p>
-    ${gaps||'<p class="muted">No gaps recorded yet. Score a shortlist first.</p>'}</section>`+
-    ((d.practical_actions||[]).length?'<section class="card"><h2>Development actions</h2><p>Suggested from recorded gaps; these are options for your judgment.</p><ul>'+d.practical_actions.map(a=>'<li><strong>'+esc(a.label)+'</strong><p>'+esc(a.reason||'')+'</p></li>').join('')+'</ul></section>':'')+
-    ((d.evidence||[]).length?'<section class="card"><h2>Evidence behind the plan</h2><p>Recorded assessment observations</p><ul>'+d.evidence.map(e=>'<li>'+esc(e.gap)+' · '+esc(e.shortlisted_roles)+' shortlisted role(s) · '+esc(e.basis)+'</li>').join('')+'</ul><h3>Interpretation</h3>'+d.inferences.map(i=>'<p>'+esc(i.text)+' '+esc(i.basis)+'</p>').join('')+'</section>':'');
-}
-async function load(){
-  const b=await readBody(await fetch('/api/career-plan'));
-  if(!b.ok){document.querySelector('#line').textContent=detailOf(b,'The career plan could not be loaded.');return;}
-  render(b.d);
-}
-load();
-</script>
-""".replace("__ESC__", ESC_JS)
+PLAN_BODY = REFERENCE_PLAN_BODY.replace("__ESC__", ESC_JS)
 
 
 def searches_body() -> str:
@@ -1267,7 +928,6 @@ __all__ = [
     "CANDIDATE_BODY",
     "CHROME_JS",
     "ESC_JS",
-    "HOME_BODY",
     "HOME_CSS",
     "LOGO_MARK_SVG",
     "MENU_LINKS",

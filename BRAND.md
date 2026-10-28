@@ -10,13 +10,13 @@
 - Voice: confident, insightful, calm, selective, specific, never theatrical or generic AI hype.
 
 ## Aesthetic
-**Quiet Strategist / architectural editorial minimalism.** The approved October 28 ARTEMIS concept board is the visual reference. MARQO (https://www.behance.net/gallery/234103127/MARQO) is an inspiration for restraint, not a source of designs to copy. All logos, UI components and assets must be original.
+**Quiet Strategist / architectural editorial minimalism.** The owner’s latest selected interface reference, [approved-interface.jpg](docs/brand/reference/approved-interface.jpg), is the active visual source. It supersedes the earlier non-photographic production interpretation. MARQO (https://www.behance.net/gallery/234103127/MARQO) is an inspiration for restraint, not a source of designs to copy. All logos, UI components and assets must be original.
 
 - No left navigation rail; minimal horizontal navigation.
 - Spacious ivory workspaces with judicious evergreen panels; clear hierarchy, quiet shadows and precise alignment.
 - Typography-led editorial hero and strong functional data interfaces.
 - No gratuitous futuristic effects, generic goddess imagery, stock bow-and-arrow logos, fake intelligence, or overloaded widgets.
-- Architecture/landscape images in visual *concept boards* are atmospheric only; production application should prioritize content and may remain entirely non-photographic.
+- The owner explicitly approved the architectural landscape hero in the selected interface reference. Production uses the original generated `brand/images/artemis-architecture.png`, served as an optimized WebP; it is atmospheric artwork, never evidence of product activity. No stock image or sample company logo is copied from the reference.
 
 ## Color tokens
 | Token | Hex | Purpose |
@@ -32,7 +32,7 @@
 Use semantic aliases as necessary. All foreground/background pairings must meet accessibility contrast; do not use low-contrast sage text for essential information.
 
 ## Logo
-Sharp minimal **architectural A** made from two elegant tapered strokes and deliberate negative space. Uppercase **A R T E M I S** wordmark with restrained tracking. The refined production master is `brand/logo/artemis-mark.svg`, validated at 16 px. No literal mythology symbols. Horizontal and stacked lockups, mono/reversed marks, favicon, app icons and vector/PNG social artwork are supplied in `brand/`; see [the asset kit](docs/brand/ARTEMIS_ASSET_KIT.md).
+Sharp minimal **open architectural A** made from two elegant tapered strokes and deliberate negative space, with no crossbar, matching the selected interface reference. Uppercase **A R T E M I S** wordmark with restrained tracking. The refined production master is `brand/logo/artemis-mark.svg`, validated at 16 px. No literal mythology symbols. Horizontal and stacked lockups, mono/reversed marks, favicon, app icons and vector/PNG social artwork are supplied in `brand/`; see [the asset kit](docs/brand/ARTEMIS_ASSET_KIT.md).
 
 ## Typography
 Cormorant Garamond is the editorial display serif; Manrope is the readable sans for application data, controls, inputs, lists and supporting labels. Small uppercase eyebrows use increased tracking. Both variable fonts are bundled locally with their SIL Open Font Licenses in `brand/fonts/`; no remote font request is required.

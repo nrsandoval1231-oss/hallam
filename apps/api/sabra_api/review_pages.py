@@ -49,7 +49,7 @@ function documentBlock(t,empty){
   const out=[];
   const close=()=>{if(list){out.push('</ul>');list=false;}};
   String(t).split(/\r?\n/).forEach(line=>{
-    const value=esc(line.trim()).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    const value=esc(line.trim()).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|\s)_([^_]+)_(?=\s|$)/g,'$1<em>$2</em>');
     if(!value){close();return;}
     const heading=value.match(/^(#{1,6})\s+(.+)$/);
     const bullet=value.match(/^[-*]\s+(.+)$/);
@@ -93,10 +93,48 @@ DETAIL_CSS = (
     ".pill.flag{background:#F0E9DB}"
     "code{font-size:12px;overflow-wrap:anywhere}"
     ".decision{border:2px solid var(--ink)}"
+    ".opp-hero{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:17px;align-items:center;margin:12px 0 24px}"
+    ".company-tile{width:58px;height:58px;display:grid;place-items:center;background:#E9ECE5;color:var(--forest);border:1px solid var(--line);border-radius:8px;font:600 23px/1 'Artemis Sans',sans-serif;letter-spacing:.04em}"
+    ".opp-title{margin:0!important;font:500 32px/1.1 'Artemis Display',Georgia,serif!important;color:var(--evergreen)}"
+    ".opp-meta{display:flex;gap:5px 12px;flex-wrap:wrap;margin-top:7px;font-size:13px}.opp-meta .pill{align-self:center}"
+    ".opp-confidence{text-align:right;color:var(--muted);font-size:12px}.opp-confidence strong{display:block;color:var(--forest);font-size:17px}"
+    ".opportunity-tabs,.studio-steps{display:flex;gap:22px;align-items:stretch;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:thin}"
+    ".opportunity-tabs [role=tab],.studio-steps [role=tab]{flex:0 0 auto;padding:10px 1px;border:0;border-radius:0;background:transparent;color:var(--muted);font:600 13px 'Artemis Sans',sans-serif;box-shadow:none}"
+    ".opportunity-tabs [aria-selected=true],.studio-steps [aria-selected=true]{color:var(--evergreen);border-bottom:2px solid var(--forest)}"
+    ".opportunity-tabs [role=tab]:hover,.studio-steps [role=tab]:hover{color:var(--evergreen);background:transparent}"
+    ".opportunity-tabs [role=tab]:focus-visible,.studio-steps [role=tab]:focus-visible{outline:2px solid var(--forest);outline-offset:2px}"
+    ".opportunity-panel{padding-top:16px}.overview-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(240px,.9fr);gap:32px}"
+    ".overview-grid h2{font:500 20px 'Artemis Display',Georgia,serif}.key-insights{border-left:1px solid var(--line);padding-left:24px}"
+    ".key-insights ul{list-style:none;padding:0}.key-insights li{padding:7px 0;border-bottom:1px solid var(--line)}"
+    ".opportunity-panel .actions{margin-top:22px}.opportunity-panel #prepare{background:var(--evergreen);color:#fff;border-radius:5px;padding:11px 22px}"
+    ".studio-title{font:500 34px/1.1 'Artemis Display',Georgia,serif!important;margin:0!important}"
+    ".studio-subtitle{margin:0;font-size:14px}.studio-steps{gap:0;justify-content:space-between;margin:0 0 10px}"
+    ".reference-studio{padding-top:14px!important}.studio-titlebar{display:flex;justify-content:space-between;align-items:start;gap:12px}"
+    ".studio-back{font-size:12px;white-space:nowrap}.studio-role-meta{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin:-8px 0 2px;font-size:12px;color:var(--muted)}"
+    ".studio-role-meta strong{color:var(--graphite);font-weight:600}.studio-errorline{min-height:0!important;margin:0 0 3px;font-size:12px}"
+    ".studio-steps [role=tab]{display:flex;align-items:center;gap:9px;padding:12px 8px}"
+    ".step-number{display:grid;place-items:center;width:23px;height:23px;border:1px solid var(--line);border-radius:50%;font-size:11px}"
+    ".studio-steps [aria-selected=true] .step-number{background:var(--evergreen);border-color:var(--evergreen);color:white}"
+    ".studio-readiness{display:flex;gap:8px;align-items:baseline;padding:2px 11px;border:1px solid var(--line);border-left:3px solid var(--forest);background:#F0EFE9;margin:0 0 3px;font-size:12px}"
+    ".studio-readiness strong{flex:0 0 auto;color:var(--evergreen)}.studio-readiness p{margin:0}"
+    ".studio-layout{display:grid;grid-template-columns:180px minmax(0,1fr);gap:24px;align-items:start}"
+    ".studio-nav{border-right:1px solid var(--line);padding-right:14px;display:grid;gap:4px;position:sticky;top:12px}"
+    ".studio-nav button{width:100%;text-align:left;padding:8px 10px;background:transparent;color:var(--muted);border-radius:4px;font-size:12px;font-weight:500;box-shadow:none}"
+    ".studio-nav button[aria-current=true]{background:#E9ECE5;color:var(--evergreen);font-weight:700}"
+    ".studio-nav button:hover{background:#E9ECE5;color:var(--evergreen)}"
+    ".studio-content{min-width:0}.studio-panel{min-width:0}.document-preview{max-width:740px;margin:0 auto;padding:26px 30px;background:#fff;border:1px solid var(--line);box-shadow:0 3px 14px rgba(20,45,41,.05);color:var(--graphite)}"
+    ".document-preview h3,.document-preview h4{color:var(--evergreen);font-family:'Artemis Display',Georgia,serif;font-weight:500;margin:12px 0 4px}"
+    ".document-preview p{color:var(--graphite);margin:5px 0}.studio-panel .card{margin-top:0}"
+    ".studio-nav-mobile{display:none}"
     "@media(max-width:700px){.cols{grid-template-columns:1fr}"
     ".facts{grid-template-columns:1fr}}"
+    "@media(max-width:700px){.overview-grid{grid-template-columns:1fr;gap:16px}.key-insights{border-left:0;border-top:1px solid var(--line);padding:15px 0 0}"
+    ".studio-layout{grid-template-columns:1fr;gap:12px}.studio-nav{position:static;border:0;padding:0;display:flex;flex-wrap:wrap;gap:7px;overflow:visible}"
+    ".studio-nav button{width:auto;white-space:normal;border:1px solid var(--line);padding:7px 10px}.studio-nav button[aria-current=true]{border-color:var(--forest)}"
+    ".studio-steps{gap:8px;justify-content:flex-start}.studio-steps [role=tab]{font-size:12px}}"
     "@media(max-width:480px){.decision-nav{gap:10px 14px;padding:10px}.facts dd{margin-bottom:6px}"
-    ".table-scroll table{min-width:480px}}"
+    ".table-scroll table{min-width:480px}.opp-hero{grid-template-columns:44px minmax(0,1fr);gap:12px}.company-tile{width:44px;height:44px;font-size:18px}"
+    ".opp-title{font-size:24px!important}.opp-confidence{grid-column:2;text-align:left}.studio-title{font-size:29px!important}.document-preview{padding:18px 16px}.studio-steps{gap:2px}.studio-steps [role=tab]{gap:5px;padding:9px 4px;font-size:11px}}"
 )
 
 # ---------------------------------------------------------------------------
@@ -105,11 +143,9 @@ DETAIL_CSS = (
 
 OPPORTUNITY_DETAIL_BODY = r"""<main class="wrap">
 <p><a href="/opportunities">Back to opportunities</a></p>
-<h1 id="title">Opportunity</h1>
-<p class="muted" id="meta"></p>
-<div class="actions" id="actions"></div>
+<div class="opp-hero"><div class="company-tile" id="company-tile" aria-hidden="true"></div><div><p class="eyebrow">Opportunity</p><h1 class="opp-title" id="title">Opportunity</h1><div class="opp-meta" id="meta"></div></div><div class="opp-confidence" id="confidence"></div></div>
 <p class="line" id="line"></p>
-<nav class="decision-nav" aria-label="Opportunity details" id="section-nav"><a href="#recommendation">Recommendation</a><a href="#fit">Fit and evidence</a><a href="#posting">Original posting</a><a href="#research">Company research</a><a href="#application">Application readiness</a><a href="#history">History</a></nav>
+<div class="opportunity-tabs" role="tablist" aria-label="Opportunity details" id="section-nav"><button type="button" role="tab" id="op-tab-overview" aria-controls="op-panel-overview" aria-selected="true" tabindex="0" data-tab="overview">Overview</button><button type="button" role="tab" id="op-tab-fit" aria-controls="op-panel-fit" aria-selected="false" tabindex="-1" data-tab="fit">Why it fits</button><button type="button" role="tab" id="op-tab-company" aria-controls="op-panel-company" aria-selected="false" tabindex="-1" data-tab="company">Company</button><button type="button" role="tab" id="op-tab-role" aria-controls="op-panel-role" aria-selected="false" tabindex="-1" data-tab="role">Role</button><button type="button" role="tab" id="op-tab-insights" aria-controls="op-panel-insights" aria-selected="false" tabindex="-1" data-tab="insights">Insights</button><button type="button" role="tab" id="op-tab-next" aria-controls="op-panel-next" aria-selected="false" tabindex="-1" data-tab="next">Next steps</button></div>
 <div id="sections"><section class="card"><p>Loading...</p></section></div>
 </main>
 <script>
@@ -119,8 +155,12 @@ const OPP_ID=__ID__;
 let detail=null;
 function renderMeta(d){
   const o=d.opportunity,j=d.job;
-  document.querySelector('#title').textContent=(o.title||'Opportunity')+' at '+(o.company||'the company');
-  document.querySelector('#meta').innerHTML=`<span class="pill">${esc(o.status)}</span> ${esc(j.location||o.location||'Location not listed')} · ${esc(j.compensation_text||'pay not listed')}`;
+  const company=o.company||j.company||'Company';
+  document.querySelector('#title').textContent=(o.title||j.title||'Opportunity');
+  document.querySelector('#company-tile').textContent=company.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()||'•';
+  document.querySelector('#meta').innerHTML=`<span>${esc(company)}</span><span>·</span><span>${esc(j.location||o.location||'Location not listed')}</span><span>·</span><span>${esc(j.compensation_text||'Pay not listed')}</span><span class="pill">${esc(o.status)}</span>`;
+  const confidence=d.fit&&d.fit.confidence!=null?`<strong>${esc(pct(d.fit.confidence))}</strong>Confidence`:'<strong>—</strong>Confidence not assessed';
+  document.querySelector('#confidence').innerHTML=confidence;
 }
 function renderActions(d){
   const a=d.actions||{},p=d.package;
@@ -142,6 +182,13 @@ function renderWhy(d){
     ['Rank',r.position==null?'unranked':'#'+r.position+' of '+r.of],
     ['Rank score',r.score==null?'':Number(r.score).toFixed(3)],
     ['Shortlisted',d.opportunity.shortlisted?'yes':'no']]),'', 'recommendation');
+}
+function renderOverview(d){
+  const f=d.fit||{};
+  const insightItems=(f.strengths||[]).slice(0,3).map(x=>`<li>${esc(x)}</li>`);
+  (f.gaps||[]).slice(0,2).forEach(x=>insightItems.push(`<li>${esc(x)} <span class="muted">· gap to consider</span></li>`));
+  const insights=insightItems.length?'<ul>'+insightItems.join('')+'</ul>':'<p class="muted">No fit insights have been recorded yet.</p>';
+  return `<div class="overview-grid"><div><p class="eyebrow">Why this opportunity</p>${renderWhy(d)}</div><div class="key-insights"><p class="eyebrow">Key insights</p><h3>Evidence to weigh</h3>${insights}</div></div><div class="actions" id="actions"></div>`;
 }
 function renderFit(d){
   const f=d.fit;
@@ -191,11 +238,50 @@ function renderHistory(d){
   if(!h.length)return section('History','<p class="muted">No events recorded.</p>', '', 'history');
   return section('History','<ul class="history">'+h.slice().reverse().map(e=>`<li><span class="when">${esc(when(e.occurred_at))}</span><strong>${esc(e.event_type)}</strong> <span class="muted">${esc(e.entity_type)}${e.actor?' · '+esc(e.actor):''}</span>${e.summary?'<br>'+esc(e.summary):''}</li>`).join('')+'</ul>', '', 'history');
 }
+function renderInsights(d){
+  const h=d.hard_filter||{},r=d.research||{},f=d.fit||{};
+  const filters=(h.reasons||[]).map(x=>`${esc(x)}${h.detail&&h.detail[x]?' · '+esc(h.detail[x]):''}`);
+  const research=[...(r.recent_developments||[]),...(r.candidate_company_intersections||[])];
+  return `<section class="card" id="insight-records" tabindex="-1"><h3>Recorded insights</h3><h4>Screening</h4>${h.summary?`<p>${esc(h.summary)}</p>`:'<p class="muted">No screening summary is recorded.</p>'}${filters.length?'<ul>'+filters.map(x=>`<li>${x}</li>`).join('')+'</ul>':''}<h4>Fit gaps and risks</h4>${bullets([...(f.gaps||[]),...(f.risks||[])])}<h4>Company developments and intersections</h4>${bullets(research)}</section>`;
+}
+function activateOpportunityTab(name,focus){
+  ['overview','fit','company','role','insights','next'].forEach(key=>{
+    const tab=document.querySelector('#op-tab-'+key),panel=document.querySelector('#op-panel-'+key);
+    if(!tab||!panel)return;
+    const active=key===name;
+    tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;panel.hidden=!active;
+    if(active&&focus)tab.focus();
+  });
+}
+function wireOpportunityTabs(){
+  const keys=['overview','fit','company','role','insights','next'];
+  keys.forEach(key=>{const tab=document.querySelector('#op-tab-'+key);tab.onclick=()=>activateOpportunityTab(key,false);});
+  const list=document.querySelector('#section-nav');
+  list.onkeydown=event=>{
+    const current=keys.findIndex(key=>document.activeElement===document.querySelector('#op-tab-'+key));
+    if(current<0)return;
+    let next=current;
+    if(event.key==='ArrowRight')next=(current+1)%keys.length;
+    else if(event.key==='ArrowLeft')next=(current+keys.length-1)%keys.length;
+    else if(event.key==='Home')next=0;
+    else if(event.key==='End')next=keys.length-1;
+    else return;
+    event.preventDefault();activateOpportunityTab(keys[next],true);
+  };
+}
 function render(d){
   detail=d;
   renderMeta(d);
+  document.querySelector('#sections').innerHTML=
+    `<div class="opportunity-panel" role="tabpanel" id="op-panel-overview" aria-labelledby="op-tab-overview">${renderOverview(d)}</div>`+
+    `<div class="opportunity-panel" role="tabpanel" id="op-panel-fit" aria-labelledby="op-tab-fit" hidden>${renderFit(d)}${renderFilter(d)}</div>`+
+    `<div class="opportunity-panel" role="tabpanel" id="op-panel-role" aria-labelledby="op-tab-role" hidden>${renderPosting(d)}</div>`+
+    `<div class="opportunity-panel" role="tabpanel" id="op-panel-company" aria-labelledby="op-tab-company" hidden>${renderResearch(d)}</div>`+
+    `<div class="opportunity-panel" role="tabpanel" id="op-panel-insights" aria-labelledby="op-tab-insights" hidden>${renderInsights(d)}</div>`+
+    `<div class="opportunity-panel" role="tabpanel" id="op-panel-next" aria-labelledby="op-tab-next" hidden>${renderApplication(d)}${renderHistory(d)}</div>`;
   renderActions(d);
-  document.querySelector('#sections').innerHTML=[renderWhy(d),renderFit(d),renderFilter(d),renderPosting(d),renderResearch(d),renderApplication(d),renderHistory(d)].join('');
+  wireOpportunityTabs();
+  activateOpportunityTab('overview',false);
 }
 async function load(){
   const line=document.querySelector('#line');
@@ -240,13 +326,13 @@ def opportunity_detail_body(opportunity_id: str) -> str:
 # Application review (requirement 31)
 # ---------------------------------------------------------------------------
 
-REVIEW_BODY = r"""<main class="wrap">
-<p><a href="/applications">Back to applications</a></p>
-<h1 id="title">Application review</h1>
-<p class="muted" id="meta"></p>
-<p class="line" id="line"></p>
-<nav class="decision-nav" aria-label="Application review sections" id="review-nav"><a href="#opening">Opening</a><a href="#fit-review">Fit</a><a href="#resume">Résumé</a><a href="#cover">Cover letter</a><a href="#answers">Answers</a><a href="#questions">Questions</a><a href="#warnings">Warnings</a><a href="#messages">Messages</a><a href="#decision">Decision</a></nav>
-<div id="sections"><section class="card"><p>Loading...</p></section></div>
+REVIEW_BODY = r"""<main class="wrap reference-studio">
+<div class="studio-titlebar"><div><h1 class="studio-title">Application studio</h1><p class="studio-subtitle">Review and approve before submission.</p></div><a class="studio-back" href="/applications">Back to applications</a></div>
+<div class="studio-role-meta"><strong id="title">Application</strong><span id="meta"></span></div>
+<p class="line studio-errorline" id="line"></p>
+<div class="studio-readiness" id="studio-readiness" aria-live="polite"><strong id="studio-status">Review status</strong><p id="studio-readiness-text">Loading package checks…</p></div>
+<div class="studio-steps" role="tablist" aria-label="Application review steps" id="studio-steps"><button type="button" role="tab" id="studio-tab-resume" aria-controls="studio-panel-resume" aria-selected="true" tabindex="0" data-step="resume"><span class="step-number">1</span>Résumé</button><button type="button" role="tab" id="studio-tab-cover" aria-controls="studio-panel-cover" aria-selected="false" tabindex="-1" data-step="cover"><span class="step-number">2</span>Cover letter</button><button type="button" role="tab" id="studio-tab-answers" aria-controls="studio-panel-answers" aria-selected="false" tabindex="-1" data-step="answers"><span class="step-number">3</span>Answers</button><button type="button" role="tab" id="studio-tab-review" aria-controls="studio-panel-review" aria-selected="false" tabindex="-1" data-step="review"><span class="step-number">4</span>Review</button></div>
+<div class="studio-layout"><nav class="studio-nav" aria-label="Application review sections" id="studio-nav"><button type="button" data-section="resume" data-step="resume" aria-current="true"><img src="/brand/icons/file-text.svg" width="13" height="13" alt="">Tailored résumé</button><button type="button" data-section="cover" data-step="cover" aria-current="false"><img src="/brand/icons/file-text.svg" width="13" height="13" alt="">Cover letter</button><button type="button" data-section="answers" data-step="answers" aria-current="false"><img src="/brand/icons/check-circle.svg" width="13" height="13" alt="">Application answers</button><button type="button" data-section="messages" data-step="review" aria-current="false"><img src="/brand/icons/briefcase.svg" width="13" height="13" alt="">Supporting materials</button><button type="button" data-section="decision" data-step="review" aria-current="false"><img src="/brand/icons/check-circle.svg" width="13" height="13" alt="">Review &amp; approve</button></nav><div class="studio-content" id="sections"><section class="card"><p>Loading...</p></section></div></div>
 </main>
 <script>
 __ESC__
@@ -257,7 +343,21 @@ let busy=false;
 function renderMeta(d){
   const o=d.opportunity;
   document.querySelector('#title').textContent=(o.title||'Application')+' at '+(o.company||'the company');
-  document.querySelector('#meta').innerHTML=`Package revision ${esc(d.package.revision)} · <span class="pill">${esc(d.package.status)}</span> · application <span class="pill">${esc(d.application_status||'none')}</span>`;
+  document.querySelector('#meta').innerHTML=`Package rev. ${esc(d.package.revision)} · ${esc(d.package.status)} · ${esc(d.application_status||'no application state')}`;
+  const actions=d.actions||{},unresolved=d.unresolved_questions||[];
+  const answers=(d.materials||{}).answers||[],unverified=answers.filter(a=>a.level!=='VERIFIED').length;
+  const warnings=(d.warnings||[]).length;
+  const truthNeedsReview=d.package.truth_clean===false;
+  const notes=[];
+  if(unresolved.length)notes.push(`${unresolved.length} unresolved question${unresolved.length===1?'':'s'}`);
+  if(unverified)notes.push(`${unverified} unverified answer${unverified===1?'':'s'}`);
+  if(warnings)notes.push(`${warnings} warning${warnings===1?'':'s'}`);
+  if(truthNeedsReview&&!unresolved.length&&!unverified)notes.push('Truth checks need review');
+  const needsReview=unresolved.length||unverified||truthNeedsReview;
+  const state=needsReview?'Needs information':actions.can_approve?'Ready for owner review':'Review required';
+  if(!notes.length)notes.push(actions.can_approve?'No unresolved questions or warnings are recorded. Review the package and its content hash.': 'Review the package requirements and approval reason below.');
+  document.querySelector('#studio-status').textContent=state;
+  document.querySelector('#studio-readiness-text').textContent=notes.join(' · ');
 }
 function renderOpening(d){
   const j=d.job;
@@ -292,15 +392,15 @@ function renderWarnings(d){
 }
 function renderMessages(d){
   const m=d.materials||{};
-  return `<section class="card" id="messages"><details><summary>8. Recruiter and hiring-manager messages, interview preparation</summary><h3>Recruiter message</h3>${textBlock(m.recruiter_message,'None.')}<h3>Hiring-manager message</h3>${textBlock(m.hiring_manager_message,'None.')}<h3>Interview preparation</h3>${textBlock(m.interview_preparation,'None.')}</details></section>`;
+  return `<section class="card" id="messages" tabindex="-1"><details><summary>8. Recruiter and hiring-manager messages, interview preparation</summary><h3>Recruiter message</h3>${textBlock(m.recruiter_message,'None.')}<h3>Hiring-manager message</h3>${textBlock(m.hiring_manager_message,'None.')}<h3>Interview preparation</h3>${textBlock(m.interview_preparation,'None.')}</details></section>`;
 }
 function renderDecision(d){
   const a=d.actions||{};
   const hash=d.package.content_hash;
   const refreshLabel='Refresh package';
   const unresolved=(d.unresolved_questions||[]).length;
-  const readiness=a.can_approve?'Package is eligible for approval. Approval applies to the exact hash shown below.':(a.approve_reason||'Approval is unavailable for this package.');
-  return `<section class="card decision" id="decision"><h2>Decision</h2><div class="readiness"><strong>Approval readiness</strong><p>${esc(readiness)}${unresolved?` ${unresolved} unresolved question${unresolved===1?'':'s'} recorded.`:''}</p></div>
+  const readiness=a.can_approve?'Available for owner review. Approval applies to the exact hash shown below.':unresolved?`${unresolved} unresolved question${unresolved===1?'':'s'} remain.`:'Owner approval is unavailable for this package.';
+  return `<section class="card decision" id="decision" tabindex="-1"><h2>Decision</h2><div class="readiness"><strong>Approval readiness</strong><p>${esc(readiness)}${unresolved?` ${unresolved} unresolved question${unresolved===1?'':'s'} recorded.`:''}</p></div>
 <p>Approving binds to this exact package. Content hash: <code>${esc(hash)}</code></p>
 <div class="actions"><button type="button" id="approve" ${a.can_approve?'':'disabled'}>Approve application</button><button type="button" class="secondary" id="refresh" ${a.refresh?'':'disabled'}>${refreshLabel}</button><button type="button" class="secondary" id="reject" ${a.can_reject?'':'disabled'}>Reject</button></div>
 ${a.can_approve?'':`<p class="err" id="why-not">${esc(a.approve_reason||'')}</p>`}
@@ -310,9 +410,54 @@ ${a.can_reject?'':`<p class="muted">${esc(a.reject_reason||'')}</p>`}</section>`
 function render(d){
   review=d;
   renderMeta(d);
-  document.querySelector('#sections').innerHTML=[renderOpening(d),renderFit(d),renderResume(d),renderCover(d),renderAnswers(d),renderUnresolved(d),renderWarnings(d),renderMessages(d),renderDecision(d)].join('');
+  document.querySelector('#sections').innerHTML=
+    `<div class="studio-panel" role="tabpanel" id="studio-panel-resume" aria-labelledby="studio-tab-resume" data-step-panel="resume">${renderResume(d)}</div>`+
+    `<div class="studio-panel" role="tabpanel" id="studio-panel-cover" aria-labelledby="studio-tab-cover" data-step-panel="cover" hidden>${renderCover(d)}</div>`+
+    `<div class="studio-panel" role="tabpanel" id="studio-panel-answers" aria-labelledby="studio-tab-answers" data-step-panel="answers" hidden>${renderAnswers(d)}</div>`+
+    `<div class="studio-panel" role="tabpanel" id="studio-panel-review" aria-labelledby="studio-tab-review" data-step-panel="review" hidden>${renderOpening(d)}${renderFit(d)}</div>`+
+    `<div class="studio-panel studio-review-followup" role="tabpanel" id="studio-panel-review-followup" aria-labelledby="studio-tab-review" data-step-panel="review" hidden>${renderUnresolved(d)}${renderWarnings(d)}${renderMessages(d)}${renderDecision(d)}</div>`;
   const wire=(sel,fn)=>{const el=document.querySelector(sel);if(el)el.addEventListener('click',fn);};
   wire('#approve',approve);wire('#refresh',refresh);wire('#reject',reject);
+  wireStudioNavigation();
+  activateStudioStep('resume',false);
+}
+function studioSectionStep(target){return target==='resume'?'resume':target==='cover'?'cover':target==='answers'?'answers':'review';}
+function activateStudioStep(name,focus){
+  ['resume','cover','answers','review'].forEach(key=>{
+    const tab=document.querySelector('#studio-tab-'+key),panel=document.querySelector('#studio-panel-'+key);
+    if(!tab||!panel)return;
+    const active=key===name;
+    tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
+    panel.hidden=!active;
+    if(key==='review'){const followup=document.querySelector('#studio-panel-review-followup');if(followup)followup.hidden=!active;}
+    if(active&&focus)tab.focus();
+  });
+  const first=document.querySelector(`#studio-nav button[data-step="${name}"]`);
+  document.querySelectorAll('#studio-nav button').forEach(btn=>btn.setAttribute('aria-current',String(btn===first)));
+}
+function activateStudioSection(target,focus){
+  const step=studioSectionStep(target);
+  activateStudioStep(step,false);
+  const sectionButton=document.querySelector(`#studio-nav button[data-section="${target}"]`);
+  document.querySelectorAll('#studio-nav button').forEach(btn=>btn.setAttribute('aria-current',String(btn===sectionButton)));
+  const section=document.getElementById(target);
+  if(section){section.scrollIntoView({block:'start'});if(focus)section.focus();}
+}
+function wireStudioNavigation(){
+  const keys=['resume','cover','answers','review'];
+  keys.forEach(key=>{const tab=document.querySelector('#studio-tab-'+key);tab.onclick=()=>activateStudioStep(key,false);});
+  document.querySelector('#studio-steps').onkeydown=event=>{
+    const current=keys.findIndex(key=>document.activeElement===document.querySelector('#studio-tab-'+key));
+    if(current<0)return;
+    let next=current;
+    if(event.key==='ArrowRight')next=(current+1)%keys.length;
+    else if(event.key==='ArrowLeft')next=(current+keys.length-1)%keys.length;
+    else if(event.key==='Home')next=0;
+    else if(event.key==='End')next=keys.length-1;
+    else return;
+    event.preventDefault();activateStudioStep(keys[next],true);
+  };
+  document.querySelectorAll('#studio-nav button').forEach(btn=>{btn.onclick=()=>activateStudioSection(btn.dataset.section,true);});
 }
 async function load(){
   const line=document.querySelector('#line');

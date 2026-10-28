@@ -1,6 +1,6 @@
 # ARTEMIS production asset kit
 
-This is the production asset set for the approved Quiet Strategist direction. The mark is an original architectural A: two tapered, separately cut legs with a compact crosspiece. The deliberate open apex gives the silhouette room at small sizes. `brand/logo/artemis-mark.svg` is the master; the matching favicon is `brand/logo/favicon.svg`.
+This is the production asset set for the approved Quiet Strategist direction. The mark is an original architectural A formed by two tapered strokes with no crossbar. `brand/logo/artemis-mark.svg` is the master; the matching favicon is `brand/logo/favicon.svg`.
 
 ## Logo files
 
@@ -13,7 +13,7 @@ This is the production asset set for the approved Quiet Strategist direction. Th
 - `brand/logo/exports/` — PNG exports of the marks and lockups; includes transparent 16, 32 and 48 px favicon marks and a 512 px app icon.
 - `brand/social/` — square and landscape social graphics in SVG and PNG, in light and dark palettes.
 
-Use the standalone mark at 16 px and above. At 16 px, the crosspiece remains a distinct pixel-width stroke; keep the source geometry unchanged and render directly at the target size. Use the horizontal lockup where the available width is at least 250 px. Keep clear space around all marks equal to the mark's crosspiece height. Do not add effects, outlines, or gradients.
+Use the standalone mark at 16 px and above; preserve the open apex and do not add a crossbar. Use the horizontal lockup where the available width is at least 250 px. Keep clear space around all marks at least equal to one stroke's width at its base. Do not add effects, outlines, or gradients.
 
 ## Color and type
 
@@ -44,3 +44,9 @@ All distributed SVG lockups and social artwork use Manrope glyph outlines, so th
 ## Provenance
 
 Font binaries and license texts are from the Google Fonts repository: [Cormorant Garamond](https://github.com/google/fonts/tree/main/ofl/cormorantgaramond) and [Manrope](https://github.com/google/fonts/tree/main/ofl/manrope). The outlined lockup lettering uses the bundled Manrope variable font instantiated at weight 600, with HarfBuzz shaping to preserve glyph spacing and alignment. SVG assets use only original ARTEMIS geometry and the canonical brand palette. Social artwork is brand collateral and does not depict product activity or factual application data.
+
+## Reference interface artwork and icons
+
+The owner-selected interface reference is `docs/brand/reference/approved-interface.jpg`. The architectural hero is original generated artwork, retained at `brand/images/artemis-architecture.png`; `artemis-architecture.webp` is its optimized quality-88 derivative for runtime use. It does not depict an employer or a measured product result.
+
+The small UI icons in `brand/icons/` are Feather icons from `https://github.com/feathericons/feather`, distributed under the bundled MIT `brand/icons/LICENSE`. The application serves them locally; no third-party icon or font request is required. Sample company logos in the reference are replaced with initials derived from actual company names.
