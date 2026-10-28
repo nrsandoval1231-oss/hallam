@@ -67,14 +67,14 @@ def test_favicon_is_served() -> None:
     assert "svg" in response.headers["content-type"]
     assert "<svg" in response.text
     assert 'viewBox="0 0 64 64"' in response.text
-    assert 'd="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z"' in response.text
+    assert 'd="M7 55 26.25 9h6.8L16.7 55Z"' in response.text
 
 
 def test_header_and_favicon_share_the_canonical_artemis_mark() -> None:
     page = TestClient(app).get("/").text
     favicon = TestClient(app).get("/favicon.svg").text
-    canonical_path = 'd="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z"'
-    canonical_cut = 'd="M26.6 41h10.8"'
+    canonical_path = 'd="M7 55 26.25 9h6.8L16.7 55Z"'
+    canonical_cut = 'd="m22.5 38 19 .15 2.55 6.1-24.1-.15Z"'
     assert canonical_path in LOGO_MARK_SVG and canonical_cut in LOGO_MARK_SVG
     assert canonical_path in favicon and canonical_cut in favicon
     assert LOGO_MARK_SVG in page
@@ -86,5 +86,5 @@ def test_favicon_fallback_uses_the_canonical_artemis_mark(monkeypatch) -> None:
     response = TestClient(app).get("/favicon.svg")
     assert response.status_code == 200
     assert 'viewBox="0 0 64 64"' in response.text
-    assert 'd="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z"' in response.text
-    assert 'd="M26.6 41h10.8"' in response.text
+    assert 'd="M7 55 26.25 9h6.8L16.7 55Z"' in response.text
+    assert 'd="m22.5 38 19 .15 2.55 6.1-24.1-.15Z"' in response.text

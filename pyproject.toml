@@ -51,6 +51,9 @@ packages = [
     "apps/api/sabra_api",
 ]
 
+[tool.hatch.build.targets.wheel.force-include]
+"brand" = "sabra_api/brand"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q -m 'not live'"

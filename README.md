@@ -28,7 +28,7 @@ Verified against real data, not scaffolding:
 | M5 Approval | Done | Approval bound to a content hash; refuses on mismatch |
 | M6 Execution | Adapter built against a **real** captured form | Live Greenhouse forms are CAPTCHA-protected, so the adapter stops by design |
 | M7 Ledger | Done | Append-only events, ledger projection, outcomes, learning records |
-| M8 Pilot | **Blocked on owner input** | See below |
+| M8 Pilot | **Historical private pilot recorded** | [October 28 report](docs/operations/pilot-report-2026-10-28.md); this fresh checkout has no private candidate database |
 
 `apps/api` is a FastAPI app serving the ARTEMIS interface, which covers the whole loop
 from the browser. Every page shares one navigation bar: `/` (**Home**: "Your next move is
@@ -58,10 +58,7 @@ on http://127.0.0.1:8787.
 
 ### Honest gaps
 
-- **M8 needs your real résumé.** The pipeline runs end to end today, but package
-  generation correctly refuses to invent candidate facts: with no résumé loaded it
-  produces `INCOMPLETE` packages with every open question named. That is requirement
-  5 working, and it is the one thing only you can supply.
+- **This checkout needs your real résumé and private database.** The [historical October 28 pilot report](docs/operations/pilot-report-2026-10-28.md) records real prepared packages and one employer-confirmed submission on the owner's private Windows database. Those private records are not bundled here and were not reproduced by this UI release. With no résumé loaded, package generation correctly refuses to invent candidate facts and produces `INCOMPLETE` packages with every open question named.
 - Sensitive answers (salary, background check, and the same class of question)
   fill only after the owner records and verifies them. Until then the package
   stays incomplete.
@@ -197,6 +194,8 @@ tests/           test suite and committed fixtures
 ## Documentation
 
 - [`BRAND.md`](BRAND.md) — the ARTEMIS brand system (canonical)
+- [`docs/brand/ARTEMIS_ASSET_KIT.md`](docs/brand/ARTEMIS_ASSET_KIT.md) — production assets and licensed fonts
+- [`docs/brand/ARTEMIS_PRODUCTION_VALIDATION.md`](docs/brand/ARTEMIS_PRODUCTION_VALIDATION.md) — release verification and desktop/mobile captures
 - [`docs/operations/source-registry-findings.md`](docs/operations/source-registry-findings.md)
 - [`docs/operations/m6-greenhouse-form-findings.md`](docs/operations/m6-greenhouse-form-findings.md)
 - [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md)

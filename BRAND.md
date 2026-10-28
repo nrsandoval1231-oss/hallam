@@ -32,10 +32,10 @@
 Use semantic aliases as necessary. All foreground/background pairings must meet accessibility contrast; do not use low-contrast sage text for essential information.
 
 ## Logo
-Sharp minimal **architectural A** made from two elegant tapered strokes and deliberate negative space. Uppercase **A R T E M I S** wordmark with restrained tracking. Use the original `brand/logo/artemis-mark.svg` as an initial working vector, not the final optically polished brand master. Refine and test at 16 px before declaring final. No literal mythology symbols. Required future exports: icon, horizontal lockup, mono light/dark, favicon, app icon, vector/PNG social artwork.
+Sharp minimal **architectural A** made from two elegant tapered strokes and deliberate negative space. Uppercase **A R T E M I S** wordmark with restrained tracking. The refined production master is `brand/logo/artemis-mark.svg`, validated at 16 px. No literal mythology symbols. Horizontal and stacked lockups, mono/reversed marks, favicon, app icons and vector/PNG social artwork are supplied in `brand/`; see [the asset kit](docs/brand/ARTEMIS_ASSET_KIT.md).
 
 ## Typography
-Expressive, refined editorial serif for hero headlines; straightforward sans-serif (Inter acceptable) for all application data, controls, inputs, lists and supporting labels. Small uppercase eyebrows with increased tracking. Validate display-font license before shipping.
+Cormorant Garamond is the editorial display serif; Manrope is the readable sans for application data, controls, inputs, lists and supporting labels. Small uppercase eyebrows use increased tracking. Both variable fonts are bundled locally with their SIL Open Font Licenses in `brand/fonts/`; no remote font request is required.
 
 ## Product Experience
 The signature Home experience is **Morning Brief**: a concise explanation of what Artemis found, what matters and the **one recommended next action**. Never invent activity or precision. Surfaces:

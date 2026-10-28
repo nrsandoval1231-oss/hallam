@@ -12,6 +12,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sabra_automation.form_keys import answer_key_choices
 from sabra_domain import models
@@ -59,7 +60,7 @@ from sabra_engine.ledger import (
 )
 from sabra_engine.opportunity_detail import OpportunityDetailService
 from sabra_engine.refresh import PackageRefreshService
-from sabra_engine.runs import RunService
+from sabra_engine.runs import RunService, run_to_dict
 from sabra_engine.sources import SourcesService
 from sqlalchemy.exc import OperationalError
 
@@ -1286,8 +1287,12 @@ def _today_payload() -> dict[str, Any]:
                 "last_run": next(
                     (r for r in runs if r["status"] in ("COMPLETED", "FAILED")), None
                 ),
+                "last_completed_run": next(
+                    (r for r in runs if r["status"] == "COMPLETED"), None
+                ),
             }
             if candidate is None:
+                payload["next_action"] = _next_action(payload)
                 return payload
             counts = payload["counts"]
             payload["has_resume"] = repos.resumes.master(candidate.id) is not None
@@ -1357,9 +1362,39 @@ def _today_payload() -> dict[str, Any]:
         counts["handoffs_waiting"] = sum(
             1 for application_id in applying if service.handoff_status(application_id)["awaiting_person"]
         )
+        payload["next_action"] = _next_action(payload)
         return payload
     finally:
         ctx.close()
+
+
+def _next_action(today: dict[str, Any], shortlist_count: int | None = None) -> dict[str, str]:
+    """Choose one actionable step from current candidate and pipeline state."""
+    counts = today.get("counts") or {}
+    if not today.get("candidate_id"):
+        return {"label": "Create your candidate profile", "href": "/candidate", "reason": "A profile is needed before ARTEMIS can assess roles."}
+    if not today.get("has_resume"):
+        return {"label": "Add your master résumé", "href": "/candidate", "reason": "A résumé is needed to prepare truthful application packages."}
+    if counts.get("handoffs_waiting"):
+        n = counts["handoffs_waiting"]
+        return {"label": "Report the submission outcome", "href": "/applications?filter=handoffs", "reason": f"{n} application {'submission is' if n == 1 else 'submissions are'} waiting for your report."}
+    if counts.get("needs_information"):
+        n = counts["needs_information"]
+        return {"label": "Complete missing application information", "href": "/applications?filter=needs_information", "reason": f"{n} prepared {'application needs' if n == 1 else 'applications need'} information before review."}
+    if counts.get("ready_for_approval"):
+        n = counts["ready_for_approval"]
+        return {"label": "Review prepared applications", "href": "/applications?filter=ready", "reason": f"{n} complete {'application is' if n == 1 else 'applications are'} ready for your approval."}
+    if counts.get("employer_responses"):
+        n = counts["employer_responses"]
+        return {"label": "Review employer responses", "href": "/pipeline", "reason": f"{n} employer {'response has' if n == 1 else 'responses have'} arrived since your last visit."}
+    if counts.get("new_high_fit"):
+        n = counts["new_high_fit"]
+        return {"label": "Review newly shortlisted roles", "href": "/opportunities", "reason": f"{n} {'role is' if n == 1 else 'roles are'} recorded on your current shortlist."}
+    if shortlist_count:
+        return {"label": "Review your shortlist", "href": "/opportunities", "reason": f"Your shortlist contains {shortlist_count} active {'role' if shortlist_count == 1 else 'roles'}."}
+    if not today.get("search_profile_id"):
+        return {"label": "Define your role and search constraints", "href": "/searches", "reason": "An active search profile is needed to find and rank roles against your goals."}
+    return {"label": "Run a search", "href": "/", "reason": "A fresh run can find and rank current opportunities for your search."}
 
 
 @app.get("/api/today")
@@ -1432,6 +1467,8 @@ def _home_payload() -> dict[str, Any]:
         "recent": [],
         "progress": {"shortlisted": 0, "applied": 0, "interviews": 0, "offers": 0},
         "today": today,
+        "next_action": today.get("next_action") or _next_action(today),
+        "morning_brief": _morning_brief(today, 0),
     }
     ctx = EngineContext.create()
     try:
@@ -1441,6 +1478,18 @@ def _home_payload() -> dict[str, Any]:
                 return payload
             payload["candidate_name"] = candidate.display_name
             active = repos.search_profiles.active_one(candidate.id)
+            # Brief findings belong to the displayed search. The run log remains
+            # global for operator compatibility, while this baseline is scoped.
+            search_runs = repos.session.query(models.PipelineRunRow).filter(
+                models.PipelineRunRow.candidate_id == candidate.id,
+                models.PipelineRunRow.search_profile_id == (active.id if active else None),
+                models.PipelineRunRow.status.in_(("COMPLETED", "FAILED")),
+            ).order_by(models.PipelineRunRow.created_at.desc(), models.PipelineRunRow.id.desc())
+            latest = search_runs.first()
+            completed = search_runs.filter(models.PipelineRunRow.status == "COMPLETED").first()
+            today["brief_last_run"] = run_to_dict(latest) if latest else None
+            today["brief_last_completed_run"] = run_to_dict(completed) if completed else None
+            payload["morning_brief"] = _morning_brief(today, 0)
             shortlist = [
                 item
                 for item in _shortlist_rows(repos, candidate.id)
@@ -1452,6 +1501,8 @@ def _home_payload() -> dict[str, Any]:
             payload["progress"]["shortlisted"] = len(cards)
             payload["featured"] = cards[0] if cards else None
             payload["recent"] = cards[1:4] if len(cards) > 1 else cards
+            payload["next_action"] = _next_action(today, len(cards))
+            payload["morning_brief"] = _morning_brief(today, len(cards))
             app_counts = repos.applications.count_by_status(candidate.id)
             payload["metrics"]["applications"] = sum(app_counts.values())
             stages = LedgerService(ctx).pipeline(candidate.id).stages
@@ -1463,6 +1514,64 @@ def _home_payload() -> dict[str, Any]:
         return payload
     finally:
         ctx.close()
+
+
+def _morning_brief(today: dict[str, Any], shortlist_count: int) -> dict[str, Any]:
+    """Summarize the latest stored run without inferring activity from current totals."""
+    latest = today.get("brief_last_run", today.get("last_run"))
+    completed = today.get("brief_last_completed_run", today.get("last_completed_run"))
+    run = completed or latest
+    if run is None:
+        return {
+            "headline": "Your next move is taking shape.",
+            "narrative": "ARTEMIS has not completed a search run for this search yet. Run a search to build your first evidence-based shortlist.",
+            "changes": [], "run_status": "NEVER_RUN", "run_at": None,
+        }
+    status = str(run.get("status") or "UNKNOWN")
+    at = run.get("finished_at") or run.get("started_at")
+    if status != "COMPLETED":
+        detail = run.get("error") or "The run did not complete, so no new findings are reported."
+        return {
+            "headline": "The last search did not complete.",
+            "narrative": f"ARTEMIS recorded a {status.lower()} run. {detail}",
+            "changes": [], "run_status": status, "run_at": at,
+        }
+    progress = run.get("progress") or {}
+    stages = progress.get("stages") if isinstance(progress.get("stages"), dict) else progress
+    # Run records carry per-stage counts. Only surface values that were actually stored.
+    changes: list[dict[str, str]] = []
+    for stage_name, title, keys in (
+        ("discover", "New jobs", ("jobs_new",)),
+        ("rank", "Roles shortlisted", ("shortlisted", "count")),
+        ("research", "Roles researched", ("researched",)),
+        ("prepare", "Packages prepared", ("prepared",)),
+    ):
+        stage = stages.get(stage_name)
+        if not isinstance(stage, dict):
+            continue
+        value = next((stage.get(key) for key in keys if isinstance(stage.get(key), (int, float))), None)
+        if value is not None:
+            changes.append({"label": title, "value": str(int(value)), "detail": "Recorded in the last completed run."})
+    discovery = stages.get("discover") if isinstance(stages.get("discover"), dict) else {}
+    failed = discovery.get("sources_failed") or discovery.get("failed_sources") or discovery.get("failures")
+    if isinstance(failed, int) and failed:
+        changes.append({"label": "Sources with errors", "value": str(failed), "detail": "Some sources failed during discovery."})
+    narrative = (
+        f"Your current shortlist contains {shortlist_count} active {'role' if shortlist_count == 1 else 'roles'}."
+        if shortlist_count else "Your current shortlist has no active roles."
+    )
+    if latest and latest.get("status") == "FAILED" and completed:
+        latest_detail = latest.get("error") or "The latest attempt did not complete."
+        narrative = f"The latest attempt failed: {latest_detail} The most recent completed run recorded results below. {narrative}"
+    return {
+        "headline": (
+            "The last completed search is available to review."
+            if latest and latest.get("status") == "FAILED" and completed
+            else "Your latest search is ready to review."
+        ),
+        "narrative": narrative,
+        "changes": changes, "run_status": status, "run_at": at,
+    }
 
 
 @app.get("/api/home")
@@ -1537,6 +1646,7 @@ def _career_plan_payload() -> dict[str, Any]:
                     "skill_gaps": [],
                     "progress": {},
                     "actions": [{"label": "Create your profile", "href": "/candidate"}],
+                    "evidence": [], "inferences": [], "practical_actions": [],
                 }
             active = repos.search_profiles.active_one(candidate.id)
             shortlist = [
@@ -1556,6 +1666,18 @@ def _career_plan_payload() -> dict[str, Any]:
                 for gap, count in sorted(
                     gap_counts.items(), key=lambda pair: (-pair[1], pair[0])
                 )[:8]
+            ]
+            evidence = [
+                {"gap": row["gap"], "shortlisted_roles": row["count"],
+                 "basis": "Recorded fit assessment gap"}
+                for row in gaps
+            ]
+            # These are suggested steps based on recorded fit gaps, not claims about
+            # candidate ability or guaranteed hiring outcomes.
+            practical_actions = [
+                {"label": f"Review evidence for {row['gap']}",
+                 "reason": f"This gap appears in {row['count']} shortlisted fit assessment(s). Compare it with your résumé evidence, then decide whether to document experience or focus your search elsewhere."}
+                for row in gaps[:3]
             ]
             prepared = sum(
                 1
@@ -1634,6 +1756,13 @@ def _career_plan_payload() -> dict[str, Any]:
                 "search": search_payload,
                 "search_summary": search_summary,
                 "skill_gaps": gaps,
+                "evidence": evidence,
+                "inferences": [
+                    {"text": "Repeated fit gaps may indicate a useful development area.",
+                     "basis": "Interpretation of recorded fit assessments; not verified candidate history."}
+                    for _ in ([1] if gaps else [])
+                ],
+                "practical_actions": practical_actions,
                 "progress": {
                     "shortlisted": len(shortlist),
                     "prepared": prepared,
@@ -1669,16 +1798,47 @@ def ask_velora(body: AskRequest) -> dict[str, Any]:
             if candidate is None:
                 return {
                     "answer": "There is no candidate profile yet. Create your profile and "
-                    "upload your résumé first, then I can help.",
+                    "upload your résumé first, then I can help.\n\n(Deterministic answer from stored ARTEMIS data; this assistant does not generate open-ended career advice.)",
                     "links": [{"label": "Open your profile", "href": "/candidate"}],
                 }
             home = _home_payload()
             counts = home["today"]["counts"]
-            llm_note = (
-                ""
-                if ctx.settings.llm_provider not in ("", "none")
-                else "\n\n(answered from your data — no language model is configured)"
-            )
+            llm_note = "\n\n(Deterministic answer from stored ARTEMIS data; this assistant does not generate open-ended career advice.)"
+            # Specific explanation questions must be handled before the broad role
+            # matcher, since they often also contain the word "role" or "opportunity".
+            if "why" in question and any(
+                word in question for word in ("fit", "position", "job", "role", "opportunit", "recommend")
+            ):
+                featured = home["featured"]
+                if featured and featured.get("why_this_job"):
+                    answer = f"{featured['title']} at {featured['company']}: {featured['why_this_job']}"
+                    links = [{"label": "Read the full analysis", "href": f"/opportunities/{featured['id']}"}]
+                elif featured:
+                    answer = f"{featured['title']} at {featured['company']} leads your shortlist, but no fit explanation is recorded yet."
+                    links = [{"label": "Open the opportunity", "href": f"/opportunities/{featured['id']}"}]
+                else:
+                    answer, links = "There is no scored opportunity yet. Run a search first.", [{"label": "Run a search", "href": "/"}]
+                return {"answer": answer + llm_note, "links": links}
+            if any(word in question for word in ("changed", "change", "watch", "watchlist", "developments", "since yesterday")):
+                brief = home.get("morning_brief") or {}
+                rows = _research_payload()["research"]
+                developments = [
+                    f"{row['company']}: {item}"
+                    for row in rows for item in (row.get("recent_developments") or [])
+                ][:5]
+                if developments:
+                    answer = "Recorded employer developments:\n" + "\n".join(developments)
+                elif brief.get("run_status") == "NEVER_RUN":
+                    answer = "There is no completed run yet, so ARTEMIS has no run-to-run changes or employer developments to report."
+                elif brief.get("run_status") != "COMPLETED":
+                    answer = "The latest run did not complete; ARTEMIS has no new changes to report from it."
+                elif brief.get("changes"):
+                    answer = "Since the last run baseline, the latest completed run recorded: " + "; ".join(
+                        f"{item['label'].lower()}: {item['value']}" for item in brief["changes"]
+                    ) + ". No calendar-day comparison is available."
+                else:
+                    answer = "The latest completed run has no stored change counts or employer developments to report."
+                return {"answer": answer + llm_note, "links": [{"label": "Open Research", "href": "/research"}, {"label": "Open Home", "href": "/"}]}
             if any(word in question for word in ("prioritize", "today", "attention", "next")):
                 parts = []
                 if counts.get("ready_for_approval"):
@@ -1723,31 +1883,6 @@ def ask_velora(body: AskRequest) -> dict[str, Any]:
                         lines.append(f"• {card['title']} at {card['company']}{fit}")
                     answer = "\n".join(lines)
                     links = [{"label": "Open Opportunities", "href": "/opportunities"}]
-                return {"answer": answer + llm_note, "links": links}
-            if "why" in question and any(
-                word in question for word in ("fit", "position", "job", "role")
-            ):
-                featured = home["featured"]
-                if featured and featured.get("why_this_job"):
-                    answer = (
-                        f"{featured['title']} at {featured['company']}: "
-                        + featured["why_this_job"]
-                    )
-                    links = [
-                        {
-                            "label": "Read the full analysis",
-                            "href": f"/opportunities/{featured['id']}",
-                        }
-                    ]
-                elif featured:
-                    answer = (
-                        f"{featured['title']} at {featured['company']} leads your shortlist, "
-                        "but no fit explanation is recorded yet."
-                    )
-                    links = [{"label": "Open the opportunity", "href": f"/opportunities/{featured['id']}"}]
-                else:
-                    answer = "There is no scored opportunity yet. Run a search first."
-                    links = [{"label": "Run a search", "href": "/"}]
                 return {"answer": answer + llm_note, "links": links}
             if any(word in question for word in ("tailor", "resume", "résumé", "cover letter")):
                 featured = home["featured"]
@@ -1803,20 +1938,25 @@ def ask_velora(body: AskRequest) -> dict[str, Any]:
 
 
 _BRAND_DIR = REPO_ROOT / "brand"
+if not _BRAND_DIR.is_dir():
+    _BRAND_DIR = Path(__file__).resolve().parent / "brand"
+if _BRAND_DIR.is_dir():
+    app.mount("/brand", StaticFiles(directory=str(_BRAND_DIR)), name="brand")
 
 
 @app.get("/favicon.svg")
 def favicon() -> Response:
     """The Artemis mark as the favicon (served from the brand kit when present)."""
 
-    candidate = _BRAND_DIR / "logo" / "artemis-mark.svg"
+    candidate = _BRAND_DIR / "logo" / "favicon.svg"
     if candidate.is_file():
         return Response(candidate.read_text(encoding="utf-8"), media_type="image/svg+xml")
     return Response(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Artemis">'
         '<title>ARTEMIS architectural A mark</title>'
-        '<path d="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z" fill="#142D29"/>'
-        '<path d="M26.6 41h10.8" stroke="#F7F6F1" stroke-width="3.5"/>'
+        '<path d="M7 55 26.25 9h6.8L16.7 55Z" fill="#142D29"/>'
+        '<path d="m57 55-19.25-46h-6.8L47.3 55Z" fill="#142D29"/>'
+        '<path d="m22.5 38 19 .15 2.55 6.1-24.1-.15Z" fill="#142D29"/>'
         "</svg>",
         media_type="image/svg+xml",
     )
@@ -2107,7 +2247,7 @@ def dashboard() -> str:
 def applications_page() -> str:
     return page_shell(
         "Applications",
-        """<main class="wrap"><a href="/">Back to overview</a><h1>Applications</h1>
+        """<main class="wrap"><a href="/">Back to overview</a><p class="eyebrow">Application Studio</p><h1>Applications</h1>
 <p>Select complete packages and approve them together. Each approval is stored against that package's content hash, so a later edit invalidates it. The list shows the latest revision of each application.</p>
 <p id="filter-note" class="why"></p>
 <form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button> <button type="button" id="refresh-all">Refresh all unsubmitted</button></form>
