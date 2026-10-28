@@ -9,7 +9,7 @@ to `ESC_JS` and `ASK_JS`, guarded so including it twice is harmless.
 
 Every dynamic string a page script renders goes through `esc()`.
 
-The visual system is Artemis's Cloudglass Architectural language (see BRAND.md): floating
+The visual system is ARTEMIS architectural editorial visual language (see BRAND.md): floating
 frosted boards on a soft procedural gradient. No photography anywhere.
 """
 
@@ -520,7 +520,7 @@ HOME_BODY = """<main class="home">
 <section class="hero-row">
   <div class="hero">
     <p class="eyebrow">Your career, in focus</p>
-    <h1>A clearer path forward.</h1>
+    <h1>Your next move is taking shape.</h1>
     <p class="lede">Find the right opportunities. Present your best self. Move with confidence.</p>
     <p class="line" id="today-sub"></p>
     <div class="hero-actions">
