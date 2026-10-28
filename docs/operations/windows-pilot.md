@@ -1,9 +1,13 @@
 # Windows pilot — Nick's machine
 
-Checkout: `C:\Users\nrsan\hallam`
+Checkout: `C:\Users\nrsan\Nucleus\02_Projects\Hallam`
 Private data (résumé, answers, database): `C:\Users\nrsan\hallam-private`
 
 Personal files stay in the private directory. Do not copy them into the git checkout.
+
+If port 8787 is already taken on this machine (the Kimi desktop app binds it),
+run the API on another port: `$env:SABRA_API_PORT = "8788"` before `make run-api`
+or `uvicorn`, and open the dashboard on that port. Everything else is unchanged.
 
 Use `main`. The follow-up fixes land there after this pull request merges. Do not check out the old feature branch.
 
