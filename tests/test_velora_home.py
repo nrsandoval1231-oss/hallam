@@ -8,8 +8,8 @@ def test_home_page_is_the_velora_dashboard() -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
     assert "<title>Artemis | Home</title>" in response.text
-    assert "A clearer path forward." in response.text
-    assert "YOUR CAREER, IN FOCUS" in response.text.upper()
+    assert "Your next move is taking shape." in response.text
+    assert "YOUR CAREER INTELLIGENCE" in response.text.upper()
     for href in ("/opportunities", "/applications", "/research", "/career-plan"):
         assert f'href="{href}"' in response.text
     assert 'id="velora-ask"' in response.text
