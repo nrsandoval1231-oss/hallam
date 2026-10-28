@@ -42,8 +42,11 @@ rank:
 status:
 	uv run sabra status
 
+# The Kimi desktop app binds 8787 on this machine; set SABRA_API_PORT to use another.
+SABRA_API_PORT ?= 8787
+
 run-api:
-	uv run uvicorn --app-dir apps/api sabra_api.main:app --host 127.0.0.1 --port 8787
+	uv run uvicorn --app-dir apps/api sabra_api.main:app --host 127.0.0.1 --port $(SABRA_API_PORT)
 
 # Deletes the local pilot database. Only ever points at var/.
 reset:
