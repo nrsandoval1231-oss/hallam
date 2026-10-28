@@ -1,0 +1,53 @@
+# ARTEMIS — Approved Brand Direction (2026-10-28)
+
+> STATUS: Owner-approved visual direction and reference, **not yet implemented**. This supersedes VELORA as the intended *future* customer-facing identity. Preserve existing Sabra engine behavior. `BRAND.md` currently describes the shipped VELORA UI and is not changed by this reference-only save.
+
+## Identity
+- **Name:** ARTEMIS (uppercase wordmark).
+- **Positioning:** Intelligent career hunter / private career strategist; selective autonomous career intelligence.
+- **Brand voice:** Quietly confident, precise, editorial, calm, purposeful; never generic recruiting-tech or gaudy sci-fi.
+- **Signature lines:** “Find what others miss. Pursue what matters.” / “Your next move is taking shape.” / “A more intentional career.”
+- **Creative reference:** MARQO Behance project, https://www.behance.net/gallery/234103127/MARQO — inspiration for restrained architectural graphic design, typography, materials and pacing. Develop **original** Artemis artwork rather than duplicating proprietary design assets.
+
+## Approved visual direction
+Architectural/editorial minimalism. Warm ivory and stone surfaces, deep evergreen anchors, generous whitespace, crisp asymmetric grids, refined serif display headlines, letterspaced uppercase secondary text, immaculate alignment, quiet shadows. The selected latest concept board is the visual source of truth for the direction; image generated in the October 28, 2026 ARTEMIS brand conversation. **Artwork is a concept mockup, not production-ready UI or factual live data.**
+
+### Colors from latest concept board (provisional until sampled/finalized)
+- Evergreen: `#142D29` — deep anchor, major CTAs and branded panels.
+- Sage: `#A6B8A7` — subtle supporting accent.
+- Stone: `#E8E5DC` — warm architectural surface.
+- Sand: `#D6C6A8` — human warmth in brand collateral, not the default CTA.
+- Graphite: `#26312E` — text and structure.
+- Porcelain: `#F7F6F1` — primary app background.
+
+Use restraint and accessible contrast. Concept art may differ slightly from token values; validate exact colors against final approved source before build.
+
+## Logo — approved direction; final geometry pending
+- Distinctive, thin, architectural **A** mark formed by two elegant sharply cut strokes with an intentional open/negative-space relationship. Avoid stock arrows, literal bows or goddess illustrations.
+- Uppercase `A R T E M I S` wordmark with generous tracking, highly refined typography.
+- Need original vector master, horizontal lockup, monochrome, reversed, favicon/app-icon, and small-size optical adjustments.
+- Initial logo explorations included Ascendant, Orbit, Meridian; **the latest minimalist architectural A board is the preferred direction**. Exact vector not frozen.
+
+## Typography
+- Elegant editorial serif / sophisticated high-contrast display treatment for hero headlines.
+- Clean modern sans serif for dense functional UI, forms and labels (Inter is acceptable).
+- Wide-tracked uppercase navigation eyebrow labels. Brand wordmark uses bespoke-refined letter-spacing.
+- Previous Calibre/Manrope suggestion is exploratory, not a binding font choice. Validate licenses before implementation.
+
+## Product UI / flows
+- Desktop and mobile concept layouts, with **top horizontal navigation**, no permanent left sidebar.
+- Primary pages: Home, Opportunities, Research, Career Plan, Applications; an accessible Ask Artemis.
+- **Home signature = Morning Brief**: “Your next move is taking shape.” Prioritize real next actions and concise narrative of newly found opportunities, prepared applications, and companies worth watching.
+- Opportunity browsing: ranked and curated results with transparent match rationale, compensation, location, source and next action.
+- Opportunity detail: explicit separation of verified facts, scoring/inference, fit gaps, and actionable next steps.
+- Application review: truthful résumé and cover letter, verified answers, unresolved questions, explicit **human approval** prior to external submission.
+- Mobile Morning Brief is a first-class experience, not shrunk desktop UI.
+- Four-stage loop: Discover → Understand → Prepare → Pursue.
+- Quiet motion only; no dashboards stuffed with charts, glowing effects, heavy glass, or fake activity.
+- Architecture and content must honor Sabra engine truth boundaries, source confidence, hash-bound approvals, CAPTCHA stop-and-handoff, and dry-run defaults.
+- Mockup company names, postings, applicant names, percentages, and activity are **illustrative, not live user data**.
+
+## Implementation boundary / migration
+- Current repository has VELORA UI merged in PR #13. This document intentionally does **not** rename source modules, overwrite current `BRAND.md`, or change deployed UI.
+- On approval to build: create Artemis vector/logo package and final design tokens; implement shared shell and pages with responsive behavior; replace user-facing VELORA strings; preserve `sabra` internal package and database; run tests plus desktop/mobile browser acceptance; only then retire legacy assets and update canonical shipped `BRAND.md`.
+- Do not claim Artemis production rebrand completed until browser verification and merge.
