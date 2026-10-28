@@ -1,8 +1,8 @@
-# Hallam — VELORA
+# ARTEMIS
 
-Hallam is the repository for **Sabra Job Engine V1** — an outcome-driven job-search
+This repository contains **Sabra Job Engine V1** — an outcome-driven job-search
 operator with human control at the external application submission boundary.
-Its web interface is **VELORA**, a Cloudglass Architectural design system
+Its web interface is **ARTEMIS**, an architectural editorial design system
 (documented in [`BRAND.md`](BRAND.md), assets in [`brand/`](brand/)).
 
 The canonical build contract is [`SABRA_JOB_ENGINE_V1_BUILD.md`](SABRA_JOB_ENGINE_V1_BUILD.md).
@@ -10,6 +10,10 @@ Read it before coding. [`AGENTS.md`](AGENTS.md) carries the agent rules.
 
 Sabra optimises for **interviews and desirable job outcomes**, never for applications
 per day.
+
+**Canonical customer-facing identity: ARTEMIS.** The internal Sabra package names and API routes remain stable for compatibility. Previous product identities are retired. See [BRAND.md](BRAND.md).
+
+ARTEMIS is the only customer-facing identity. Internal Sabra modules retain their established names for compatibility.
 
 ## Where it actually stands
 
@@ -26,9 +30,9 @@ Verified against real data, not scaffolding:
 | M7 Ledger | Done | Append-only events, ledger projection, outcomes, learning records |
 | M8 Pilot | **Blocked on owner input** | See below |
 
-`apps/api` is a FastAPI app serving the VELORA interface, which covers the whole loop
-from the browser. Every page shares one navigation bar: `/` (**Home**: "A clearer path
-forward", real metrics, the featured opportunity, recent opportunities, your pipeline
+`apps/api` is a FastAPI app serving the ARTEMIS interface, which covers the whole loop
+from the browser. Every page shares one navigation bar: `/` (**Home**: "Your next move is
+taking shape", real metrics, the featured opportunity, recent opportunities, your pipeline
 progress, upcoming items, and **Run now**), `/opportunities` (cards with
 pay, confidence and the biggest gap; Prepare and Pass), `/opportunities/{id}` (the
 posting, why it scored as it did, the hard-filter decision, verified facts apart from
@@ -43,7 +47,7 @@ The account menu holds `/pipeline` (every application past approval by stage, wi
 the profile with its truth levels), `/searches` (define and switch search profiles),
 `/answers` (record and verify) and `/settings` (the configuration, read only, plus
 **Job boards**: enable or disable a board, or paste a careers URL to check it and add
-it). The **Ask Velora** pill answers questions like "what requires my attention" from
+it). The **Ask Artemis** pill answers questions like "what requires my attention" from
 real engine data. JSON routes sit beside them: health, status, home, today, candidate,
 searches, runs, settings, sources, the shortlist, opportunity detail, package review and reject,
 package preparation, the pipeline, the application ledger, outcomes, and the learning
@@ -192,7 +196,7 @@ tests/           test suite and committed fixtures
 
 ## Documentation
 
-- [`BRAND.md`](BRAND.md) — the VELORA Cloudglass brand system (canonical)
+- [`BRAND.md`](BRAND.md) — the ARTEMIS brand system (canonical)
 - [`docs/operations/source-registry-findings.md`](docs/operations/source-registry-findings.md)
 - [`docs/operations/m6-greenhouse-form-findings.md`](docs/operations/m6-greenhouse-form-findings.md)
 - [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md)

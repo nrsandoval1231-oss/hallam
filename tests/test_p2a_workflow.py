@@ -184,7 +184,7 @@ def test_the_pages_share_one_shell_with_the_same_navigation() -> None:
         assert 'href="/searches"' in html and 'href="/settings"' in html, path
     today = client.get("/").text
     assert 'aria-current="page"' in today
-    assert "A clearer path forward." in today
+    assert "Your next move is taking shape." in today
     assert 'id="run-now"' in today and "Run search" in today
     assert "Record what an employer does" in client.get("/pipeline").text
     # The resume panel moved to the Candidate page.

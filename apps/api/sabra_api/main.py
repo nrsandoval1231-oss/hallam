@@ -1,4 +1,4 @@
-"""Local browser surface over the Velora engine (Sabra internals)."""
+"""Local browser surface over the Artemis engine (Sabra internals)."""
 
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         RunService.record_server_stopped()
 
 
-app = FastAPI(title="Velora", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(title="Artemis", version="0.1.0", lifespan=_lifespan)
 
 
 @app.exception_handler(SabraError)
@@ -156,14 +156,14 @@ async def sabra_error_handler(_request: Request, exc: SabraError) -> JSONRespons
 
 @app.exception_handler(OperationalError)
 async def database_error_handler(_request: Request, exc: OperationalError) -> JSONResponse:
-    """A locked SQLite file is another Velora process, not a server bug."""
+    """A locked SQLite file is another Artemis process, not a server bug."""
 
     if "database is locked" in str(exc).lower():
         return JSONResponse(
             status_code=503,
             content={
                 "detail": (
-                    "The database is locked: another Velora process holds it (a CLI command or "
+                    "The database is locked: another Artemis process holds it (a CLI command or "
                     "a second dashboard). Wait for it to finish, or stop it, then retry."
                 )
             },
@@ -646,13 +646,13 @@ def _annotate_package(
         summary["review_label"] = "Approved"
         if manual_handoff:
             summary["next_step"] = (
-                "Velora cannot fill this employer's form. "
+                "Artemis cannot fill this employer's form. "
                 + (
                     "Dry run is on, so this stays off until SABRA_AUTOMATION_DRY_RUN=false. "
                     if dry_run
                     else ""
                 )
-                + "Open it in your browser: Velora saves your résumé and cover letter as PDFs, "
+                + "Open it in your browser: Artemis saves your résumé and cover letter as PDFs, "
                 "shows where, and types nothing. You fill and submit it, then report the result."
             )
         else:
@@ -1384,7 +1384,7 @@ def today_seen() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Home, Research, Career Plan and Ask Velora
+# Home, Research, Career Plan and Ask Artemis
 # ---------------------------------------------------------------------------
 
 
@@ -1655,7 +1655,7 @@ class AskRequest(BaseModel):
 
 @app.post("/api/ask")
 def ask_velora(body: AskRequest) -> dict[str, Any]:
-    """Ask Velora. Answers are computed from the engine's real data — never invented.
+    """Ask Artemis. Answers are computed from the engine's real data — never invented.
 
     This is deterministic intent routing, not a simulated model: when no language model
     is configured the answer says so and still reports the real numbers.
@@ -1807,15 +1807,16 @@ _BRAND_DIR = REPO_ROOT / "brand"
 
 @app.get("/favicon.svg")
 def favicon() -> Response:
-    """The Velora mark as the favicon (served from the brand kit when present)."""
+    """The Artemis mark as the favicon (served from the brand kit when present)."""
 
-    candidate = _BRAND_DIR / "logo" / "velora-mark.svg"
+    candidate = _BRAND_DIR / "logo" / "artemis-mark.svg"
     if candidate.is_file():
         return Response(candidate.read_text(encoding="utf-8"), media_type="image/svg+xml")
     return Response(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
-        '<path d="M5.5 5 L14.5 4 L29.5 44.5 L23 48 Z" fill="#718C9A"/>'
-        '<path d="M42.5 5 L33.5 4 L18.5 44.5 L25 48 Z" fill="#A7C3D5" fill-opacity="0.8"/>'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Artemis">'
+        '<title>ARTEMIS architectural A mark</title>'
+        '<path d="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z" fill="#142D29"/>'
+        '<path d="M26.6 41h10.8" stroke="#F7F6F1" stroke-width="3.5"/>'
         "</svg>",
         media_type="image/svg+xml",
     )
@@ -2171,7 +2172,7 @@ async function applyOne(btn){
   const id=btn.dataset.id;
   const line=document.querySelector('#result');
   const manual=btn.dataset.manual==='1';
-  const ok=await ask(manual?'Open this posting in your browser? Velora cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.',{confirmLabel:manual?'Open in browser':'Submit'});
+  const ok=await ask(manual?'Open this posting in your browser? Artemis cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.',{confirmLabel:manual?'Open in browser':'Submit'});
   if(!ok)return;
   inflight.add(id);
   setApplyDisabled(id,true);
@@ -2193,7 +2194,7 @@ function forceSection(id,s){
 }
 function wireForce(box,id){
   box.querySelectorAll('button.force-report').forEach(b=>b.addEventListener('click',async()=>{
-    const typed=await ask('Forcing a report records an outcome without Velora seeing it. Type the application id to confirm: '+id,{input:true,confirmLabel:'Force report'});
+    const typed=await ask('Forcing a report records an outcome without Artemis seeing it. Type the application id to confirm: '+id,{input:true,confirmLabel:'Force report'});
     if(typed===null)return;
     const forced=await readBody(await fetch('/api/applications/'+encodeURIComponent(id)+'/handoff/force',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome:b.dataset.outcome,confirm_id:typed})}));
     document.querySelector('#result').textContent=forced.ok?('Recorded as forced. The application is now '+forced.d.application_status+'.'):(forced.d.detail||forced.text||'Forced report refused');
@@ -2207,7 +2208,7 @@ function showHandoff(box,id,s){
   if(!waiting){box.remove();return;}
   const files=Object.entries(s.documents||{}).map(([k,v])=>`<li>${esc(k.replace(/_/g,' '))}: <code>${esc(v)}</code></li>`).join('');
   const attach=s.manual&&files?`<span class="why">Attach these files when the form asks:</span><ul class="files">${files}</ul>`:'';
-  const where=s.manual?(s.active?`The posting is open in a browser window (${esc(s.state||'open')}). Nothing was typed. Fill it in, attach the files, submit it yourself, then tell Velora what happened.`:'No browser window is open for this posting. Tell Velora whether you submitted it.'):(s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Velora what happened.`:'No browser window is open for this application. Tell Velora whether it was submitted.');
+  const where=s.manual?(s.active?`The posting is open in a browser window (${esc(s.state||'open')}). Nothing was typed. Fill it in, attach the files, submit it yourself, then tell Artemis what happened.`:'No browser window is open for this posting. Tell Artemis whether you submitted it.'):(s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Artemis what happened.`:'No browser window is open for this application. Tell Artemis whether it was submitted.');
   box.innerHTML=`<span class="why">${where}</span>${attach}<button type="button" class="outcome" data-outcome="submitted">I submitted it</button><button type="button" class="outcome" data-outcome="abandoned">I didn't submit</button>`+forceSection(id,s);
   wireForce(box,id);
   box.querySelectorAll('button.outcome').forEach(b=>b.addEventListener('click',async()=>{

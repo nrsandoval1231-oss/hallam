@@ -1,6 +1,6 @@
 # ARTEMIS — Approved Brand Direction (2026-10-28)
 
-> STATUS: Owner-approved visual direction and reference, **not yet implemented**. This supersedes VELORA as the intended *future* customer-facing identity. Preserve existing Sabra engine behavior. `BRAND.md` currently describes the shipped VELORA UI and is not changed by this reference-only save.
+> STATUS: Owner-approved visual direction, now implemented as the canonical customer-facing identity. `BRAND.md` is authoritative for the current brand and product experience; this document records the approved design provenance. Preserve existing Sabra engine behavior.
 
 ## Identity
 - **Name:** ARTEMIS (uppercase wordmark).
@@ -22,10 +22,10 @@ Architectural/editorial minimalism. Warm ivory and stone surfaces, deep evergree
 
 Use restraint and accessible contrast. Concept art may differ slightly from token values; validate exact colors against final approved source before build.
 
-## Logo — approved direction; final geometry pending
+## Logo — approved architectural A direction
 - Distinctive, thin, architectural **A** mark formed by two elegant sharply cut strokes with an intentional open/negative-space relationship. Avoid stock arrows, literal bows or goddess illustrations.
 - Uppercase `A R T E M I S` wordmark with generous tracking, highly refined typography.
-- Need original vector master, horizontal lockup, monochrome, reversed, favicon/app-icon, and small-size optical adjustments.
+- The original vector master is `brand/logo/artemis-mark.svg`; the favicon and application header use the same A artwork. Horizontal lockup, monochrome/reversed and app-icon exports, plus small-size optical adjustments, remain future asset work.
 - Initial logo explorations included Ascendant, Orbit, Meridian; **the latest minimalist architectural A board is the preferred direction**. Exact vector not frozen.
 
 ## Typography
@@ -48,6 +48,6 @@ Use restraint and accessible contrast. Concept art may differ slightly from toke
 - Mockup company names, postings, applicant names, percentages, and activity are **illustrative, not live user data**.
 
 ## Implementation boundary / migration
-- Current repository has VELORA UI merged in PR #13. This document intentionally does **not** rename source modules, overwrite current `BRAND.md`, or change deployed UI.
-- On approval to build: create Artemis vector/logo package and final design tokens; implement shared shell and pages with responsive behavior; replace user-facing VELORA strings; preserve `sabra` internal package and database; run tests plus desktop/mobile browser acceptance; only then retire legacy assets and update canonical shipped `BRAND.md`.
-- Do not claim Artemis production rebrand completed until browser verification and merge.
+- The shared application shell and product surfaces use ARTEMIS. Internal `sabra` source modules and database identifiers remain stable for compatibility.
+- Legacy VELORA artwork is retired from the tracked brand kit. The ARTEMIS vector mark and favicon are active; broader asset exports remain follow-up work. Desktop/mobile Chromium smoke acceptance is recorded in `ARTEMIS_PR14_VALIDATION.md`.
+- Repository implementation does not establish merge or production deployment status.

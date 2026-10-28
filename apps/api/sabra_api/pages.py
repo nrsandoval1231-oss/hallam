@@ -3,13 +3,13 @@
 `page_shell` is the one place that wraps a page's title, navigation and body, and every
 HTML page goes through it. It deliberately contains no `<script>`: each page's own script
 is the first (and only) script in the document, which is what the offline JavaScript
-tests rely on. Shared header behaviour (the Ask Velora dialog, the notification count)
+tests rely on. Shared header behaviour (the Ask Artemis dialog, the notification count)
 is not in the shell either; it rides inside each page's script as `CHROME_JS`, appended
 to `ESC_JS` and `ASK_JS`, guarded so including it twice is harmless.
 
 Every dynamic string a page script renders goes through `esc()`.
 
-The visual system is Velora's Cloudglass Architectural language (see BRAND.md): floating
+The visual system is ARTEMIS architectural editorial visual language (see BRAND.md): floating
 frosted boards on a soft procedural gradient. No photography anywhere.
 """
 
@@ -37,22 +37,22 @@ MENU_LINKS: tuple[tuple[str, str], ...] = (
 )
 
 SHELL_CSS = (
-    ":root{--cloud:#F8F5F2;--mist:#E5EAEB;--silver:#C6CED1;--sky:#A7C3D5;"
-    "--slate:#98A6AB;--storm:#718C9A;--ink:#263A48;--muted:#54676F;"
+    ":root{--cloud:#F7F6F1;--mist:#E8E5DC;--silver:#D6C6A8;--sky:#A6B8A7;"
+    "--slate:#849C8D;--storm:#29483E;--ink:#26312E;--muted:#64736C;"
     "--glass:rgba(255,255,255,.60);--glass-soft:rgba(255,255,255,.42);"
     "--glass-high:rgba(255,255,255,.80);--glass-line:rgba(255,255,255,.72);"
-    "--line:rgba(198,206,209,.55);"
-    "--shadow:0 14px 34px rgba(38,58,72,.10),0 2px 8px rgba(38,58,72,.05);"
-    "--shadow-soft:0 8px 22px rgba(38,58,72,.07);"
-    "--shadow-high:0 24px 52px rgba(38,58,72,.15),0 3px 10px rgba(38,58,72,.06);"
+    "--line:rgba(214,198,168,.55);"
+    "--shadow:0 14px 34px rgba(20,45,41,.10),0 2px 8px rgba(20,45,41,.05);"
+    "--shadow-soft:0 8px 22px rgba(20,45,41,.07);"
+    "--shadow-high:0 24px 52px rgba(20,45,41,.15),0 3px 10px rgba(20,45,41,.06);"
     "--radius:18px;--radius-sm:12px;--warn:#9C4A38}"
     "*{box-sizing:border-box}"
     "html{-webkit-text-size-adjust:100%}"
     "body{margin:0;color:var(--ink);font:15px/1.55 Inter,system-ui,-apple-system,"
     'BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;'
-    "background:radial-gradient(1200px 700px at 88% -12%,rgba(167,195,213,.55),transparent 62%),"
-    "radial-gradient(960px 640px at -12% 18%,rgba(229,234,235,.95),transparent 58%),"
-    "radial-gradient(1100px 800px at 52% 112%,rgba(198,206,209,.45),transparent 62%),"
+    "background:radial-gradient(1200px 700px at 88% -12%,rgba(166,184,167,.55),transparent 62%),"
+    "radial-gradient(960px 640px at -12% 18%,rgba(232,229,220,.95),transparent 58%),"
+    "radial-gradient(1100px 800px at 52% 112%,rgba(214,198,168,.45),transparent 62%),"
     "linear-gradient(165deg,#FBF9F6 0%,var(--cloud) 42%,#ECF1F2 100%);"
     "background-attachment:fixed}"
     "body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;"
@@ -101,7 +101,7 @@ SHELL_CSS = (
     "border:1px solid var(--glass-line);border-radius:14px;box-shadow:var(--shadow)}"
     ".usermenu .menu a{display:block;padding:8px 12px;border-radius:9px;color:var(--ink);"
     "font-weight:500;font-size:14px}"
-    ".usermenu .menu a:hover{background:rgba(167,195,213,.25)}"
+    ".usermenu .menu a:hover{background:rgba(166,184,167,.25)}"
     ".navtoggle{display:none;position:relative}"
     ".navtoggle summary{list-style:none;cursor:pointer;padding:8px;color:var(--ink)}"
     ".navtoggle summary::-webkit-details-marker{display:none}"
@@ -111,7 +111,7 @@ SHELL_CSS = (
     "box-shadow:var(--shadow)}"
     ".navtoggle .mobilemenu a{display:block;padding:9px 12px;border-radius:9px;color:var(--ink);"
     "font-weight:500}"
-    ".navtoggle .mobilemenu a.active{background:rgba(167,195,213,.3)}"
+    ".navtoggle .mobilemenu a.active{background:rgba(166,184,167,.3)}"
 
     # --- glass boards ---------------------------------------------------------
     ".glass,.card{background:var(--glass);backdrop-filter:blur(16px) saturate(1.08);"
@@ -160,7 +160,7 @@ SHELL_CSS = (
     "dialog{border:1px solid var(--glass-line);border-radius:16px;padding:24px;max-width:460px;"
     "background:var(--glass-high);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);"
     "color:var(--ink);box-shadow:var(--shadow-high)}"
-    "dialog::backdrop{background:rgba(38,58,72,.35)}"
+    "dialog::backdrop{background:rgba(20,45,41,.35)}"
     "dialog p{margin:0 0 16px;color:var(--ink)}"
     "dialog input{width:100%;padding:9px;border:1px solid var(--silver);border-radius:9px;"
     "font:inherit;margin:0 0 14px;background:rgba(255,255,255,.8)}"
@@ -170,7 +170,7 @@ SHELL_CSS = (
     "border-radius:10px;padding:9px 15px;font:inherit;font-weight:600;cursor:pointer}"
     "dialog button.secondary{background:var(--glass-soft);color:var(--ink);border:1px solid var(--silver)}"
 
-    # --- Ask Velora -----------------------------------------------------------
+    # --- Ask Artemis -----------------------------------------------------------
     ".ask-modal{max-width:520px;width:min(520px,92vw)}"
     ".ask-modal h2{margin:0 0 4px;font-size:19px}"
     ".ask-chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}"
@@ -247,9 +247,9 @@ function _veloraChrome(){
       try{
         const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:question})});
         const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}};
-        if(!r.ok){out.textContent=(typeof d.detail==='string'?d.detail:text)||'Velora could not answer that.';return;}
+        if(!r.ok){out.textContent=(typeof d.detail==='string'?d.detail:text)||'Artemis could not answer that.';return;}
         out.innerHTML=_vesc(d.answer||'')+((d.links&&d.links.length)?'<span class="ask-links">'+d.links.map(l=>`<a href="${_vesc(l.href)}">${_vesc(l.label)}</a>`).join('')+'</span>':'');
-      }catch(e){out.textContent='Velora could not be reached. '+e;}
+      }catch(e){out.textContent='Artemis could not be reached. '+e;}
     };
     const wireAsk=()=>{
       const dlg=$('#velora-ask');if(!dlg||dlg.__wired)return;dlg.__wired=true;
@@ -317,18 +317,12 @@ ASK_JS = r"""function ask(message,opts){
 
 ESC_JS = ESC_JS + CHROME_JS
 
-# The interlocking glass V: two translucent ribbons converging. Master artwork lives in
-# brand/logo/; this inline copy is what the header renders.
+# Keep this inline header mark geometrically identical to brand/logo/artemis-mark.svg.
 LOGO_MARK_SVG = (
-    '<svg class="mark" viewBox="0 0 48 48" role="img" aria-label="Velora" '
-    'xmlns="http://www.w3.org/2000/svg"><defs>'
-    '<linearGradient id="vla" x1="0" y1="0" x2="1" y2="1">'
-    '<stop offset="0" stop-color="#C7D9E4"/><stop offset="1" stop-color="#718C9A"/></linearGradient>'
-    '<linearGradient id="vlb" x1="1" y1="0" x2="0" y2="1">'
-    '<stop offset="0" stop-color="#E9EFF2"/><stop offset="1" stop-color="#A7C3D5"/></linearGradient>'
-    '</defs>'
-    '<path d="M5.5 5 L14.5 4 L29.5 44.5 L23 48 Z" fill="url(#vla)" fill-opacity="0.92"/>'
-    '<path d="M42.5 5 L33.5 4 L18.5 44.5 L25 48 Z" fill="url(#vlb)" fill-opacity="0.78"/>'
+    '<svg class="mark" viewBox="0 0 64 64" role="img" aria-label="Artemis" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<path d="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z" fill="#142D29"/>'
+    '<path d="M26.6 41h10.8" stroke="#F7F6F1" stroke-width="3.5"/>'
     '</svg>'
 )
 
@@ -340,15 +334,15 @@ BELL_SVG = (
 )
 
 SEARCH_SVG = (
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#54676F" '
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
     'stroke-width="2" stroke-linecap="round" aria-hidden="true">'
     '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>'
 )
 
-# HTML-only Ask Velora modal; the page script's CHROME_JS wires it to /api/ask.
-ASK_VELORA_HTML = (
+# HTML-only Ask Artemis modal; the page script's CHROME_JS wires it to /api/ask.
+ASK_ARTEMIS_HTML = (
     '<dialog class="ask-modal" id="velora-ask" aria-labelledby="velora-ask-title">'
-    '<h2 id="velora-ask-title">Ask Velora</h2>'
+    '<h2 id="velora-ask-title">Ask Artemis</h2>'
     '<p class="muted">Answers come from your real data — nothing is invented.</p>'
     '<div class="ask-chips">'
     '<button type="button" data-q="What should I prioritize today?">What should I prioritize today?</button>'
@@ -357,8 +351,8 @@ ASK_VELORA_HTML = (
     '<button type="button" data-q="Research the companies on my shortlist">Research my companies</button>'
     '<button type="button" data-q="Prepare me for my interviews">Prepare me for interviews</button>'
     '</div>'
-    '<textarea id="velora-ask-q" aria-label="Ask Velora a question" '
-    'placeholder="Ask Velora anything…"></textarea>'
+    '<textarea id="velora-ask-q" aria-label="Ask Artemis a question" '
+    'placeholder="Ask Artemis anything…"></textarea>'
     '<div class="ask-actions"><button type="button" class="secondary" id="velora-ask-close">Close</button>'
     '<button type="button" id="velora-ask-go">Ask</button></div>'
     '<div class="ask-answer" id="velora-ask-out" hidden></div>'
@@ -389,21 +383,21 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<meta name="description" content="Velora — your intelligent career operating '
+        '<meta name="description" content="Artemis — your intelligent career operating '
         'system. Find the right opportunities. Present your best self. Move with confidence.">'
         '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
         '<link rel="preconnect" href="https://fonts.googleapis.com">'
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
         '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
         '&family=Sora:wght@400;600;700&display=swap" rel="stylesheet">'
-        f"<title>Velora | {escape(title)}</title>"
+        f"<title>Artemis | {escape(title)}</title>"
         f"<style>{SHELL_CSS}{css}</style></head>\n"
         '<body><header class="topnav">'
-        f'<a class="brand" href="/">{LOGO_MARK_SVG}<span class="word">VELORA</span></a>'
+        f'<a class="brand" href="/">{LOGO_MARK_SVG}<span class="word">ARTEMIS</span></a>'
         f'<nav class="primary" aria-label="Main">{links}</nav>'
         '<div class="nav-right">'
         f'<button type="button" class="ask-pill" id="velora-ask-open">{SEARCH_SVG}'
-        '<span class="ask-label">Ask Velora anything…</span></button>'
+        '<span class="ask-label">Ask Artemis anything…</span></button>'
         f'<a class="bell" href="/#upcoming" aria-label="Notifications">{BELL_SVG}'
         '<span class="badge" id="velora-bell-badge" hidden></span></a>'
         '<details class="usermenu" id="velora-usermenu"><summary class="avatar" '
@@ -412,7 +406,7 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         '<details class="navtoggle"><summary aria-label="Menu">☰</summary>'
         f'<div class="mobilemenu">{menu}</div></details>'
         '</div></header>\n'
-        f"{body}{ASK_DIALOG_HTML}{ASK_VELORA_HTML}</body></html>"
+        f"{body}{ASK_DIALOG_HTML}{ASK_ARTEMIS_HTML}</body></html>"
     )
 
 
@@ -438,7 +432,7 @@ HOME_CSS = (
     ".metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-content:start}"
     ".metric{position:relative;display:block;padding:18px 20px;text-decoration:none;color:var(--ink)}"
     ".metric .m-icon{width:40px;height:40px;border-radius:12px;display:flex;"
-    "align-items:center;justify-content:center;background:rgba(167,195,213,.30)}"
+    "align-items:center;justify-content:center;background:rgba(166,184,167,.30)}"
     ".metric strong{display:block;font-size:30px;font-weight:700;font-family:Sora,Inter,sans-serif;"
     "line-height:1.1;margin-top:14px}"
     ".metric .m-label{display:block;color:var(--muted);font-size:13px;margin-top:2px}"
@@ -469,8 +463,8 @@ HOME_CSS = (
     ".featured .f-art{position:absolute;right:-90px;bottom:-90px;width:250px;height:210px;"
     "pointer-events:none;opacity:.7}"
     ".featured .f-art i{position:absolute;border-radius:16px;border:1px solid rgba(255,255,255,.8);"
-    "background:linear-gradient(150deg,rgba(167,195,213,.35),rgba(229,234,235,.12));"
-    "backdrop-filter:blur(4px);box-shadow:0 16px 34px rgba(38,58,72,.10);"
+    "background:linear-gradient(150deg,rgba(166,184,167,.35),rgba(232,229,220,.12));"
+    "backdrop-filter:blur(4px);box-shadow:0 16px 34px rgba(20,45,41,.10);"
     "transform:skewY(-8deg) rotate(6deg)}"
     ".featured .f-art i:nth-child(1){inset:30px 90px 40px 40px}"
     ".featured .f-art i:nth-child(2){inset:60px 40px 10px 100px;opacity:.75}"
@@ -497,7 +491,7 @@ HOME_CSS = (
     ".bar{display:grid;gap:8px;justify-items:center;align-content:end;height:100%}"
     ".bar .v{font-size:13px;font-weight:700}"
     ".bar .col{width:100%;max-width:64px;border-radius:9px 9px 4px 4px;"
-    "background:linear-gradient(180deg,rgba(167,195,213,.9),rgba(113,140,154,.55));"
+    "background:linear-gradient(180deg,rgba(166,184,167,.9),rgba(113,140,154,.55));"
     "box-shadow:inset 0 1px 0 rgba(255,255,255,.6);min-height:6px}"
     ".bar .k{font-size:12px;color:var(--muted)}"
     ".todo{list-style:none;margin:6px 0 0;padding:0}"
@@ -507,7 +501,7 @@ HOME_CSS = (
     ".todo a{font-weight:600;color:var(--ink)}"
     ".todo a:hover{color:var(--storm)}"
     ".todo .n{display:inline-block;min-width:22px;height:22px;border-radius:999px;"
-    "background:rgba(167,195,213,.35);color:var(--ink);font-size:12px;font-weight:700;"
+    "background:rgba(166,184,167,.35);color:var(--ink);font-size:12px;font-weight:700;"
     "text-align:center;line-height:22px;margin-right:6px}"
     ".todo .hint{color:var(--muted);font-size:13px;display:block}"
     ".empty-note{color:var(--muted);padding:8px 0}"
@@ -520,7 +514,7 @@ HOME_BODY = """<main class="home">
 <section class="hero-row">
   <div class="hero">
     <p class="eyebrow">Your career, in focus</p>
-    <h1>A clearer path forward.</h1>
+    <h1>Your next move is taking shape.</h1>
     <p class="lede">Find the right opportunities. Present your best self. Move with confidence.</p>
     <p class="line" id="today-sub"></p>
     <div class="hero-actions">
@@ -576,7 +570,7 @@ function renderRun(run){
 function pctOf(x){return x==null?'':Math.round(Number(x)*100)+'%';}
 function renderFeatured(f){
   const box=document.querySelector('#featured');
-  if(!f){box.innerHTML='<p class="eyebrow">Featured opportunity</p><h2>No featured opportunity yet</h2><p class="f-why">Run a search and Velora will rank what it finds. The strongest match appears here.</p>';return;}
+  if(!f){box.innerHTML='<p class="eyebrow">Featured opportunity</p><h2>No featured opportunity yet</h2><p class="f-why">Run a search and Artemis will rank what it finds. The strongest match appears here.</p>';return;}
   const meta=[
     f.location||'Location not listed',
     f.industry||'',
@@ -681,23 +675,23 @@ loadHome();
 
 _ICONS = {
     "match": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#54676F" '
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
         'stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2.5"/>'
         '<path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'
     ),
     "apps": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#54676F" '
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
         'stroke-width="1.8" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>'
         '<path d="M14 3v6h6"/><path d="M9 13h6M9 17h4"/></svg>'
     ),
     "talks": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#54676F" '
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
         'stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/>'
         '<path d="M3.5 20c.6-3.4 2.9-5 5.5-5s4.9 1.6 5.5 5"/>'
         '<circle cx="17" cy="9" r="2.4"/><path d="M16 15.2c2.3.3 3.9 1.8 4.4 4.3"/></svg>'
     ),
     "offers": (
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#54676F" '
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64736C" '
         'stroke-width="1.8" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>'
     ),
 }
@@ -745,14 +739,14 @@ def _identity_fields_html() -> str:
 
 CANDIDATE_BODY = """<main class="wrap">
 <h1>Profile</h1>
-<p>What Velora knows about you, and how sure it is. <span class="pill VERIFIED">VERIFIED</span> is
+<p>What Artemis knows about you, and how sure it is. <span class="pill VERIFIED">VERIFIED</span> is
 something you stated. <span class="pill INFERRED">INFERRED</span> was read from your resume and is
 never typed onto a form until you confirm it. <span class="pill UNKNOWN">UNKNOWN</span> is not
 known.</p>
 <section class="card"><h2>Your details</h2>
 <p>Only what you change here, or tick <em>This is right</em> for, is recorded as stated by you
 (VERIFIED), and that wins over anything read from a resume. Every other box keeps what it was and
-how sure Velora was of it; the tag beside each box shows that. A blank box changes nothing.</p>
+how sure Artemis was of it; the tag beside each box shows that. A blank box changes nothing.</p>
 <form id="identity-form">
 __IDENTITY_FIELDS__
 <p><button type="submit">Save my details</button></p>
@@ -778,7 +772,7 @@ function renderResumes(list){
   return list.map(r=>`<div class="stage"><strong>Version ${esc(r.version)}</strong>${r.is_master?' <span class="pill VERIFIED">master</span>':''} · ${esc(r.label||'')} · ${esc(r.source_format)} · ${esc(String(r.content_hash||'').slice(0,12))}</div>`).join('');
 }
 function renderUnparsed(list){
-  // The master is the version Velora builds packages from, so its unread lines come first.
+  // The master is the version Artemis builds packages from, so its unread lines come first.
   // A version stored before unread lines were recorded has a count but no list.
   const unlisted=r=>r.unparsed_lines==null&&Number(r.unparsed_line_count)>0;
   const rows=(list||[]).filter(r=>(r.unparsed_lines&&r.unparsed_lines.length)||(r.warnings&&r.warnings.length)||unlisted(r));
@@ -1011,17 +1005,17 @@ document.querySelector('#new-search').addEventListener('click',startNew);
 
 SETTINGS_BODY = """<main class="wrap">
 <h1>Settings</h1>
-<p>What Velora is set to do. The values below are changed outside the browser; the job boards can be changed here.</p>
+<p>What Artemis is set to do. The values below are changed outside the browser; the job boards can be changed here.</p>
 <section class="card"><div id="settings">Loading...</div></section>
 <section class="card">
 <h2>Job boards</h2>
-<p>The company boards Velora reads each run. A role on a board Velora cannot fill itself (anything except Greenhouse and Lever) is opened in your browser for you to complete.</p>
+<p>The company boards Artemis reads each run. A role on a board Artemis cannot fill itself (anything except Greenhouse and Lever) is opened in your browser for you to complete.</p>
 <div id="sources">Loading...</div>
 <p class="line" id="sources-line"></p>
 </section>
 <section class="card">
 <h2>Add a board</h2>
-<p>Paste a careers URL (Greenhouse, Lever or Ashby). Velora reads the board once, shows what it found, and adds it only when you press Add.</p>
+<p>Paste a careers URL (Greenhouse, Lever or Ashby). Artemis reads the board once, shows what it found, and adds it only when you press Add.</p>
 <form id="probe-form">
 <label for="board-url">Careers URL or board name</label>
 <input id="board-url" name="url" autocomplete="off" placeholder="https://jobs.ashbyhq.com/company">
@@ -1142,7 +1136,7 @@ RESEARCH_CSS = (
 
 RESEARCH_BODY = """<main class="wrap">
 <h1>Research</h1>
-<p>What Velora has learned about the companies on your shortlist. Verified facts are read from a source; inferences are conclusions, kept apart. Every card names its sources.</p>
+<p>What Artemis has learned about the companies on your shortlist. Verified facts are read from a source; inferences are conclusions, kept apart. Every card names its sources.</p>
 <p class="line" id="line"></p>
 <div id="list"><section class="card"><p>Loading...</p></section></div>
 </main>
@@ -1182,7 +1176,7 @@ PLAN_CSS = (
     ".plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}"
     ".gap-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;"
     "border-top:1px solid var(--line)}.gap-row:first-child{border-top:0}"
-    ".gap-row .n{background:rgba(167,195,213,.35);border-radius:999px;min-width:26px;height:22px;"
+    ".gap-row .n{background:rgba(166,184,167,.35);border-radius:999px;min-width:26px;height:22px;"
     "line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px}"
     ".plan-actions{list-style:none;margin:0;padding:0}"
     ".plan-actions li{padding:10px 0;border-top:1px solid var(--line)}"
@@ -1217,7 +1211,7 @@ function render(d){
     ${(s.excluded_titles||[]).length?'<h3>Excluded</h3><p>'+chips(s.excluded_titles)+'</p>':''}
     <p class="muted">${esc(d.search_summary||'')}</p>
     <p><a href="/searches">Edit this search</a></p></section>`
-    :'<section class="card"><h2>No active search yet</h2><p>Define what you are looking for and Velora starts working toward it.</p><p><a class="btn" href="/searches">Create a search</a></p></section>';
+    :'<section class="card"><h2>No active search yet</h2><p>Define what you are looking for and Artemis starts working toward it.</p><p><a class="btn" href="/searches">Create a search</a></p></section>';
   const p=d.progress||{};
   box.innerHTML=objective+`<div class="plan-grid"><section class="card"><h2>Progress toward the goal</h2>
     ${s?meter(p.shortlisted||0,s.shortlist_target||0,'shortlisted'):''}
@@ -1226,7 +1220,7 @@ function render(d){
     <section class="card"><h2>Recommended actions</h2>
     <ul class="plan-actions">${actions||'<li>Nothing right now. Run a search when you are ready.</li>'}</ul></section></div>
     <section class="card"><h2>Skill gaps across your shortlist</h2>
-    <p class="muted">The gaps Velora's fit engine recorded most often across your shortlisted roles.</p>
+    <p class="muted">The gaps Artemis's fit engine recorded most often across your shortlisted roles.</p>
     ${gaps||'<p class="muted">No gaps recorded yet. Score a shortlist first.</p>'}</section>`;
 }
 async function load(){
