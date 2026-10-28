@@ -65,7 +65,7 @@ SHELL_CSS = (
 
     # --- header -------------------------------------------------------------
     ".topnav{display:flex;align-items:center;gap:26px;max-width:1360px;margin:0 auto;"
-    "padding:20px 40px 6px}"
+    "padding:20px 40px 6px;position:relative;z-index:10}"
     ".brand{display:flex;align-items:center;gap:12px;text-decoration:none}"
     ".brand .mark{width:30px;height:30px;flex:none}"
     ".brand .word{font-family:Sora,Inter,sans-serif;font-size:16px;font-weight:600;"
@@ -225,14 +225,24 @@ function _veloraChrome(){
       const av=$('#velora-avatar');
       if(av&&name){const parts=name.split(/\s+/);av.textContent=((parts[0]||' ')[0]+(parts.length>1?parts[parts.length-1][0]:'')).toUpperCase();}
     }).catch(()=>{});
-    const dlg=$('#velora-ask'),openBtn=$('#velora-ask-open'),closeBtn=$('#velora-ask-close'),
-      goBtn=$('#velora-ask-go'),q=$('#velora-ask-q'),out=$('#velora-ask-out');
-    const openDlg=()=>{if(!dlg)return;if(typeof dlg.showModal==='function')dlg.showModal();else dlg.setAttribute('open','');};
-    const closeDlg=()=>{if(!dlg)return;if(typeof dlg.close==='function')dlg.close();else dlg.removeAttribute('open');};
+    // The dialog markup is appended after the page script, so the modal's
+    // internals do not exist yet when this runs. The open button is in the header
+    // and can be wired at once; everything inside the dialog waits for
+    // DOMContentLoaded and is looked up lazily, never captured before it exists.
+    const openDlg=()=>{
+      const dlg=$('#velora-ask');if(!dlg)return;
+      if(typeof dlg.showModal==='function'){if(!dlg.open)dlg.showModal();}else dlg.setAttribute('open','');
+      const q=$('#velora-ask-q');if(q&&typeof q.focus==='function')q.focus();
+    };
+    const closeDlg=()=>{
+      const dlg=$('#velora-ask');if(!dlg)return;
+      if(typeof dlg.close==='function')dlg.close();else dlg.removeAttribute('open');
+    };
+    const openBtn=$('#velora-ask-open');
     if(openBtn)openBtn.addEventListener('click',openDlg);
-    if(closeBtn)closeBtn.addEventListener('click',closeDlg);
     const send=async question=>{
-      if(!out)return;
+      const out=$('#velora-ask-out');if(!out)return;
+      out.hidden=false;
       out.textContent='Thinking over your data...';
       try{
         const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:question})});
@@ -241,9 +251,18 @@ function _veloraChrome(){
         out.innerHTML=_vesc(d.answer||'')+((d.links&&d.links.length)?'<span class="ask-links">'+d.links.map(l=>`<a href="${_vesc(l.href)}">${_vesc(l.label)}</a>`).join('')+'</span>':'');
       }catch(e){out.textContent='Velora could not be reached. '+e;}
     };
-    if(goBtn)goBtn.addEventListener('click',()=>{if(q&&q.value.trim())send(q.value.trim());});
-    if(q)q.addEventListener('keydown',e=>{if(e&&e.key==='Enter'&&q.value.trim())send(q.value.trim());});
-    if(dlg)Array.prototype.forEach.call(dlg.querySelectorAll('button[data-q]'),b=>b.addEventListener('click',()=>{if(q)q.value=b.getAttribute('data-q')||'';send(b.getAttribute('data-q')||'');}));
+    const wireAsk=()=>{
+      const dlg=$('#velora-ask');if(!dlg||dlg.__wired)return;dlg.__wired=true;
+      const closeBtn=$('#velora-ask-close'),goBtn=$('#velora-ask-go'),q=$('#velora-ask-q');
+      if(closeBtn)closeBtn.addEventListener('click',closeDlg);
+      if(goBtn)goBtn.addEventListener('click',()=>{if(q&&q.value.trim())send(q.value.trim());});
+      if(q)q.addEventListener('keydown',e=>{if(e&&e.key==='Enter'&&q.value.trim()){e.preventDefault();send(q.value.trim());}});
+      Array.prototype.forEach.call(dlg.querySelectorAll('button[data-q]'),b=>b.addEventListener('click',()=>{
+        const text=b.getAttribute('data-q')||'';if(q)q.value=text;send(text);
+      }));
+    };
+    if(document.readyState&&document.readyState!=='loading')wireAsk();
+    else if(typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireAsk);
     if(typeof document.addEventListener==='function')document.addEventListener('click',e=>{
       const menu=$('#velora-usermenu');
       if(menu&&menu.open&&e&&e.target&&typeof e.target.closest==='function'&&!e.target.closest('#velora-usermenu'))menu.open=false;
@@ -385,7 +404,7 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         '<div class="nav-right">'
         f'<button type="button" class="ask-pill" id="velora-ask-open">{SEARCH_SVG}'
         '<span class="ask-label">Ask Velora anything…</span></button>'
-        f'<a class="bell" href="/" aria-label="Notifications">{BELL_SVG}'
+        f'<a class="bell" href="/#upcoming" aria-label="Notifications">{BELL_SVG}'
         '<span class="badge" id="velora-bell-badge" hidden></span></a>'
         '<details class="usermenu" id="velora-usermenu"><summary class="avatar" '
         'id="velora-avatar" aria-label="Account">·</summary>'
@@ -525,7 +544,7 @@ HOME_BODY = """<main class="home">
   </div>
   <div class="col-side">
     <section class="glass board"><h2>Your progress</h2><div class="bars" id="progress-bars"></div></section>
-    <section class="glass board"><h2>Upcoming items</h2><ul class="todo" id="upcoming-list"><li><span class="hint">Loading…</span></li></ul><p class="line" id="seen-line"></p></section>
+    <section class="glass board" id="upcoming"><h2>Upcoming items</h2><ul class="todo" id="upcoming-list"><li><span class="hint">Loading…</span></li></ul><p class="line" id="seen-line"></p></section>
   </div>
 </section>
 <p class="line" id="status-line"></p>
