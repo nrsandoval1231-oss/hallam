@@ -90,7 +90,7 @@ def assert_inert(markup: str, expected_text: str) -> Markup:
 
 def test_the_shell_escapes_the_title_and_contains_no_script() -> None:
     html = page_shell("<b>x</b>", "<main>body</main>", active="/")
-    assert "<title>Velora | &lt;b&gt;x&lt;/b&gt;</title>" in html
+    assert "<title>Artemis | &lt;b&gt;x&lt;/b&gt;</title>" in html
     assert "<script" not in html
 
 
