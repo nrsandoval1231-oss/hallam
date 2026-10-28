@@ -6,7 +6,7 @@ from sabra_api.main import app
 def test_dashboard_is_browser_ready() -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
-    assert "Velora" in response.text
+    assert "Artemis" in response.text
     assert "A clearer path forward." in response.text
 
 
