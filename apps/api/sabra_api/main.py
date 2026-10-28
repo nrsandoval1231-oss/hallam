@@ -1489,14 +1489,13 @@ def _research_payload() -> dict[str, Any]:
                 .order_by(models.ResearchPacketRow.updated_at.desc())
                 .all()
             )
+            def texts(body: dict[str, Any], key: str) -> list[str]:
+                value = body.get(key) or []
+                return [str(item) for item in value] if isinstance(value, list) else []
+
             out = []
             for packet, opportunity in rows:
                 body = dict(packet.payload or {})
-
-                def texts(key: str) -> list[str]:
-                    value = body.get(key) or []
-                    return [str(item) for item in value] if isinstance(value, list) else []
-
                 out.append(
                     {
                         "opportunity_id": opportunity.id,
@@ -1507,10 +1506,10 @@ def _research_payload() -> dict[str, Any]:
                         "company_description": body.get("company_description"),
                         "company_website": body.get("company_website"),
                         "industry": body.get("industry"),
-                        "verified_facts": texts("verified_facts"),
-                        "inferences": texts("inferences"),
-                        "recent_developments": texts("recent_developments"),
-                        "sources": texts("sources"),
+                        "verified_facts": texts(body, "verified_facts"),
+                        "inferences": texts(body, "inferences"),
+                        "recent_developments": texts(body, "recent_developments"),
+                        "sources": texts(body, "sources"),
                     }
                 )
             return {"research": out}
