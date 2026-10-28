@@ -39,13 +39,40 @@ function pct(x){return x==null||x===''?'not assessed':Math.round(Number(x)*100)+
 function safeUrl(u){return /^https?:\/\//i.test(String(u||''))?String(u):'';}
 function link(u){const s=safeUrl(u);return s?`<a href="${esc(s)}" target="_blank" rel="noopener noreferrer">${esc(s)}</a>`:esc(u||'');}
 function bullets(items){return items&&items.length?'<ul>'+items.map(i=>`<li>${esc(i)}</li>`).join('')+'</ul>':'<p class="muted">None.</p>';}
-function section(title,inner,cls){return `<section class="card${cls?' '+esc(cls):''}"><h2>${esc(title)}</h2>${inner}</section>`;}
+function section(title,inner,cls,id){return `<section class="card${cls?' '+esc(cls):''}"${id?` id="${esc(id)}" tabindex="-1"`:''}><h2>${esc(title)}</h2>${inner}</section>`;}
 function textBlock(t,empty){return t&&String(t).trim()?`<div class="text">${esc(t)}</div>`:`<p class="muted">${esc(empty||'Nothing recorded.')}</p>`;}
+// A deliberately small document formatter: escape first, then add only our own
+// headings, paragraphs and lists. Source HTML, links and images remain inert text.
+function documentBlock(t,empty){
+  if(!t||!String(t).trim())return textBlock('',empty);
+  let list=false;
+  const out=[];
+  const close=()=>{if(list){out.push('</ul>');list=false;}};
+  String(t).split(/\r?\n/).forEach(line=>{
+    const value=esc(line.trim()).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    if(!value){close();return;}
+    const heading=value.match(/^(#{1,6})\s+(.+)$/);
+    const bullet=value.match(/^[-*]\s+(.+)$/);
+    if(heading){close();const tag=heading[1].length===1?'h3':'h4';out.push('<'+tag+'>'+heading[2]+'</'+tag+'>');}
+    else if(bullet){if(!list){out.push('<ul>');list=true;}out.push('<li>'+bullet[1]+'</li>');}
+    else{close();out.push('<p>'+value+'</p>');}
+  });
+  close();return '<article class="document-preview">'+out.join('')+'</article>';
+}
 function facts(rows){return '<dl class="facts">'+rows.filter(r=>r[1]!==null&&r[1]!==undefined&&r[1]!=='').map(r=>`<dt>${esc(r[0])}</dt><dd>${r[2]?r[1]:esc(r[1])}</dd>`).join('')+'</dl>';}
 function go(url){if(typeof location!=='undefined')location.href=url;}
 """
 
 DETAIL_CSS = (
+    ".decision-nav{display:flex;gap:8px 16px;flex-wrap:wrap;margin:12px 0 20px;padding:12px 16px;"
+    "border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.48)}"
+    ".decision-nav a{font-size:13px;font-weight:600;text-underline-offset:3px}"
+    ".readiness{border-left:3px solid var(--forest,#29483E);padding:10px 14px;margin:12px 0;background:var(--stone,#E8E5DC);border-radius:0 10px 10px 0}"
+    ".readiness strong{display:block;margin-bottom:3px}.readiness p{margin:0}"
+    ".evidence-label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--muted)}"
+    ".table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}"
+    ".table-scroll table{min-width:520px}.card{scroll-margin-top:22px}"
+    ".card:focus{outline:2px solid var(--forest,#29483E);outline-offset:3px}"
     ".facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 18px;margin:0}"
     ".facts dt{color:var(--muted)}.facts dd{margin:0;overflow-wrap:anywhere}"
     ".text{white-space:pre-wrap;overflow-wrap:anywhere}"
@@ -68,6 +95,8 @@ DETAIL_CSS = (
     ".decision{border:2px solid var(--ink)}"
     "@media(max-width:700px){.cols{grid-template-columns:1fr}"
     ".facts{grid-template-columns:1fr}}"
+    "@media(max-width:480px){.decision-nav{gap:10px 14px;padding:10px}.facts dd{margin-bottom:6px}"
+    ".table-scroll table{min-width:480px}}"
 )
 
 # ---------------------------------------------------------------------------
@@ -80,6 +109,7 @@ OPPORTUNITY_DETAIL_BODY = r"""<main class="wrap">
 <p class="muted" id="meta"></p>
 <div class="actions" id="actions"></div>
 <p class="line" id="line"></p>
+<nav class="decision-nav" aria-label="Opportunity details" id="section-nav"><a href="#recommendation">Recommendation</a><a href="#fit">Fit and evidence</a><a href="#posting">Original posting</a><a href="#research">Company research</a><a href="#application">Application readiness</a><a href="#history">History</a></nav>
 <div id="sections"><section class="card"><p>Loading...</p></section></div>
 </main>
 <script>
@@ -108,18 +138,18 @@ function renderActions(d){
 function renderWhy(d){
   const f=d.fit,r=d.rank||{};
   const why=f&&f.why_this_job?f.why_this_job:(d.opportunity.shortlist_reason||'');
-  return section('Why Artemis recommends it',(why?`<p class="text">${esc(why)}</p>`:'<p class="muted">No recommendation has been recorded yet.</p>')+facts([
+  return section('Why Artemis recommends it',`<p class="evidence-label">Recorded recommendation</p>`+(why?`<p class="text">${esc(why)}</p>`:'<p class="muted">No recommendation has been recorded yet.</p>')+facts([
     ['Rank',r.position==null?'unranked':'#'+r.position+' of '+r.of],
     ['Rank score',r.score==null?'':Number(r.score).toFixed(3)],
-    ['Shortlisted',d.opportunity.shortlisted?'yes':'no']]));
+    ['Shortlisted',d.opportunity.shortlisted?'yes':'no']]),'', 'recommendation');
 }
 function renderFit(d){
   const f=d.fit;
-  if(!f)return section('Candidate fit','<p class="muted">This opportunity has not been scored yet.</p>');
+  if(!f)return section('Candidate fit','<p class="muted">This opportunity has not been scored yet.</p>', '', 'fit');
   const rows=(f.components||[]).map(c=>`<tr><td>${esc(c.label)}</td><td>${esc(pct(c.score))}</td><td>${esc(c.rationale||'')}</td></tr>`).join('');
-  return section('Candidate fit',`<p><strong>Fit ${esc(pct(f.fit_score))}</strong> · confidence ${esc(pct(f.confidence))} · ${esc(f.engine||'')} scoring</p>
-<table class="plain"><thead><tr><th>Component</th><th>Score</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>
-<div class="cols"><div><h3>Strengths</h3>${bullets(f.strengths)}</div><div><h3>Gaps</h3>${bullets(f.gaps)}</div><div><h3>Risks</h3>${bullets(f.risks)}</div></div>`);
+  return section('Candidate fit',`<p class="evidence-label">Engine assessment · ${esc(f.engine||'')}</p><p><strong>Fit ${esc(pct(f.fit_score))}</strong> · confidence ${esc(pct(f.confidence))}</p>
+<div class="table-scroll" role="region" aria-label="Fit component scores" tabindex="0"><table class="plain"><thead><tr><th>Component</th><th>Score</th><th>Why</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="muted">No component detail recorded.</td></tr>'}</tbody></table></div>
+<div class="cols"><div><h3>Strengths</h3>${bullets(f.strengths)}</div><div><h3>Gaps</h3>${bullets(f.gaps)}</div><div><h3>Risks</h3>${bullets(f.risks)}</div></div>`, '', 'fit');
 }
 function renderFilter(d){
   const h=d.hard_filter||{};
@@ -130,7 +160,7 @@ function renderFilter(d){
 function renderPosting(d){
   const j=d.job;
   const postings=(j.postings||[]).length>1?`<p class="muted">${esc(j.postings.length)} postings were merged into this opportunity.</p>`:'';
-  return section('The posting',facts([
+  return section('The posting',`<p class="evidence-label">Source: original employer posting</p>`+facts([
     ['Company',j.company],['Location',j.location],['Remote',j.remote_status],['Employment',j.employment_type],
     ['Pay',j.compensation_text],['Travel',j.travel],['Department',j.department],['Seniority',j.seniority],
     ['Posted',j.date_posted],['Discovered',when(j.date_discovered)],['Last verified',when(j.last_verified)],
@@ -138,13 +168,13 @@ function renderPosting(d){
     '<h3>Description</h3>'+textBlock(j.description,'No description was captured.')+
     '<h3>Responsibilities</h3>'+textBlock(j.responsibilities,'Not listed separately.')+
     '<h3>Requirements</h3>'+textBlock(j.requirements,'Not listed separately.')+
-    '<h3>Preferred qualifications</h3>'+textBlock(j.preferred_qualifications,'Not listed separately.'));
+    '<h3>Preferred qualifications</h3>'+textBlock(j.preferred_qualifications,'Not listed separately.'), '', 'posting');
 }
 function renderResearch(d){
   const r=d.research;
-  if(!r)return section('Company research','<p class="muted">No research has been done on this company yet.</p>');
+  if(!r)return section('Company research','<p class="muted">No research has been done on this company yet.</p>', '', 'research');
   const context=facts([['Industry',r.industry],['Website',link(r.company_website),true],['About',r.company_description],['Role context',r.role_context],['Reporting line',r.likely_reporting_organization],['Hiring context',r.hiring_context]]);
-  return section('Company research',`<h3>Verified facts</h3><p class="muted">Read from a source.</p>${bullets(r.verified_facts)}<h3>Inferences</h3><p class="muted">Concluded by Artemis, not verified.</p>${bullets(r.inferences)}${(r.recent_developments||[]).length?'<h3>Recent developments</h3>'+bullets(r.recent_developments):''}${(r.candidate_company_intersections||[]).length?'<h3>Where you and the company meet</h3>'+bullets(r.candidate_company_intersections):''}<h3>Context</h3>${context}<h3>Sources</h3>${bullets(r.sources)}<p class="muted">${esc(r.engine||'')} research, updated ${esc(when(r.updated_at))}</p>`);
+  return section('Company research',`<h3>Verified facts <span class="evidence-label">Source-backed</span></h3>${bullets(r.verified_facts)}<h3>Inferences <span class="evidence-label">Unverified</span></h3>${bullets(r.inferences)}${(r.recent_developments||[]).length?'<h3>Recent developments</h3>'+bullets(r.recent_developments):''}${(r.candidate_company_intersections||[]).length?'<h3>Where you and the company meet</h3>'+bullets(r.candidate_company_intersections):''}<h3>Context</h3>${context}<h3>Sources</h3>${bullets(r.sources)}<p class="muted">${esc(r.engine||'')} research, updated ${esc(when(r.updated_at))}</p>`, '', 'research');
 }
 function renderApplication(d){
   const a=d.application,p=d.package;
@@ -153,12 +183,13 @@ function renderApplication(d){
     ['Application status',a?a.status:''],['Submitted',a&&a.submission_time?when(a.submission_time):''],['Method',a?a.submission_method:''],
     ['Package',p?'revision '+p.revision+' · '+p.status:''],['Truth-clean',p?(p.truth_clean?'yes':'no'):''],
     ['Unresolved questions',p?p.unresolved_count:''],['Content hash',p?'<code>'+esc(p.content_hash)+'</code>':'',true],['Prepared',p?when(p.generated_at):'']]);
-  return section('Application',rows+(p?`<p><a href="${esc('/packages/'+encodeURIComponent(p.id))}">Open the review page</a></p>`:''));
+  const readiness=p?(p.unresolved_count?`${p.unresolved_count} unresolved question${p.unresolved_count===1?'':'s'} remain. Review the package before approval.`:p.truth_clean?'No unresolved questions are recorded; review the package and its hash before approval.':'Truth checks need review before approval.'):'No package is prepared yet.';
+  return section('Application',`<div class="readiness"><strong>Readiness</strong><p>${esc(readiness)}</p></div>`+rows+(p?`<p><a href="${esc('/packages/'+encodeURIComponent(p.id))}">Open the review page</a></p>`:''), '', 'application');
 }
 function renderHistory(d){
   const h=d.history||[];
-  if(!h.length)return section('History','<p class="muted">No events recorded.</p>');
-  return section('History','<ul class="history">'+h.slice().reverse().map(e=>`<li><span class="when">${esc(when(e.occurred_at))}</span><strong>${esc(e.event_type)}</strong> <span class="muted">${esc(e.entity_type)}${e.actor?' · '+esc(e.actor):''}</span>${e.summary?'<br>'+esc(e.summary):''}</li>`).join('')+'</ul>');
+  if(!h.length)return section('History','<p class="muted">No events recorded.</p>', '', 'history');
+  return section('History','<ul class="history">'+h.slice().reverse().map(e=>`<li><span class="when">${esc(when(e.occurred_at))}</span><strong>${esc(e.event_type)}</strong> <span class="muted">${esc(e.entity_type)}${e.actor?' · '+esc(e.actor):''}</span>${e.summary?'<br>'+esc(e.summary):''}</li>`).join('')+'</ul>', '', 'history');
 }
 function render(d){
   detail=d;
@@ -214,6 +245,7 @@ REVIEW_BODY = r"""<main class="wrap">
 <h1 id="title">Application review</h1>
 <p class="muted" id="meta"></p>
 <p class="line" id="line"></p>
+<nav class="decision-nav" aria-label="Application review sections" id="review-nav"><a href="#opening">Opening</a><a href="#fit-review">Fit</a><a href="#resume">Résumé</a><a href="#cover">Cover letter</a><a href="#answers">Answers</a><a href="#questions">Questions</a><a href="#warnings">Warnings</a><a href="#messages">Messages</a><a href="#decision">Decision</a></nav>
 <div id="sections"><section class="card"><p>Loading...</p></section></div>
 </main>
 <script>
@@ -232,15 +264,15 @@ function renderOpening(d){
   return section('1. The original opening',facts([
     ['Title',j.title],['Company',j.company],['Location',j.location],['Pay',j.compensation_text],['Employment',j.employment_type],
     ['Posted',j.date_posted],['Posting link',link(j.source_url),true]])+
-    `<details><summary>Full description</summary>${textBlock(j.description,'No description was captured.')}</details>`);
+    `<details><summary>Full description</summary>${textBlock(j.description,'No description was captured.')}</details>`, '', 'opening');
 }
 function renderFit(d){
   const f=d.fit,a=d.analysis||{};
   const head=f?`<p><strong>Fit ${esc(pct(f.fit_score))}</strong> · confidence ${esc(pct(f.confidence))}</p>${f.why_this_job?`<p class="text">${esc(f.why_this_job)}</p>`:''}<div class="cols"><div><h3>Strengths</h3>${bullets(f.strengths)}</div><div><h3>Gaps</h3>${bullets(f.gaps)}</div><div><h3>Risks</h3>${bullets(f.risks)}</div></div>`:`<p class="muted">No stored fit assessment.</p><h3>Gaps</h3>${bullets(a.qualification_gaps)}`;
-  return section('2. Fit analysis',head+(a.fit_explanation?`<h3>Explanation</h3>${textBlock(a.fit_explanation)}`:''));
+  return section('2. Fit analysis',`<p class="evidence-label">${f?'Engine assessment':'Recorded analysis'}</p>`+head+(a.fit_explanation?`<h3>Explanation</h3>${textBlock(a.fit_explanation)}`:''), '', 'fit-review');
 }
-function renderResume(d){return section('3. Tailored résumé',textBlock((d.materials||{}).tailored_resume,'No tailored résumé on this package.'));}
-function renderCover(d){return section('4. Cover letter',textBlock((d.materials||{}).cover_letter,'No cover letter on this package.'));}
+function renderResume(d){return section('3. Tailored résumé',documentBlock((d.materials||{}).tailored_resume,'No tailored résumé on this package.'), '', 'resume');}
+function renderCover(d){return section('4. Cover letter',documentBlock((d.materials||{}).cover_letter,'No cover letter on this package.'), '', 'cover');}
 function renderAnswers(d){
   const rows=((d.materials||{}).answers||[]).map(a=>{
     const flags=[a.level==='VERIFIED'?'<span class="pill ok">verified</span>':'<span class="pill flag">not verified</span>'];
@@ -248,25 +280,27 @@ function renderAnswers(d){
     if(a.requires_user_input)flags.push('<span class="pill bad">needs your input</span>');
     return `<tr><td>${esc(a.question_text||a.question_key)}</td><td>${a.answer?esc(a.answer):'<span class="muted">(blank)</span>'}</td><td><span class="pill ${esc(a.level)}">${esc(a.level)}</span> ${flags.join(' ')}</td></tr>`;
   }).join('');
-  return section('5. Proposed answers',rows?`<table class="plain"><thead><tr><th>Question</th><th>Answer</th><th>Truth level</th></tr></thead><tbody>${rows}</tbody></table>`:'<p class="muted">No answers proposed.</p>');
+  return section('5. Proposed answers',rows?`<div class="table-scroll" role="region" aria-label="Proposed application answers" tabindex="0"><table class="plain"><thead><tr><th>Question</th><th>Answer</th><th>Truth level</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="muted">No answers proposed.</p>', '', 'answers');
 }
 function renderUnresolved(d){
   const u=d.unresolved_questions||[];
-  return section('6. Unresolved questions',u.length?`<p>These must be answered before this package can be approved. Record them on the <a href="/answers">Answers page</a>, then refresh the package.</p>${bullets(u)}`:'<p>None.</p>');
+  return section('6. Unresolved questions',u.length?`<p>These must be answered before this package can be approved. Record them on the <a href="/answers">Answers page</a>, then refresh the package.</p>${bullets(u)}`:'<p>None recorded for this package.</p>', '', 'questions');
 }
 function renderWarnings(d){
   const w=d.warnings||[],g=d.generation_notes||[];
-  return section('7. Warnings',`<h3>Package warnings</h3>${bullets(w)}<h3>How this package was written</h3>${bullets(g)}`);
+  return section('7. Warnings',`<h3>Package warnings</h3>${bullets(w)}<h3>How this package was written</h3>${bullets(g)}`, '', 'warnings');
 }
 function renderMessages(d){
   const m=d.materials||{};
-  return `<section class="card"><details><summary>8. Recruiter and hiring-manager messages, interview preparation</summary><h3>Recruiter message</h3>${textBlock(m.recruiter_message,'None.')}<h3>Hiring-manager message</h3>${textBlock(m.hiring_manager_message,'None.')}<h3>Interview preparation</h3>${textBlock(m.interview_preparation,'None.')}</details></section>`;
+  return `<section class="card" id="messages"><details><summary>8. Recruiter and hiring-manager messages, interview preparation</summary><h3>Recruiter message</h3>${textBlock(m.recruiter_message,'None.')}<h3>Hiring-manager message</h3>${textBlock(m.hiring_manager_message,'None.')}<h3>Interview preparation</h3>${textBlock(m.interview_preparation,'None.')}</details></section>`;
 }
 function renderDecision(d){
   const a=d.actions||{};
   const hash=d.package.content_hash;
   const refreshLabel='Refresh package';
-  return `<section class="card decision"><h2>Decision</h2>
+  const unresolved=(d.unresolved_questions||[]).length;
+  const readiness=a.can_approve?'Package is eligible for approval. Approval applies to the exact hash shown below.':(a.approve_reason||'Approval is unavailable for this package.');
+  return `<section class="card decision" id="decision"><h2>Decision</h2><div class="readiness"><strong>Approval readiness</strong><p>${esc(readiness)}${unresolved?` ${unresolved} unresolved question${unresolved===1?'':'s'} recorded.`:''}</p></div>
 <p>Approving binds to this exact package. Content hash: <code>${esc(hash)}</code></p>
 <div class="actions"><button type="button" id="approve" ${a.can_approve?'':'disabled'}>Approve application</button><button type="button" class="secondary" id="refresh" ${a.refresh?'':'disabled'}>${refreshLabel}</button><button type="button" class="secondary" id="reject" ${a.can_reject?'':'disabled'}>Reject</button></div>
 ${a.can_approve?'':`<p class="err" id="why-not">${esc(a.approve_reason||'')}</p>`}
@@ -346,6 +380,11 @@ def review_body(package_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 PIPELINE_CSS = (
+    ".stage-nav{display:flex;gap:8px 12px;flex-wrap:wrap;margin:12px 0 18px}"
+    ".stage-nav a{display:inline-flex;text-decoration:none}"
+    ".app{background:rgba(255,255,255,.28);border-radius:10px;padding:14px;margin:8px 0}"
+    ".app:focus-within{outline:2px solid var(--forest,#29483E);outline-offset:2px}"
+    ".app-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}"
     ".app{border-top:1px solid var(--line);padding:12px 0}.app:first-of-type{border-top:0}"
     ".app .top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}"
     ".outcome{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
@@ -359,27 +398,28 @@ PIPELINE_CSS = (
 )
 
 PIPELINE_BODY = r"""<main class="wrap">
-<h1>Pipeline</h1>
+<p class="eyebrow">Pursuit pipeline</p><h1>Pipeline</h1>
 <p>Every application past approval, by where it stands. Record what an employer does here; each outcome moves the application through the same lifecycle the engine uses and leaves an event.</p>
 <p class="line" id="line"></p>
-<div class="chips" id="chips"></div>
+<nav class="stage-nav chips" aria-label="Application stages" id="chips"></nav>
 <div id="stages"><section class="card"><p>Loading...</p></section></div>
 </main>
 <script>
 __ESC__
 __FORMAT__
 let labels={};
+function stageId(label,index){return 'stage-'+index;}
 function renderRow(a){
   const kinds=(a.allowed_outcomes||[]).map(k=>`<option value="${esc(k)}">${esc(labels[k]||k)}</option>`).join('');
   const control=kinds?`<div class="outcome" data-id="${esc(a.application_id)}"><select class="oc-kind" aria-label="Outcome">${kinds}</select><input class="oc-note" placeholder="Note (optional)" maxlength="4000" aria-label="Note"><input class="oc-contact" placeholder="Who (optional)" maxlength="500" aria-label="Contact"><input class="oc-at" type="date" aria-label="Date it happened (optional)"><button type="button" class="oc-go small">Record outcome</button></div>`:'<p class="muted">No outcome can be recorded in this state.</p>';
   const last=a.last_event?`<br><span class="muted">Last: ${esc(a.last_event.event_type)} · ${esc(when(a.last_event.occurred_at))}${a.last_event.summary?' · '+esc(a.last_event.summary):''}</span>`:'';
   const sent=a.submitted_at?`Submitted ${esc(when(a.submitted_at))}${a.submission_method?' by '+esc(String(a.submission_method).replace(/_/g,' ').toLowerCase()):''}`:'Not submitted';
-  return `<div class="app"><div class="top"><div><strong>${esc(a.title)}</strong> at ${esc(a.company)} <span class="pill">${esc(a.application_status)}</span><br><span class="muted">${sent}</span>${last}</div><div><a href="${esc('/packages/'+encodeURIComponent(a.package_id))}">Review</a> · <button type="button" class="secondary small hist" data-id="${esc(a.application_id)}">History</button></div></div>${control}<div class="hist-box" hidden></div></div>`;
+  return `<article class="app"><div class="top"><div><strong>${esc(a.title)}</strong> at ${esc(a.company)} <span class="pill">${esc(a.application_status)}</span><br><span class="muted">${sent}</span>${last}</div><div class="app-actions"><a href="${esc('/packages/'+encodeURIComponent(a.package_id))}">Review application</a><button type="button" class="secondary small hist" data-id="${esc(a.application_id)}">View history</button></div></div>${control}<div class="hist-box" hidden></div></article>`;
 }
 function renderStages(stages){
   const filled=stages.filter(s=>s.count>0);
-  document.querySelector('#chips').innerHTML=stages.map(s=>`<span class="pill">${esc(s.label)} ${esc(s.count)}</span>`).join('');
-  document.querySelector('#stages').innerHTML=filled.length?filled.map(s=>section(s.label+' ('+s.count+')',s.applications.map(renderRow).join(''))).join(''):'<section class="card"><p>Nothing has been approved yet. Approved and submitted applications appear here.</p></section>';
+  document.querySelector('#chips').innerHTML=stages.map((s,i)=>s.count?`<a class="pill" href="#${stageId(s.label,i)}">${esc(s.label)} ${esc(s.count)}</a>`:`<span class="pill">${esc(s.label)} ${esc(s.count)}</span>`).join('');
+  document.querySelector('#stages').innerHTML=filled.length?stages.map((s,i)=>s.count?section(s.label+' ('+s.count+')',s.applications.map(renderRow).join(''), '', stageId(s.label,i)):'').join(''):'<section class="card"><p>Nothing has been approved yet. Approved and submitted applications appear here.</p></section>';
   document.querySelectorAll('.oc-go').forEach(btn=>btn.addEventListener('click',()=>{
     const box=btn.closest('.outcome');
     recordOutcome(box.dataset.id,box.querySelector('.oc-kind').value,box.querySelector('.oc-note').value,box.querySelector('.oc-contact').value,box.querySelector('.oc-at').value);

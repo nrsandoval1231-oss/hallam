@@ -1,4 +1,4 @@
-name: Hallam checks
+name: ARTEMIS checks
 
 on:
   pull_request:

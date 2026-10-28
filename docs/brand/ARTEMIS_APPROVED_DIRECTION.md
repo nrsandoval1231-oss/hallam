@@ -25,14 +25,14 @@ Use restraint and accessible contrast. Concept art may differ slightly from toke
 ## Logo — approved architectural A direction
 - Distinctive, thin, architectural **A** mark formed by two elegant sharply cut strokes with an intentional open/negative-space relationship. Avoid stock arrows, literal bows or goddess illustrations.
 - Uppercase `A R T E M I S` wordmark with generous tracking, highly refined typography.
-- The original vector master is `brand/logo/artemis-mark.svg`; the favicon and application header use the same A artwork. Horizontal lockup, monochrome/reversed and app-icon exports, plus small-size optical adjustments, remain future asset work.
+- The original vector master is `brand/logo/artemis-mark.svg`; the favicon and application header use the same A artwork. The refined master, horizontal and stacked lockups, monochrome/reversed exports, app icons and tested small-size marks are now supplied; see `ARTEMIS_ASSET_KIT.md`.
 - Initial logo explorations included Ascendant, Orbit, Meridian; **the latest minimalist architectural A board is the preferred direction**. Exact vector not frozen.
 
 ## Typography
 - Elegant editorial serif / sophisticated high-contrast display treatment for hero headlines.
 - Clean modern sans serif for dense functional UI, forms and labels (Inter is acceptable).
 - Wide-tracked uppercase navigation eyebrow labels. Brand wordmark uses bespoke-refined letter-spacing.
-- Previous Calibre/Manrope suggestion is exploratory, not a binding font choice. Validate licenses before implementation.
+- Production typography is locally bundled Cormorant Garamond and Manrope, with verified SIL Open Font Licenses. Earlier type suggestions are historical.
 
 ## Product UI / flows
 - Desktop and mobile concept layouts, with **top horizontal navigation**, no permanent left sidebar.
@@ -49,5 +49,5 @@ Use restraint and accessible contrast. Concept art may differ slightly from toke
 
 ## Implementation boundary / migration
 - The shared application shell and product surfaces use ARTEMIS. Internal `sabra` source modules and database identifiers remain stable for compatibility.
-- Legacy VELORA artwork is retired from the tracked brand kit. The ARTEMIS vector mark and favicon are active; broader asset exports remain follow-up work. Desktop/mobile Chromium smoke acceptance is recorded in `ARTEMIS_PR14_VALIDATION.md`.
+- Legacy VELORA artwork is retired from the tracked brand kit. The ARTEMIS vector mark and favicon are active; the complete production asset kit is documented in `ARTEMIS_ASSET_KIT.md`. Desktop/mobile Chromium smoke acceptance is recorded in `ARTEMIS_PR14_VALIDATION.md`.
 - Repository implementation does not establish merge or production deployment status.

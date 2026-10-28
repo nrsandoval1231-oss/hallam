@@ -9,13 +9,14 @@ to `ESC_JS` and `ASK_JS`, guarded so including it twice is harmless.
 
 Every dynamic string a page script renders goes through `esc()`.
 
-The visual system is ARTEMIS architectural editorial visual language (see BRAND.md): floating
-frosted boards on a soft procedural gradient. No photography anywhere.
+The visual system is ARTEMIS architectural editorial visual language (see BRAND.md): porcelain workspaces, precise dividers and editorial typography. No photography anywhere.
 """
 
 from __future__ import annotations
 
 from html import escape
+
+from .artemis_theme import EDITORIAL_CSS
 
 # (label, path). The path is also the key `page_shell(active=...)` matches.
 # The five frozen primary destinations; the remaining work surfaces (Profile, Searches,
@@ -321,8 +322,9 @@ ESC_JS = ESC_JS + CHROME_JS
 LOGO_MARK_SVG = (
     '<svg class="mark" viewBox="0 0 64 64" role="img" aria-label="Artemis" '
     'xmlns="http://www.w3.org/2000/svg">'
-    '<path d="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z" fill="#142D29"/>'
-    '<path d="M26.6 41h10.8" stroke="#F7F6F1" stroke-width="3.5"/>'
+    '<path d="M7 55 26.25 9h6.8L16.7 55Z" fill="#142D29"/>'
+    '<path d="m57 55-19.25-46h-6.8L47.3 55Z" fill="#142D29"/>'
+    '<path d="m22.5 38 19 .15 2.55 6.1-24.1-.15Z" fill="#142D29"/>'
     '</svg>'
 )
 
@@ -349,10 +351,10 @@ ASK_ARTEMIS_HTML = (
     '<button type="button" data-q="Find roles matching my experience">Find roles matching my experience</button>'
     '<button type="button" data-q="Why does the top position fit me?">Why does the top position fit me?</button>'
     '<button type="button" data-q="Research the companies on my shortlist">Research my companies</button>'
-    '<button type="button" data-q="Prepare me for my interviews">Prepare me for interviews</button>'
+    '<button type="button" data-q="What changed since the last run?">What changed?</button>'
     '</div>'
     '<textarea id="velora-ask-q" aria-label="Ask Artemis a question" '
-    'placeholder="Ask Artemis anything…"></textarea>'
+    'placeholder="Ask Artemis"></textarea>'
     '<div class="ask-actions"><button type="button" class="secondary" id="velora-ask-close">Close</button>'
     '<button type="button" id="velora-ask-go">Ask</button></div>'
     '<div class="ask-answer" id="velora-ask-out" hidden></div>'
@@ -367,6 +369,7 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
     page-specific CSS appended after the shared styles.
     """
 
+    body = body.replace('<main ', '<main id="main-content" tabindex="-1" ', 1)
     current = ' class="active" aria-current="page"'
     links = "".join(
         f'<a href="{path}"{current if path == active else ""}>{escape(label)}</a>'
@@ -386,18 +389,14 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         '<meta name="description" content="Artemis — your intelligent career operating '
         'system. Find the right opportunities. Present your best self. Move with confidence.">'
         '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
-        '<link rel="preconnect" href="https://fonts.googleapis.com">'
-        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
-        '&family=Sora:wght@400;600;700&display=swap" rel="stylesheet">'
         f"<title>Artemis | {escape(title)}</title>"
-        f"<style>{SHELL_CSS}{css}</style></head>\n"
-        '<body><header class="topnav">'
+        f"<style>{SHELL_CSS}{css}{EDITORIAL_CSS}</style></head>\n"
+        '<body><a class="skip-link" href="#main-content">Skip to content</a><header class="topnav">'
         f'<a class="brand" href="/">{LOGO_MARK_SVG}<span class="word">ARTEMIS</span></a>'
         f'<nav class="primary" aria-label="Main">{links}</nav>'
         '<div class="nav-right">'
-        f'<button type="button" class="ask-pill" id="velora-ask-open">{SEARCH_SVG}'
-        '<span class="ask-label">Ask Artemis anything…</span></button>'
+        f'<button type="button" class="ask-pill" id="velora-ask-open" aria-label="Ask Artemis">{SEARCH_SVG}'
+        '<span class="ask-label">Ask Artemis</span></button>'
         f'<a class="bell" href="/#upcoming" aria-label="Notifications">{BELL_SVG}'
         '<span class="badge" id="velora-bell-badge" hidden></span></a>'
         '<details class="usermenu" id="velora-usermenu"><summary class="avatar" '
@@ -511,12 +510,14 @@ HOME_CSS = (
 )
 
 HOME_BODY = """<main class="home">
-<section class="hero-row">
+<section class="hero-row" aria-label="Morning Brief">
   <div class="hero">
     <p class="eyebrow">Your career, in focus</p>
     <h1>Your next move is taking shape.</h1>
-    <p class="lede">Find the right opportunities. Present your best self. Move with confidence.</p>
+    <p class="lede">Find what others miss. Pursue what matters.</p>
     <p class="line" id="today-sub"></p>
+    <div class="brief-copy" id="morning-brief" aria-live="polite"></div>
+    <div class="brief-action" id="next-action"></div>
     <div class="hero-actions">
       <button type="button" id="run-now">Run search</button>
       <label class="check"><input type="checkbox" id="run-prepare"> Also prepare packages for the top roles (nothing is submitted)</label>
@@ -542,6 +543,7 @@ HOME_BODY = """<main class="home">
   </div>
 </section>
 <p class="line" id="status-line"></p>
+<footer class="brand-note">Maximum intelligence. Minimum complexity.</footer>
 </main>
 <script>
 __ESC__
@@ -596,7 +598,7 @@ async function tailor(id){
 }
 function renderRecent(rows){
   const box=document.querySelector('#recent-list');
-  if(!rows||!rows.length){box.innerHTML='<p class="empty-note">No shortlisted opportunities yet. Run a search and they appear here.</p>';return;}
+  if(!rows||!rows.length){box.innerHTML='<p class="empty-note">No additional shortlisted opportunities.</p>';return;}
   box.innerHTML=rows.map(o=>{
     const initials=(o.company||'?').trim().split(/\\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const sub=[o.company,o.location||'',o.compensation_text||''].filter(Boolean).join(' · ');
@@ -614,8 +616,9 @@ function renderProgress(p){
 function renderUpcoming(d){
   const c=(d.today&&d.today.counts)||{};
   const items=Object.keys(UPCOMING).filter(k=>c[k]>0).map(k=>{
+    const label=k==='new_high_fit'?(c[k]===1?'role':'roles')+' recorded on your shortlist':({ready_for_approval:'application package'+(c[k]===1?'':'s')+' ready for your review',needs_information:'application'+(c[k]===1?' needs':'s need')+' more information',handoffs_waiting:'submission'+(c[k]===1?'':'s')+' waiting for your report',employer_responses:'employer response'+(c[k]===1?'':'s')+' since you last looked'})[k]||UPCOMING[k][0];
     const extra=k==='needs_information'&&d.today.open_questions?` <span class="hint">${esc(d.today.open_questions)} open questions</span>`:'';
-    return `<li><span class="dot"></span><span><a href="${UPCOMING[k][1]}"><span class="n">${esc(c[k])}</span> ${esc(UPCOMING[k][0])}</a>${extra}</span></li>`;
+    return `<li><span class="dot"></span><span><a href="${UPCOMING[k][1]}"><span class="n">${esc(c[k])}</span> ${esc(label)}</a>${extra}</span></li>`;
   });
   if(d.today&&d.today.has_resume===false)items.push('<li><span class="dot"></span><span><a href="/candidate">Upload your resume</a><span class="hint">Packages cannot be prepared without it.</span></span></li>');
   document.querySelector('#upcoming-list').innerHTML=items.join('')||'<li><span class="hint">Nothing needs your attention right now.</span></li>';
@@ -625,10 +628,16 @@ function renderUpcoming(d){
 }
 function renderHome(d){
   document.querySelector('#today-sub').textContent=(d.search_profile_name?`Searching: ${d.search_profile_name}. `:'')+(d.automation_dry_run===false?'Real submission is ON.':'Dry run is on: nothing is submitted.');
+  const brief=d.morning_brief||{};
+  const briefBox=document.querySelector('#morning-brief');
+  if(briefBox)briefBox.innerHTML='<p class="eyebrow">Morning Brief</p>'+(brief.narrative?'<p>'+esc(brief.narrative)+'</p>':'<p>Your search, clearly in view. Run a search to build your first brief.</p>')+(brief.run_at?'<p class="brief-baseline">'+(brief.run_status==='COMPLETED'?'Completed run: ':'Run recorded: ')+esc(new Date(brief.run_at).toLocaleString())+'. Counts below describe that run, not a calendar-day comparison.</p>':'')+((brief.changes||[]).length?'<ul class="brief-changes">'+brief.changes.map(c=>'<li><strong>'+esc(c.value)+'</strong> '+esc(c.label)+(c.detail?'<span>'+esc(c.detail)+'</span>':'')+'</li>').join('')+'</ul>':'');
+  const action=d.next_action||{};
+  const actionBox=document.querySelector('#next-action');
+  if(actionBox)actionBox.innerHTML=action.label?'<span class="eyebrow">Your next move</span><a class="btn" href="'+esc(action.href)+'">'+esc(action.label)+' →</a><p>'+esc(action.reason||'')+'</p>':'';
   const m=d.metrics||{};
   document.querySelectorAll('[data-metric]').forEach(e=>{e.textContent=m[e.dataset.metric]??0;});
   renderFeatured(d.featured);
-  renderRecent(d.recent);
+  renderRecent((d.recent||[]).filter(o=>!d.featured||o.id!==d.featured.id));
   renderProgress(d.progress||{});
   renderUpcoming(d);
   const last=(d.today&&(d.today.active_run||d.today.last_run))||null;
@@ -1203,13 +1212,15 @@ function chips(items){return items&&items.length?items.map(i=>`<span class="pill
 function render(d){
   const box=document.querySelector('#plan');
   const s=d.search;
-  const actions=(d.actions||[]).map(a=>`<li><a href="${esc(a.href)}">${esc(a.label)}</a></li>`).join('');
+  const actions=(d.actions||[]).map(a=>`<li><a href="${esc(a.href)}">${esc(a.label)}</a>${a.reason?'<p>'+esc(a.reason)+'</p>':''}</li>`).join('');
   const gaps=(d.skill_gaps||[]).map(g=>`<div class="gap-row"><span>${esc(g.gap)}</span><span class="n">${esc(g.count)}</span></div>`).join('');
   const objective=s?`<section class="card"><h2>${esc(s.name)}</h2>
     <h3>Target roles</h3><p>${chips(s.target_titles)}</p>
     ${(s.acceptable_titles||[]).length?'<h3>Also acceptable</h3><p>'+chips(s.acceptable_titles)+'</p>':''}
     ${(s.excluded_titles||[]).length?'<h3>Excluded</h3><p>'+chips(s.excluded_titles)+'</p>':''}
     <p class="muted">${esc(d.search_summary||'')}</p>
+    <h3>Your stated constraints</h3><p>${chips([...(s.excluded_titles||[]),...(s.excluded_industries||[]),...(s.excluded_keywords||[])])}</p>
+    <p class="muted">${esc(s.travel_max_percent==null?'Travel limit not set.':'Travel up to '+s.travel_max_percent+'%.')} ${esc((s.locations&&s.locations.countries||[]).length?'Countries: '+s.locations.countries.join(', '):'Country constraint not set.')} These are search preferences you control, not inferred candidate qualifications.</p>
     <p><a href="/searches">Edit this search</a></p></section>`
     :'<section class="card"><h2>No active search yet</h2><p>Define what you are looking for and Artemis starts working toward it.</p><p><a class="btn" href="/searches">Create a search</a></p></section>';
   const p=d.progress||{};
@@ -1220,8 +1231,10 @@ function render(d){
     <section class="card"><h2>Recommended actions</h2>
     <ul class="plan-actions">${actions||'<li>Nothing right now. Run a search when you are ready.</li>'}</ul></section></div>
     <section class="card"><h2>Skill gaps across your shortlist</h2>
-    <p class="muted">The gaps Artemis's fit engine recorded most often across your shortlisted roles.</p>
-    ${gaps||'<p class="muted">No gaps recorded yet. Score a shortlist first.</p>'}</section>`;
+    <p class="muted">Inferences from the fit engine, not verified deficits in your experience. Check the evidence in each opportunity before acting.</p>
+    ${gaps||'<p class="muted">No gaps recorded yet. Score a shortlist first.</p>'}</section>`+
+    ((d.practical_actions||[]).length?'<section class="card"><h2>Development actions</h2><p>Suggested from recorded gaps; these are options for your judgment.</p><ul>'+d.practical_actions.map(a=>'<li><strong>'+esc(a.label)+'</strong><p>'+esc(a.reason||'')+'</p></li>').join('')+'</ul></section>':'')+
+    ((d.evidence||[]).length?'<section class="card"><h2>Evidence behind the plan</h2><p>Recorded assessment observations</p><ul>'+d.evidence.map(e=>'<li>'+esc(e.gap)+' · '+esc(e.shortlisted_roles)+' shortlisted role(s) · '+esc(e.basis)+'</li>').join('')+'</ul><h3>Interpretation</h3>'+d.inferences.map(i=>'<p>'+esc(i.text)+' '+esc(i.basis)+'</p>').join('')+'</section>':'');
 }
 async function load(){
   const b=await readBody(await fetch('/api/career-plan'));
