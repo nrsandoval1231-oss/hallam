@@ -1,4 +1,6 @@
-# Hallam Agent Rules
+# ARTEMIS Agent Rules
+
+ARTEMIS is the sole approved customer-facing brand. Treat [BRAND.md](BRAND.md) as canonical. Do not restore earlier naming, design tokens or logos. Keep internal `sabra` package names, database identifiers and CLI commands for compatibility. Do not change application safeguards for cosmetic work.
 
 Read `SABRA_JOB_ENGINE_V1_BUILD.md` before coding. Treat it as the canonical V1 build contract.
 
