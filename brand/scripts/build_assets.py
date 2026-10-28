@@ -80,7 +80,7 @@ def outline(text):
     return group
 
 outlined = 0
-svg_paths = sorted((ROOT / 'brand').rglob('*.svg'))
+svg_paths = sorted((ROOT / 'brand/logo').rglob('*.svg')) + sorted((ROOT / 'brand/social').rglob('*.svg'))
 for svg_path in svg_paths:
     tree = ET.parse(svg_path)
     root = tree.getroot()

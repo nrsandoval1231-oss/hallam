@@ -1245,6 +1245,9 @@ def run_list(limit: int = 20) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 LAST_SEEN_KEY = "today.last_seen_at"
+# A 0.75 confidence cutoff is the documented threshold used for Home's
+# high-confidence count. It measures the engine's assessment confidence, not fit.
+HOME_HIGH_CONFIDENCE_THRESHOLD = 0.75
 # Outcome kinds that are an employer answering. A withdrawal or "no response" is not one.
 NON_RESPONSE_OUTCOMES = {"WITHDRAWAL", "NO_RESPONSE"}
 
@@ -1453,6 +1456,163 @@ def _opportunity_card(repos: Any, item: Any) -> dict[str, Any]:
     }
 
 
+def _home_brief_items(today: dict[str, Any], shortlist: list[Any]) -> list[dict[str, str]]:
+    """Up to four prioritized, actionable items grounded in current engine state."""
+    counts = today.get("counts") or {}
+    items: list[dict[str, str]] = []
+
+    def add(title: str, detail: str, href: str) -> None:
+        if len(items) < 4:
+            items.append({"title": title, "detail": detail, "href": href})
+
+    if not today.get("candidate_id"):
+        add("Create your candidate profile", "Add your profile before ARTEMIS can assess roles.", "/candidate")
+    elif not today.get("has_resume"):
+        add("Add your master résumé", "A master résumé is needed to prepare application packages.", "/candidate")
+    if counts.get("handoffs_waiting"):
+        n = counts["handoffs_waiting"]
+        add("Report a submission outcome", f"{n} application submission(s) are waiting for your report.", "/applications?filter=handoffs")
+    if counts.get("needs_information"):
+        n = counts["needs_information"]
+        add("Complete application information", f"{n} {'application has' if n == 1 else 'applications have'} unresolved information.", "/applications?filter=needs_information")
+    if counts.get("ready_for_approval"):
+        n = counts["ready_for_approval"]
+        add("Review prepared applications", f"{n} complete {'package is' if n == 1 else 'packages are'} ready for your approval.", "/applications?filter=ready")
+    if counts.get("employer_responses"):
+        n = counts["employer_responses"]
+        add("Review employer updates", f"{n} employer {'response is' if n == 1 else 'responses are'} unread since you last marked updates as seen.", "/pipeline")
+    if counts.get("new_high_fit"):
+        n = counts["new_high_fit"]
+        add("Review newly shortlisted roles", f"{n} {'role is' if n == 1 else 'roles are'} recorded on your shortlist.", "/opportunities")
+    if not items and shortlist:
+        item = shortlist[0]
+        add(f"Review {item.title} at {item.company}", "This is the top role on your active shortlist.", f"/opportunities/{item.id}")
+    if not items:
+        action = _next_action(today, len(shortlist))
+        add(action["label"], action["reason"], action["href"])
+    latest_run = today.get("brief_last_run", today.get("last_run"))
+    if latest_run and latest_run.get("status") == "FAILED":
+        add("Review the failed search run", latest_run.get("error") or "The latest search run did not complete.", "/")
+    return items
+
+
+def _recent_activity(repos: Any, candidate_id: str) -> list[dict[str, Any]]:
+    """Render recent candidate-owned append-only events with safe, scoped links."""
+    opportunities = list(repos.session.query(models.Opportunity).filter(
+        models.Opportunity.candidate_id == candidate_id
+    ).all())
+    opportunity_by_id = {o.id: o for o in opportunities}
+    opportunity_ids = set(opportunity_by_id)
+    applications = repos.applications.list_for_candidate(candidate_id)
+    application_by_id = {row.id: row for row in applications if row.opportunity_id in opportunity_ids}
+    packages = repos.session.query(models.ApplicationPackageRow).filter(
+        models.ApplicationPackageRow.candidate_id == candidate_id,
+        models.ApplicationPackageRow.opportunity_id.in_(opportunity_ids or {""}),
+    ).all()
+    package_by_id = {row.id: row for row in packages}
+    resumes = repos.session.query(models.Resume.id).filter(models.Resume.candidate_id == candidate_id).all()
+    profiles = repos.session.query(models.SearchProfileRow.id).filter(
+        models.SearchProfileRow.candidate_id == candidate_id
+    ).all()
+    jobs = repos.session.query(models.Job).filter(
+        models.Job.opportunity_id.in_(opportunity_ids or {""})
+    ).all()
+    job_by_id = {row.id: row for row in jobs}
+    run_query = repos.session.query(models.PipelineRunRow).filter(
+        models.PipelineRunRow.candidate_id == candidate_id
+    )
+    run_ids = {row.id for row in run_query.all()}
+    discovery_ids = {
+        row.id for row in repos.session.query(models.DiscoveryRunRow).filter(
+            models.DiscoveryRunRow.candidate_id == candidate_id
+        ).all()
+    }
+    entity_ids = {
+        EntityType.CANDIDATE.value: {candidate_id},
+        EntityType.OPPORTUNITY.value: opportunity_ids,
+        EntityType.APPLICATION.value: set(application_by_id),
+        EntityType.PACKAGE.value: {row.id for row in packages},
+        EntityType.RESUME.value: {row.id for row in resumes},
+        EntityType.SEARCH_PROFILE.value: {row.id for row in profiles},
+        EntityType.PIPELINE_RUN.value: run_ids,
+        EntityType.DISCOVERY_RUN.value: discovery_ids,
+        EntityType.JOB.value: set(job_by_id),
+    }
+    all_ids = set().union(*entity_ids.values())
+    if not all_ids:
+        return []
+    event_labels = {
+        EventType.JOB_DISCOVERED.value: "New job posting found",
+        EventType.JOB_SHORTLISTED.value: "Opportunity shortlisted",
+        EventType.JOB_RESEARCHED.value: "Employer research updated",
+        EventType.PACKAGE_GENERATED.value: "Application package prepared",
+        EventType.APPLICATION_STARTED.value: "Application draft started",
+        EventType.HANDED_TO_HUMAN.value: "Submission needs your report",
+        EventType.APPLICATION_SUBMITTED.value: "Application submitted",
+        EventType.EMPLOYER_RESPONSE.value: "Employer response received",
+        EventType.SCREEN_REQUESTED.value: "Recruiter screen recorded",
+        EventType.INTERVIEW_REQUESTED.value: "Interview recorded",
+        EventType.OFFER_RECEIVED.value: "Offer recorded",
+        EventType.REJECTED.value: "Employer rejection recorded",
+        EventType.PIPELINE_RUN_COMPLETED.value: "Search run completed",
+        EventType.PIPELINE_RUN_FAILED.value: "Search run failed",
+    }
+    events = repos.session.query(models.EventRow).filter(
+        models.EventRow.entity_id.in_(all_ids),
+        models.EventRow.event_type.in_(set(event_labels)),
+    ).order_by(models.EventRow.occurred_at.desc(), models.EventRow.seq.desc()).limit(5).all()
+    out = []
+    for event in events:
+        label = event_labels.get(event.event_type)
+        if not label:
+            continue
+        payload = dict(event.payload or {})
+        if event.event_type == EventType.REJECTED.value:
+            if payload.get("outcome_kind") == "REJECTION":
+                label = "Employer rejection recorded"
+            elif payload.get("decision") == "REJECTED" and payload.get("decided_by"):
+                label = "Application declined by owner"
+            else:
+                label = "Rejection recorded"
+        elif event.event_type == EventType.APPLICATION_STARTED.value:
+            if payload.get("stage") == "awaiting_approval":
+                label = "Application draft prepared"
+            elif payload.get("adapter") and payload.get("dry_run") is False:
+                label = "Application execution started"
+            else:
+                label = "Application process started"
+        opportunity = opportunity_by_id.get(event.entity_id)
+        app_row = application_by_id.get(event.entity_id)
+        if app_row:
+            opportunity = opportunity_by_id.get(app_row.opportunity_id)
+        package = package_by_id.get(event.entity_id)
+        if package:
+            opportunity = opportunity_by_id.get(package.opportunity_id)
+        job = job_by_id.get(event.entity_id)
+        if job and job.opportunity_id:
+            opportunity = opportunity_by_id.get(job.opportunity_id)
+        if not opportunity and payload.get("opportunity_id") in opportunity_by_id:
+            opportunity = opportunity_by_id[payload["opportunity_id"]]
+        if opportunity:
+            detail = f"{opportunity.title} at {opportunity.company}"
+            href = f"/opportunities/{opportunity.id}"
+        elif label.startswith("Search run"):
+            detail = str(payload.get("summary") or payload.get("error") or label)[:240]
+            href = "/"
+        else:
+            detail, href = label, "/applications"
+        out.append({
+            "label": label,
+            "kind": "application" if "Application" in label else ("response" if "response" in label or "Interview" in label else "opportunity"),
+            "detail": detail[:240],
+            "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+            "href": href,
+        })
+        if len(out) == 5:
+            break
+    return out
+
+
 def _home_payload() -> dict[str, Any]:
     """Everything the Home dashboard shows, all of it real engine data."""
 
@@ -1469,6 +1629,10 @@ def _home_payload() -> dict[str, Any]:
         "today": today,
         "next_action": today.get("next_action") or _next_action(today),
         "morning_brief": _morning_brief(today, 0),
+        "reference_metrics": {"analyzed": 0, "high_confidence": 0, "ready": 0, "updates": 0},
+        "brief_items": _home_brief_items(today, []),
+        "top_opportunities": [],
+        "recent_activity": [],
     }
     ctx = EngineContext.create()
     try:
@@ -1476,7 +1640,10 @@ def _home_payload() -> dict[str, Any]:
             candidate = repos.candidates.primary()
             if candidate is None:
                 return payload
-            payload["candidate_name"] = candidate.display_name
+            profile_name = None
+            with suppress(NotFound):
+                profile_name = repos.candidates.active_profile(candidate.id).identity.full_name
+            payload["candidate_name"] = profile_name or candidate.display_name
             active = repos.search_profiles.active_one(candidate.id)
             # Brief findings belong to the displayed search. The run log remains
             # global for operator compatibility, while this baseline is scoped.
@@ -1501,6 +1668,28 @@ def _home_payload() -> dict[str, Any]:
             payload["progress"]["shortlisted"] = len(cards)
             payload["featured"] = cards[0] if cards else None
             payload["recent"] = cards[1:4] if len(cards) > 1 else cards
+            assessed = []
+            if active is not None:
+                assessed = repos.session.query(models.Opportunity).filter(
+                    models.Opportunity.candidate_id == candidate.id,
+                    models.Opportunity.search_profile_id == active.id,
+                ).all()
+            payload["reference_metrics"] = {
+                "analyzed": sum(1 for item in assessed if item.fit_assessment is not None),
+                "high_confidence": sum(
+                    1 for item in shortlist
+                    if item.fit_assessment is not None
+                    and item.fit_assessment.confidence >= HOME_HIGH_CONFIDENCE_THRESHOLD
+                ),
+                "ready": int(today["counts"].get("ready_for_approval", 0)),
+                "updates": int(today["counts"].get("employer_responses", 0)),
+            }
+            payload["brief_items"] = _home_brief_items(today, shortlist)
+            payload["top_opportunities"] = [
+                {**card, "href": f"/opportunities/{card['id']}"}
+                for card in cards[:3]
+            ]
+            payload["recent_activity"] = _recent_activity(repos, candidate.id)
             payload["next_action"] = _next_action(today, len(cards))
             payload["morning_brief"] = _morning_brief(today, len(cards))
             app_counts = repos.applications.count_by_status(candidate.id)
@@ -1954,9 +2143,8 @@ def favicon() -> Response:
     return Response(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Artemis">'
         '<title>ARTEMIS architectural A mark</title>'
-        '<path d="M7 55 26.25 9h6.8L16.7 55Z" fill="#142D29"/>'
-        '<path d="m57 55-19.25-46h-6.8L47.3 55Z" fill="#142D29"/>'
-        '<path d="m22.5 38 19 .15 2.55 6.1-24.1-.15Z" fill="#142D29"/>'
+        '<path d="M8 57 29.5 7H32L12 57Z" fill="#142D29"/>'
+        '<path d="M31.5 7H35L57 57H48.5Z" fill="#142D29"/>'
         "</svg>",
         media_type="image/svg+xml",
     )

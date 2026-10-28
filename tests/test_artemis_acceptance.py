@@ -15,7 +15,7 @@ from playwright.sync_api import sync_playwright
 from sabra_api.main import app
 
 
-@pytest.mark.parametrize("width,height", [(1440, 1000), (375, 812)])
+@pytest.mark.parametrize("width,height", [(1280, 853), (1440, 1000), (820, 900), (375, 812)])
 def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypatch, width, height):
     monkeypatch.setattr("sabra_engine.context.get_settings", lambda: prepared.ctx.settings)
     client = TestClient(app)
@@ -56,15 +56,48 @@ def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypa
             assert page.locator("main").is_visible()
             assert page.evaluate("document.documentElement.scrollWidth") <= width, path
             assert page.locator(".brand").is_visible()
+            assert page.locator("nav.primary").is_visible() or page.locator(".navtoggle summary").is_visible()
             assert page.evaluate("document.fonts.check('16px \"Artemis Sans\"')")
             assert page.evaluate("document.fonts.check('32px \"Artemis Display\"')")
-            assert page.locator("body").evaluate("el=>getComputedStyle(el).backgroundColor") == "rgb(247, 246, 241)"
+            assert page.locator("body").evaluate("el=>getComputedStyle(el).backgroundColor") == ("rgb(247, 246, 241)" if width < 760 else "rgb(20, 45, 41)")
             if path == "/":
-                assert page.locator("#next-action").inner_text().strip()
-                assert "morning brief" in page.locator("#morning-brief").inner_text().lower()
+                assert page.locator("#brief-list").inner_text().strip()
+                assert page.get_by_role("heading", name="Today’s brief").count() or page.get_by_role("heading", name="Today's brief").count()
+            if path.startswith("/opportunities/"):
+                page.locator("#op-tab-fit").click()
+                assert page.locator("#op-panel-fit").is_visible()
+                page.locator("#op-tab-role").click()
+                assert page.locator("#op-panel-role").is_visible()
+                assert "The posting" in page.locator("#op-panel-role").inner_text()
+                page.locator("#op-tab-overview").click()
+            if path == "/career-plan":
+                for section in ("goals", "skills", "industries", "locations"):
+                    page.locator("#tab-" + section).click()
+                    assert page.locator("#panel-" + section).is_visible()
+                    assert page.locator("#tab-" + section).get_attribute("aria-selected") == "true"
+                page.locator("#tab-overview").click()
             if path.startswith("/packages/"):
+                page.locator("#studio-tab-cover").click()
+                assert page.locator("#studio-panel-cover").is_visible()
+                page.locator("#studio-tab-answers").click()
+                assert page.locator("#studio-panel-answers").is_visible()
+                page.locator("#studio-tab-review").click()
+                assert page.locator("#approve").is_visible()
                 assert page.locator("#approve").is_disabled()
-                assert "unresolved" in page.locator("#sections").inner_text().lower()
+                assert "unresolved" in page.locator("#studio-panel-review-followup").inner_text().lower()
+                page.locator("#studio-tab-resume").click()
+            if path == "/":
+                if width < 760:
+                    page.locator(".navtoggle summary").click()
+                    assert page.locator('.mobilemenu a[href="/candidate"]').is_visible()
+                    assert page.locator('.mobilemenu a[href="/settings"]').is_visible()
+                    assert page.locator("#mobile-ask-open").is_visible()
+                    page.locator(".navtoggle summary").click()
+                else:
+                    page.locator(".usermenu summary").click()
+                    assert page.locator('.usermenu .menu a[href="/candidate"]').is_visible()
+                    assert page.locator('.usermenu .menu a[href="/settings"]').is_visible()
+                    page.locator(".usermenu summary").click()
             evidence = os.getenv("ARTEMIS_SCREENSHOT_DIR")
             if evidence:
                 directory = Path(evidence)
@@ -72,7 +105,11 @@ def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypa
                 label = ["home", "opportunities", "detail", "review", "applications", "pipeline", "career-plan", "research"][index]
                 page.screenshot(path=str(directory / f"{label}-{width}.png"), full_page=True)
         page.goto("http://artemis.test/", wait_until="networkidle")
-        page.get_by_role("button", name="Ask Artemis", exact=True).click()
+        if width < 760:
+            page.locator(".navtoggle summary").click()
+            page.locator("#mobile-ask-open").click()
+        else:
+            page.locator("#velora-ask-open").click()
         page.get_by_role("textbox", name="Ask Artemis a question").fill("Why is this opportunity recommended?")
         page.get_by_role("button", name="Ask", exact=True).click()
         page.wait_for_function("document.querySelector('#velora-ask-out').textContent.includes('Regional Sales Manager')")

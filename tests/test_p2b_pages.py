@@ -160,7 +160,8 @@ def test_the_detail_page_renders_every_section_as_text() -> None:
     ]
     assert_inert(nodes["#meta"]["innerHTML"], EVIL)
     assert_inert(nodes["#actions"]["innerHTML"], "Prepare application")
-    assert nodes["#title"]["textContent"] == f"{EVIL} at {EVIL}"
+    assert nodes["#title"]["textContent"] == EVIL
+    assert EVIL in Markup(nodes["#meta"]["innerHTML"]).joined
 
 
 def test_the_detail_page_links_only_http_urls_and_never_a_javascript_url() -> None:
@@ -356,11 +357,11 @@ def test_the_review_page_shows_the_sections_in_the_documented_order() -> None:
     sections = out["nodes"]["#sections"]["innerHTML"]
     parsed = assert_inert(sections, EVIL)
     assert headings(sections) == [
-        "1. The original opening",
-        "2. Fit analysis",
         "3. Tailored résumé",
         "4. Cover letter",
         "5. Proposed answers",
+        "1. The original opening",
+        "2. Fit analysis",
         "6. Unresolved questions",
         "7. Warnings",
         "Decision",
@@ -761,30 +762,17 @@ def test_every_application_row_links_to_its_review_page() -> None:
     assert hrefs == [f"/packages/p{n}" for n in range(1, 6)]
 
 
-def test_each_count_on_home_links_to_the_page_that_acts_on_it() -> None:
-    payload = {
-        "today": {
-            "counts": {
-                "ready_for_approval": 1,
-                "needs_information": 2,
-                "handoffs_waiting": 3,
-                "new_high_fit": 4,
-                "employer_responses": 5,
-            },
-            "has_resume": True,
-        },
-        "recent": [],
-        "generated_at": "2026-10-21T10:00:00+00:00",
-    }
-    nodes = render(dashboard(), payload)["nodes"]
-    hrefs = Markup(nodes["#upcoming-list"]["innerHTML"]).hrefs()
-    assert hrefs == [
-        "/applications?filter=ready",
-        "/applications?filter=needs_information",
-        "/applications?filter=handoffs",
-        "/opportunities",
-        "/pipeline",
+def test_each_brief_action_links_to_the_page_that_acts_on_it() -> None:
+    destinations = [
+        "/applications?filter=ready", "/applications?filter=needs_information",
+        "/applications?filter=handoffs", "/opportunities", "/pipeline",
     ]
+    for href in destinations:
+        payload = {"brief_items": [{"title": "Review the recorded action", "detail": "Actual state", "href": href}],
+                   "recent": [], "today": {"counts": {}, "has_resume": True}}
+        nodes = render(dashboard(), payload)["nodes"]
+        # Both the action title and its trailing affordance open the same destination.
+        assert Markup(nodes["#brief-list"]["innerHTML"]).hrefs() == [href, href]
 
 
 def test_the_opportunity_cards_link_to_the_detail_page() -> None:

@@ -5,10 +5,10 @@ from sabra_api.review_pages import DETAIL_CSS, opportunity_detail_body, pipeline
 
 def test_opportunity_detail_has_semantic_section_navigation_and_factual_readiness() -> None:
     body = opportunity_detail_body("opp_1")
-    assert '<nav class="decision-nav" aria-label="Opportunity details"' in body
-    for target in ("fit", "posting", "research", "application", "history"):
-        assert f'href="#{target}"' in body
-        assert f"'{target}'" in body or f'"{target}"' in body
+    assert 'role="tablist" aria-label="Opportunity details"' in body
+    for target in ("overview", "fit", "company", "role", "insights", "next"):
+        assert f'id="op-tab-{target}"' in body
+        assert f'aria-controls="op-panel-{target}"' in body
     assert "Source: original employer posting" in body
     assert "Source-backed" in body and "Unverified" in body
     assert "p.unresolved_count" in body and "p.truth_clean" in body
@@ -19,7 +19,6 @@ def test_opportunity_detail_has_semantic_section_navigation_and_factual_readines
 def test_application_review_exposes_review_sections_and_hash_bound_action() -> None:
     body = review_body("pkg_1")
     for target in ("opening", "fit-review", "resume", "cover", "answers", "questions", "warnings", "decision"):
-        assert f'href="#{target}"' in body
         assert f"'{target}'" in body or f'"{target}"' in body
     assert "d.package.content_hash" in body
     assert "packages:[{package_id:d.package.id,content_hash:d.package.content_hash}]" in body
@@ -44,12 +43,13 @@ def test_document_formatting_keeps_malicious_markdown_inert():
     malicious = '<img src=x onerror="alert(1)">'
     payload = review_payload()
     payload["materials"]["tailored_resume"] = (
-        "# " + malicious + "\n## Experience\n- **" + malicious + "**\n"
+        "# " + malicious + "\n_" + malicious + "_\n## Experience\n- **" + malicious + "**\n"
         "[unsafe](javascript:alert(1))\n![image](https://employer.test/pixel)\n</article><script>alert(1)</script>"
     )
     output = render(review_body("pkg_1"), payload)["nodes"]["#sections"]["innerHTML"]
     parsed = assert_inert(output, malicious)
     assert "<article class=\"document-preview\">" in output
     assert "<h4>Experience</h4>" in output
+    assert "<em>&lt;img" in output
     assert not any(tag in {"script", "img"} for tag, _attrs in parsed.tags)
     assert "[unsafe](javascript:alert(1))" in parsed.joined

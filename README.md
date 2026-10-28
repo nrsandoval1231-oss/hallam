@@ -195,7 +195,9 @@ tests/           test suite and committed fixtures
 
 - [`BRAND.md`](BRAND.md) — the ARTEMIS brand system (canonical)
 - [`docs/brand/ARTEMIS_ASSET_KIT.md`](docs/brand/ARTEMIS_ASSET_KIT.md) — production assets and licensed fonts
-- [`docs/brand/ARTEMIS_PRODUCTION_VALIDATION.md`](docs/brand/ARTEMIS_PRODUCTION_VALIDATION.md) — release verification and desktop/mobile captures
+- [`docs/brand/ARTEMIS_REFERENCE_VALIDATION.md`](docs/brand/ARTEMIS_REFERENCE_VALIDATION.md) — latest selected-reference release verification and visual evidence
+- [`design-qa.md`](design-qa.md) — normalized source-to-implementation design QA
+- [`docs/brand/ARTEMIS_PRODUCTION_VALIDATION.md`](docs/brand/ARTEMIS_PRODUCTION_VALIDATION.md) — earlier production-experience release verification
 - [`docs/operations/source-registry-findings.md`](docs/operations/source-registry-findings.md)
 - [`docs/operations/m6-greenhouse-form-findings.md`](docs/operations/m6-greenhouse-form-findings.md)
 - [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md)

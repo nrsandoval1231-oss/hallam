@@ -9,6 +9,10 @@
 - **Signature lines:** “Find what others miss. Pursue what matters.” / “Your next move is taking shape.” / “A more intentional career.”
 - **Creative reference:** MARQO Behance project, https://www.behance.net/gallery/234103127/MARQO — inspiration for restrained architectural graphic design, typography, materials and pacing. Develop **original** Artemis artwork rather than duplicating proprietary design assets.
 
+## Current interface fidelity direction
+
+The owner subsequently selected [approved-interface.jpg](reference/approved-interface.jpg) as the exact interface target. Its compact ivory masthead, open two-stroke A, photographic architectural hero, four-count strip, three briefing panels and mobile stacked metric rows supersede the earlier production interpretation. The original generated hero is `brand/images/artemis-architecture.png`; its WebP derivative serves the app. Example names, counts, percentages and sample employer logos in the source remain illustrative and are replaced by actual engine evidence or honest empty states.
+
 ## Approved visual direction
 Architectural/editorial minimalism. Warm ivory and stone surfaces, deep evergreen anchors, generous whitespace, crisp asymmetric grids, refined serif display headlines, letterspaced uppercase secondary text, immaculate alignment, quiet shadows. The selected latest concept board is the visual source of truth for the direction; image generated in the October 28, 2026 ARTEMIS brand conversation. **Artwork is a concept mockup, not production-ready UI or factual live data.**
 

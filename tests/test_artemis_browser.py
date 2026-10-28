@@ -102,7 +102,7 @@ def assert_shared_chrome(page: Page, errors: list[str], viewport_width: int) -> 
     assert page.locator(".brand .mark path").evaluate_all("els => els.map(el => el.getAttribute('d'))") == re.findall(
         r'<path d="([^"]+)"', LOGO_MARK_SVG
     )
-    assert page.locator(".brand .mark").evaluate("el => getComputedStyle(el).width") == "30px"
+    assert page.locator(".brand .mark").evaluate("el => getComputedStyle(el).width") == ("46px" if viewport_width < 760 else "30px")
     assert page.evaluate("document.documentElement.scrollWidth") <= viewport_width
 
 
@@ -124,10 +124,10 @@ def test_artemis_pages_render_at_desktop_and_mobile(chromium, viewport, path, vi
         elif path == "/applications":
             page.get_by_role("heading", name="Applications").wait_for()
         else:
-            page.get_by_role("heading", name=visible_text).wait_for()
+            page.get_by_role("heading", name=re.compile("Your next move.*is taking shape")).wait_for()
         if path == "/":
-            assert page.get_by_text("No featured opportunity yet", exact=True).is_visible()
-            page.locator("#upcoming-list").get_by_text("Upload your resume").wait_for()
+            assert page.locator("#opportunity-list").get_by_text("No shortlisted opportunities yet.", exact=False).is_visible()
+            assert page.locator("#brief-list").is_visible()
         if path == "/applications":
             assert page.get_by_text("No packages yet.", exact=True).is_visible()
     finally:
@@ -206,7 +206,8 @@ def test_package_review_page_renders_with_synthetic_package(chromium, viewport):
         page.get_by_role("link", name="Read package").click()
         page.wait_for_url("**/packages/synthetic-package")
         page.wait_for_selector("#sections h2")
-        assert page.get_by_role("heading", name="Operations Director at Example Co").is_visible()
+        assert page.locator("#title").inner_text() == "Operations Director at Example Co"
+        page.get_by_role("tab", name="Review", exact=False).click()
         assert page.get_by_role("heading", name="6. Unresolved questions").is_visible()
         assert_shared_chrome(page, errors, viewport["width"])
     finally:

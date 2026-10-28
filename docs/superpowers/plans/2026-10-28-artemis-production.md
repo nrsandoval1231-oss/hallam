@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task.
 
+> Historical plan: the later owner-selected interface reference supersedes its non-photographic Home composition. See `2026-10-28-reference-fidelity.md`; engine safeguards remain unchanged.
+
 **Goal:** Complete the approved ARTEMIS product experience over the existing truthful Sabra engine.
 
 **Architecture:** Retain FastAPI server-rendered pages and stable JSON routes. Add one focused editorial theme module, locally served licensed fonts/assets, and additive data-backed intelligence fields. The engine remains the authority for readiness, approval and submission state.
