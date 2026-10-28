@@ -7,7 +7,7 @@ def test_dashboard_is_browser_ready() -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
     assert "Artemis" in response.text
-    assert "A clearer path forward." in response.text
+    assert "Your next move is taking shape." in response.text
 
 
 def test_opportunities_route_is_available() -> None:

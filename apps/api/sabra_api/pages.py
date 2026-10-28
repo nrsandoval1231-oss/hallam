@@ -317,18 +317,12 @@ ASK_JS = r"""function ask(message,opts){
 
 ESC_JS = ESC_JS + CHROME_JS
 
-# The interlocking glass V: two translucent ribbons converging. Master artwork lives in
-# brand/logo/; this inline copy is what the header renders.
+# Keep this inline header mark geometrically identical to brand/logo/artemis-mark.svg.
 LOGO_MARK_SVG = (
-    '<svg class="mark" viewBox="0 0 48 48" role="img" aria-label="Artemis" '
-    'xmlns="http://www.w3.org/2000/svg"><defs>'
-    '<linearGradient id="vla" x1="0" y1="0" x2="1" y2="1">'
-    '<stop offset="0" stop-color="#C7D9E4"/><stop offset="1" stop-color="#29483E"/></linearGradient>'
-    '<linearGradient id="vlb" x1="1" y1="0" x2="0" y2="1">'
-    '<stop offset="0" stop-color="#E9EFF2"/><stop offset="1" stop-color="#A6B8A7"/></linearGradient>'
-    '</defs>'
-    '<path d="M5.5 5 L14.5 4 L29.5 44.5 L23 48 Z" fill="url(#vla)" fill-opacity="0.92"/>'
-    '<path d="M42.5 5 L33.5 4 L18.5 44.5 L25 48 Z" fill="url(#vlb)" fill-opacity="0.78"/>'
+    '<svg class="mark" viewBox="0 0 64 64" role="img" aria-label="Artemis" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<path d="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z" fill="#142D29"/>'
+    '<path d="M26.6 41h10.8" stroke="#F7F6F1" stroke-width="3.5"/>'
     '</svg>'
 )
 

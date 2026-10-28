@@ -1,15 +1,17 @@
 """The Artemis Home, Research and Career Plan surfaces serve real engine data."""
 
 from fastapi.testclient import TestClient
+from sabra_api import main
 from sabra_api.main import app
+from sabra_api.pages import LOGO_MARK_SVG
 
 
-def test_home_page_is_the_velora_dashboard() -> None:
+def test_home_page_uses_artemis_branding() -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
     assert "<title>Artemis | Home</title>" in response.text
     assert "Your next move is taking shape." in response.text
-    assert "YOUR CAREER INTELLIGENCE" in response.text.upper()
+    assert "YOUR CAREER, IN FOCUS" in response.text.upper()
     for href in ("/opportunities", "/applications", "/research", "/career-plan"):
         assert f'href="{href}"' in response.text
     assert 'id="velora-ask"' in response.text
@@ -64,3 +66,25 @@ def test_favicon_is_served() -> None:
     assert response.status_code == 200
     assert "svg" in response.headers["content-type"]
     assert "<svg" in response.text
+    assert 'viewBox="0 0 64 64"' in response.text
+    assert 'd="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z"' in response.text
+
+
+def test_header_and_favicon_share_the_canonical_artemis_mark() -> None:
+    page = TestClient(app).get("/").text
+    favicon = TestClient(app).get("/favicon.svg").text
+    canonical_path = 'd="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z"'
+    canonical_cut = 'd="M26.6 41h10.8"'
+    assert canonical_path in LOGO_MARK_SVG and canonical_cut in LOGO_MARK_SVG
+    assert canonical_path in favicon and canonical_cut in favicon
+    assert LOGO_MARK_SVG in page
+    assert "ARTEMIS</span>" in page
+
+
+def test_favicon_fallback_uses_the_canonical_artemis_mark(monkeypatch) -> None:
+    monkeypatch.setattr(main, "_BRAND_DIR", main._BRAND_DIR / "missing-brand-assets")
+    response = TestClient(app).get("/favicon.svg")
+    assert response.status_code == 200
+    assert 'viewBox="0 0 64 64"' in response.text
+    assert 'd="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z"' in response.text
+    assert 'd="M26.6 41h10.8"' in response.text

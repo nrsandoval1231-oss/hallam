@@ -1813,9 +1813,10 @@ def favicon() -> Response:
     if candidate.is_file():
         return Response(candidate.read_text(encoding="utf-8"), media_type="image/svg+xml")
     return Response(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
-        '<path d="M5.5 5 L14.5 4 L29.5 44.5 L23 48 Z" fill="#718C9A"/>'
-        '<path d="M42.5 5 L33.5 4 L18.5 44.5 L25 48 Z" fill="#A7C3D5" fill-opacity="0.8"/>'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Artemis">'
+        '<title>ARTEMIS architectural A mark</title>'
+        '<path d="M8 53 27.1 10h9.7L56 53H45.6L32 21.4 18.4 53Z" fill="#142D29"/>'
+        '<path d="M26.6 41h10.8" stroke="#F7F6F1" stroke-width="3.5"/>'
         "</svg>",
         media_type="image/svg+xml",
     )

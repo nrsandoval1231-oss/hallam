@@ -31,8 +31,8 @@ Verified against real data, not scaffolding:
 | M8 Pilot | **Blocked on owner input** | See below |
 
 `apps/api` is a FastAPI app serving the ARTEMIS interface, which covers the whole loop
-from the browser. Every page shares one navigation bar: `/` (**Home**: "A clearer path
-forward", real metrics, the featured opportunity, recent opportunities, your pipeline
+from the browser. Every page shares one navigation bar: `/` (**Home**: "Your next move is
+taking shape", real metrics, the featured opportunity, recent opportunities, your pipeline
 progress, upcoming items, and **Run now**), `/opportunities` (cards with
 pay, confidence and the biggest gap; Prepare and Pass), `/opportunities/{id}` (the
 posting, why it scored as it did, the hard-filter decision, verified facts apart from
