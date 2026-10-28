@@ -1,4 +1,4 @@
-"""The Velora Home, Research and Career Plan surfaces serve real engine data."""
+"""The Artemis Home, Research and Career Plan surfaces serve real engine data."""
 
 from fastapi.testclient import TestClient
 from sabra_api.main import app
@@ -7,7 +7,7 @@ from sabra_api.main import app
 def test_home_page_is_the_velora_dashboard() -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
-    assert "<title>Velora | Home</title>" in response.text
+    assert "<title>Artemis | Home</title>" in response.text
     assert "A clearer path forward." in response.text
     assert "YOUR CAREER, IN FOCUS" in response.text.upper()
     for href in ("/opportunities", "/applications", "/research", "/career-plan"):
@@ -30,7 +30,7 @@ def test_research_page_and_endpoint() -> None:
     client = TestClient(app)
     page = client.get("/research")
     assert page.status_code == 200
-    assert "<title>Velora | Research</title>" in page.text
+    assert "<title>Artemis | Research</title>" in page.text
     body = client.get("/api/research").json()
     assert "research" in body
     for row in body["research"]:
@@ -42,7 +42,7 @@ def test_career_plan_page_and_endpoint() -> None:
     client = TestClient(app)
     page = client.get("/career-plan")
     assert page.status_code == 200
-    assert "<title>Velora | Career Plan</title>" in page.text
+    assert "<title>Artemis | Career Plan</title>" in page.text
     body = client.get("/api/career-plan").json()
     assert "objective" in body or "search" in body or "plan" in body
 
