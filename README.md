@@ -13,6 +13,8 @@ per day.
 
 **Canonical customer-facing identity: ARTEMIS.** The internal Sabra package names and API routes remain stable for compatibility. Previous product identities are retired. See [BRAND.md](BRAND.md).
 
+ARTEMIS is the only customer-facing identity. Internal Sabra modules retain their established names for compatibility.
+
 ## Where it actually stands
 
 Verified against real data, not scaffolding:
