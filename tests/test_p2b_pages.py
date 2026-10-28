@@ -150,7 +150,7 @@ def test_the_detail_page_renders_every_section_as_text() -> None:
     parsed = assert_inert(sections, EVIL)
     assert parsed.joined.count(EVIL) >= 20
     assert headings(sections) == [
-        "Why Sabra recommends it",
+        "Why Velora recommends it",
         "Candidate fit",
         "Hard filter",
         "The posting",
@@ -761,21 +761,23 @@ def test_every_application_row_links_to_its_review_page() -> None:
     assert hrefs == [f"/packages/p{n}" for n in range(1, 6)]
 
 
-def test_each_count_on_today_links_to_the_page_that_acts_on_it() -> None:
+def test_each_count_on_home_links_to_the_page_that_acts_on_it() -> None:
     payload = {
-        "counts": {
-            "ready_for_approval": 1,
-            "needs_information": 2,
-            "handoffs_waiting": 3,
-            "new_high_fit": 4,
-            "employer_responses": 5,
+        "today": {
+            "counts": {
+                "ready_for_approval": 1,
+                "needs_information": 2,
+                "handoffs_waiting": 3,
+                "new_high_fit": 4,
+                "employer_responses": 5,
+            },
+            "has_resume": True,
         },
-        "has_resume": True,
-        "opportunities": [],
+        "recent": [],
         "generated_at": "2026-10-21T10:00:00+00:00",
     }
     nodes = render(dashboard(), payload)["nodes"]
-    hrefs = Markup(nodes["#attention"]["innerHTML"]).hrefs()
+    hrefs = Markup(nodes["#upcoming-list"]["innerHTML"]).hrefs()
     assert hrefs == [
         "/applications?filter=ready",
         "/applications?filter=needs_information",

@@ -1330,7 +1330,7 @@ def test_locked_database_maps_to_503() -> None:
     locked = OperationalError("UPDATE x", {}, Exception("database is locked"))
     response = asyncio.run(database_error_handler(None, locked))
     assert response.status_code == 503
-    assert b"another Sabra process" in response.body
+    assert b"another Velora process" in response.body
 
     other = OperationalError("SELECT x", {}, Exception("no such table: x"))
     assert asyncio.run(database_error_handler(None, other)).status_code == 500
