@@ -615,9 +615,8 @@ function renderProgress(p){
 }
 function renderUpcoming(d){
   const c=(d.today&&d.today.counts)||{};
-  const baseline=d.morning_brief&&d.morning_brief.run_at;
   const items=Object.keys(UPCOMING).filter(k=>c[k]>0).map(k=>{
-    const label=k==='new_high_fit'?(c[k]===1?'role':'roles')+(baseline?' newly shortlisted in the last run':' recorded on your shortlist'):({ready_for_approval:'application package'+(c[k]===1?'':'s')+' ready for your review',needs_information:'application'+(c[k]===1?' needs':'s need')+' more information',handoffs_waiting:'submission'+(c[k]===1?'':'s')+' waiting for your report',employer_responses:'employer response'+(c[k]===1?'':'s')+' since you last looked'})[k]||UPCOMING[k][0];
+    const label=k==='new_high_fit'?(c[k]===1?'role':'roles')+' recorded on your shortlist':({ready_for_approval:'application package'+(c[k]===1?'':'s')+' ready for your review',needs_information:'application'+(c[k]===1?' needs':'s need')+' more information',handoffs_waiting:'submission'+(c[k]===1?'':'s')+' waiting for your report',employer_responses:'employer response'+(c[k]===1?'':'s')+' since you last looked'})[k]||UPCOMING[k][0];
     const extra=k==='needs_information'&&d.today.open_questions?` <span class="hint">${esc(d.today.open_questions)} open questions</span>`:'';
     return `<li><span class="dot"></span><span><a href="${UPCOMING[k][1]}"><span class="n">${esc(c[k])}</span> ${esc(label)}</a>${extra}</span></li>`;
   });

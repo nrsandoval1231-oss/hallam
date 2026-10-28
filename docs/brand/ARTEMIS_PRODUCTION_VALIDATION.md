@@ -16,7 +16,7 @@ Date: 2026-10-28. Baseline: `04a1021be63824099c88c4792cbc82c135bf1cd7` (merged P
 
 ## Final verification
 
-`uv run pytest tests/ -ra`: **1437 passed, 2 skipped, 3 deselected** in 88.45 seconds. The two skips are platform-dependent tests, distinct from the three explicitly opted-out live tests:
+`uv run pytest tests/ -ra` on the reviewed implementation: **1437 passed, 2 skipped, 3 deselected** in 88.45 seconds. A final copy-only correction keeps the legacy shortlist-update counter neutral about its timeframe; focused Home/browser tests passed afterward, and final CI reruns the complete suite on the release head. The two skips are platform-dependent tests, distinct from the three explicitly opted-out live tests:
 
 - `tests/test_p2a_final_fixes.py::test_the_windows_calls_declare_their_signatures` — Windows API signatures; Linux runner.
 - `tests/test_p2a_review_fixes.py::test_the_runner_stops_before_running_anything_when_the_env_script_is_missing` — PowerShell is not installed.
