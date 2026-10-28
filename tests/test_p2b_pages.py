@@ -150,7 +150,7 @@ def test_the_detail_page_renders_every_section_as_text() -> None:
     parsed = assert_inert(sections, EVIL)
     assert parsed.joined.count(EVIL) >= 20
     assert headings(sections) == [
-        "Why Velora recommends it",
+        "Why Artemis recommends it",
         "Candidate fit",
         "Hard filter",
         "The posting",
