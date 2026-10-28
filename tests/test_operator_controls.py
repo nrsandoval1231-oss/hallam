@@ -432,9 +432,9 @@ def test_dashboard_exposes_batch_approval_and_answer_verification() -> None:
     overview = client.get("/")
     assert 'href="/applications"' in overview.text
     assert 'href="/answers"' in overview.text
-    assert 'id="overview-queue"' in overview.text
+    assert 'id="recent-list"' in overview.text
     assert "/api/opportunities" in overview.text
-    assert 'data-key="packages_latest"' in overview.text
+    assert 'data-metric="matches"' in overview.text
     assert "Read package" in applications.text
     assert ">Copy<" in applications.text
     assert ">Apply<" in applications.text

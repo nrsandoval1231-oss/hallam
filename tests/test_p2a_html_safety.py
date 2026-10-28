@@ -90,7 +90,7 @@ def assert_inert(markup: str, expected_text: str) -> Markup:
 
 def test_the_shell_escapes_the_title_and_contains_no_script() -> None:
     html = page_shell("<b>x</b>", "<main>body</main>", active="/")
-    assert "<title>Sabra | &lt;b&gt;x&lt;/b&gt;</title>" in html
+    assert "<title>Velora | &lt;b&gt;x&lt;/b&gt;</title>" in html
     assert "<script" not in html
 
 
@@ -99,65 +99,96 @@ def test_every_page_has_exactly_one_script_so_the_harness_reads_the_right_one() 
         assert page().count("<script>") == 1, page.__name__
 
 
-def test_today_renders_run_progress_and_the_queue_as_text() -> None:
+def test_home_renders_metrics_featured_progress_and_upcoming_as_text() -> None:
     payload = {
-        "counts": {
-            "ready_for_approval": 2,
-            "needs_information": 1,
-            "handoffs_waiting": 0,
-            "new_high_fit": 4,
-            "employer_responses": 0,
-        },
-        "open_questions": 5,
-        "has_resume": True,
         "search_profile_name": EVIL,
         "automation_dry_run": True,
         "generated_at": "2026-10-21T10:00:00+00:00",
-        "last_run": {
-            "id": "prun_1",
-            "kind": EVIL,
-            "status": EVIL,
-            "error": EVIL,
-            "progress": {
-                "summary": EVIL,
-                "warnings": [EVIL],
-                "stages": {EVIL: {"status": EVIL, "jobs_seen": 3}},
-                "sources": [
-                    {
-                        "source_id": EVIL,
-                        "display_name": EVIL,
-                        "ok": False,
-                        "jobs_seen": 1,
-                        "jobs_new": 0,
-                        "error": EVIL,
-                    }
-                ],
-            },
+        "metrics": {"matches": 4, "applications": 2, "interviews": 1, "offers": 0},
+        "featured": {
+            "id": "opp_1",
+            "title": EVIL,
+            "company": EVIL,
+            "location": EVIL,
+            "industry": EVIL,
+            "compensation_text": EVIL,
+            "arrangement": EVIL,
+            "fit_score": 0.94,
+            "why_this_job": EVIL,
         },
-        "active_run": None,
-        "opportunities": [
-            {"title": EVIL, "company": EVIL, "location": EVIL, "rank_position": EVIL}
+        "recent": [
+            {
+                "id": "opp_2",
+                "title": EVIL,
+                "company": EVIL,
+                "location": EVIL,
+                "compensation_text": EVIL,
+                "fit_score": 0.88,
+            }
         ],
+        "progress": {"shortlisted": 4, "applied": 2, "interviews": 1, "offers": 0},
+        "today": {
+            "counts": {
+                "ready_for_approval": 2,
+                "needs_information": 1,
+                "handoffs_waiting": 0,
+                "new_high_fit": 4,
+                "employer_responses": 0,
+            },
+            "open_questions": 5,
+            "has_resume": True,
+            "last_run": {
+                "id": "prun_1",
+                "kind": EVIL,
+                "status": EVIL,
+                "error": EVIL,
+                "progress": {
+                    "summary": EVIL,
+                    "warnings": [EVIL],
+                    "stages": {EVIL: {"status": EVIL, "jobs_seen": 3}},
+                    "sources": [
+                        {
+                            "source_id": EVIL,
+                            "display_name": EVIL,
+                            "ok": False,
+                            "jobs_seen": 1,
+                            "jobs_new": 0,
+                            "error": EVIL,
+                        }
+                    ],
+                },
+            },
+            "active_run": None,
+        },
     }
     nodes = render(dashboard(), payload)
-    attention = assert_inert(nodes["#attention"]["innerHTML"], "packages ready for approval")
-    hrefs = {attrs.get("href") for tag, attrs in attention.tags if tag == "a"}
+    upcoming = assert_inert(nodes["#upcoming-list"]["innerHTML"], "ready for your review")
+    hrefs = {attrs.get("href") for tag, attrs in upcoming.tags if tag == "a"}
     assert hrefs == {"/applications?filter=ready", "/applications?filter=needs_information", "/opportunities"}
-    assert "5 open questions" in attention.joined
+    assert "5 open questions" in upcoming.joined
     progress = assert_inert(nodes["#run-progress"]["innerHTML"], EVIL)
     assert progress.joined.count(EVIL) >= 5
-    assert_inert(nodes["#overview-queue"]["innerHTML"], EVIL)
+    assert_inert(nodes["#featured"]["innerHTML"], EVIL)
+    assert "94% match" in Markup(nodes["#featured"]["innerHTML"]).joined
+    recent = assert_inert(nodes["#recent-list"]["innerHTML"], EVIL)
+    assert any(
+        attrs.get("href") == "/opportunities/opp_2" for tag, attrs in recent.tags if tag == "a"
+    )
+    assert "88%" in recent.joined
+    bars = Markup(nodes["#progress-bars"]["innerHTML"])
+    assert "Shortlisted" in bars.joined and "Offers" in bars.joined
     assert nodes["#today-sub"]["textContent"].startswith("Searching: " + EVIL)
 
 
-def test_today_with_nothing_to_do_says_so_and_offers_the_resume_when_missing() -> None:
-    payload = {"counts": {}, "has_resume": False, "opportunities": [], "generated_at": "x"}
+def test_home_with_nothing_to_do_says_so_and_offers_the_resume_when_missing() -> None:
+    payload = {"today": {"counts": {}, "has_resume": False}, "recent": [], "generated_at": "x"}
     nodes = render(dashboard(), payload)
-    text = Markup(nodes["#attention"]["innerHTML"])
-    assert 'href="/candidate"' in nodes["#attention"]["innerHTML"]
+    text = Markup(nodes["#upcoming-list"]["innerHTML"])
+    assert 'href="/candidate"' in nodes["#upcoming-list"]["innerHTML"]
     assert "Upload your resume" in text.joined
-    ok = render(dashboard(), {"counts": {}, "has_resume": True, "opportunities": []})
-    assert "Nothing needs your attention right now." in ok["#attention"]["innerHTML"]
+    assert "No featured opportunity yet" in nodes["#featured"]["innerHTML"]
+    ok = render(dashboard(), {"today": {"counts": {}, "has_resume": True}, "recent": []})
+    assert "Nothing needs your attention right now." in ok["#upcoming-list"]["innerHTML"]
 
 
 def test_the_candidate_page_renders_profile_rows_and_resume_versions_as_text() -> None:

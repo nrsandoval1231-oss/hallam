@@ -62,8 +62,8 @@ DETAIL_CSS = (
     ".wrap h3{font-size:15px;margin:14px 0 4px}"
     ".wrap ul{margin:4px 0 8px;padding-left:20px}"
     "details>summary{cursor:pointer;font-weight:700;margin:6px 0}"
-    ".pill.passed,.pill.ok{background:#d7efe0}.pill.rejected,.pill.bad{background:#f6d9d6}"
-    ".pill.flag{background:#f4eadb}"
+    ".pill.passed,.pill.ok{background:#D9EAE2}.pill.rejected,.pill.bad{background:#F2DCD6}"
+    ".pill.flag{background:#F0E9DB}"
     "code{font-size:12px;overflow-wrap:anywhere}"
     ".decision{border:2px solid var(--ink)}"
     "@media(max-width:700px){.cols{grid-template-columns:1fr}"
@@ -108,7 +108,7 @@ function renderActions(d){
 function renderWhy(d){
   const f=d.fit,r=d.rank||{};
   const why=f&&f.why_this_job?f.why_this_job:(d.opportunity.shortlist_reason||'');
-  return section('Why Sabra recommends it',(why?`<p class="text">${esc(why)}</p>`:'<p class="muted">No recommendation has been recorded yet.</p>')+facts([
+  return section('Why Velora recommends it',(why?`<p class="text">${esc(why)}</p>`:'<p class="muted">No recommendation has been recorded yet.</p>')+facts([
     ['Rank',r.position==null?'unranked':'#'+r.position+' of '+r.of],
     ['Rank score',r.score==null?'':Number(r.score).toFixed(3)],
     ['Shortlisted',d.opportunity.shortlisted?'yes':'no']]));
@@ -144,7 +144,7 @@ function renderResearch(d){
   const r=d.research;
   if(!r)return section('Company research','<p class="muted">No research has been done on this company yet.</p>');
   const context=facts([['Industry',r.industry],['Website',link(r.company_website),true],['About',r.company_description],['Role context',r.role_context],['Reporting line',r.likely_reporting_organization],['Hiring context',r.hiring_context]]);
-  return section('Company research',`<h3>Verified facts</h3><p class="muted">Read from a source.</p>${bullets(r.verified_facts)}<h3>Inferences</h3><p class="muted">Concluded by Sabra, not verified.</p>${bullets(r.inferences)}${(r.recent_developments||[]).length?'<h3>Recent developments</h3>'+bullets(r.recent_developments):''}${(r.candidate_company_intersections||[]).length?'<h3>Where you and the company meet</h3>'+bullets(r.candidate_company_intersections):''}<h3>Context</h3>${context}<h3>Sources</h3>${bullets(r.sources)}<p class="muted">${esc(r.engine||'')} research, updated ${esc(when(r.updated_at))}</p>`);
+  return section('Company research',`<h3>Verified facts</h3><p class="muted">Read from a source.</p>${bullets(r.verified_facts)}<h3>Inferences</h3><p class="muted">Concluded by Velora, not verified.</p>${bullets(r.inferences)}${(r.recent_developments||[]).length?'<h3>Recent developments</h3>'+bullets(r.recent_developments):''}${(r.candidate_company_intersections||[]).length?'<h3>Where you and the company meet</h3>'+bullets(r.candidate_company_intersections):''}<h3>Context</h3>${context}<h3>Sources</h3>${bullets(r.sources)}<p class="muted">${esc(r.engine||'')} research, updated ${esc(when(r.updated_at))}</p>`);
 }
 function renderApplication(d){
   const a=d.application,p=d.package;

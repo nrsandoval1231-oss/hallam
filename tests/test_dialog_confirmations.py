@@ -26,12 +26,12 @@ APPLY_TEXT = (
     "This does not solve a CAPTCHA."
 )
 MANUAL_TEXT = (
-    "Open this posting in your browser? Sabra cannot fill this employer form, so it types "
+    "Open this posting in your browser? Velora cannot fill this employer form, so it types "
     "nothing. It saves your resume and cover letter as PDFs and shows where, then waits for "
     "you to submit the form and report the result."
 )
 FORCE_TEXT = (
-    "Forcing a report records an outcome without Sabra seeing it. "
+    "Forcing a report records an outcome without Velora seeing it. "
     "Type the application id to confirm: app_1"
 )
 
