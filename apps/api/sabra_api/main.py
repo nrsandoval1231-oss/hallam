@@ -1,4 +1,4 @@
-"""Local browser surface over the Sabra engine."""
+"""Local browser surface over the Velora engine (Sabra internals)."""
 
 from __future__ import annotations
 
@@ -66,9 +66,13 @@ from sqlalchemy.exc import OperationalError
 from .pages import (
     ASK_JS,
     CANDIDATE_BODY,
+    HOME_CSS,
+    PLAN_BODY,
+    PLAN_CSS,
+    RESEARCH_BODY,
+    RESEARCH_CSS,
     SETTINGS_BODY,
-    TODAY_BODY,
-    TODAY_CSS,
+    home_body,
     page_shell,
     searches_body,
 )
@@ -119,7 +123,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         RunService.record_server_stopped()
 
 
-app = FastAPI(title="Sabra Job Engine", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(title="Velora", version="0.1.0", lifespan=_lifespan)
 
 
 @app.exception_handler(SabraError)
@@ -152,14 +156,14 @@ async def sabra_error_handler(_request: Request, exc: SabraError) -> JSONRespons
 
 @app.exception_handler(OperationalError)
 async def database_error_handler(_request: Request, exc: OperationalError) -> JSONResponse:
-    """A locked SQLite file is another Sabra process, not a server bug."""
+    """A locked SQLite file is another Velora process, not a server bug."""
 
     if "database is locked" in str(exc).lower():
         return JSONResponse(
             status_code=503,
             content={
                 "detail": (
-                    "The database is locked: another Sabra process holds it (a CLI command or "
+                    "The database is locked: another Velora process holds it (a CLI command or "
                     "a second dashboard). Wait for it to finish, or stop it, then retry."
                 )
             },
@@ -642,13 +646,13 @@ def _annotate_package(
         summary["review_label"] = "Approved"
         if manual_handoff:
             summary["next_step"] = (
-                "Sabra cannot fill this employer's form. "
+                "Velora cannot fill this employer's form. "
                 + (
                     "Dry run is on, so this stays off until SABRA_AUTOMATION_DRY_RUN=false. "
                     if dry_run
                     else ""
                 )
-                + "Open it in your browser: Sabra saves your résumé and cover letter as PDFs, "
+                + "Open it in your browser: Velora saves your résumé and cover letter as PDFs, "
                 "shows where, and types nothing. You fill and submit it, then report the result."
             )
         else:
@@ -1380,6 +1384,445 @@ def today_seen() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Home, Research, Career Plan and Ask Velora
+# ---------------------------------------------------------------------------
+
+
+def _shortlist_rows(repos: Any, candidate_id: str) -> list[Any]:
+    """The shortlist in rank order (unranked rows last)."""
+
+    rows = list(repos.opportunities.shortlist(candidate_id))
+    return sorted(
+        rows,
+        key=lambda item: (item.rank_position is None, item.rank_position or 0),
+    )
+
+
+def _opportunity_card(repos: Any, item: Any) -> dict[str, Any]:
+    jobs = repos.opportunities.list_jobs(item.id)
+    job = jobs[0] if jobs else None
+    fit = item.fit_assessment
+    return {
+        "id": item.id,
+        "title": item.title,
+        "company": item.company,
+        "location": item.location or (job.location if job else None),
+        "status": item.status,
+        "rank_position": item.rank_position,
+        "fit_score": fit.fit_score if fit else None,
+        "confidence": fit.confidence if fit else None,
+        "why_this_job": fit.why_this_job if fit else None,
+        "compensation_text": _compensation_text(job),
+        "industry": job.department if job else None,
+        "arrangement": (job.remote_status or "").replace("_", " ").title() if job else None,
+    }
+
+
+def _home_payload() -> dict[str, Any]:
+    """Everything the Home dashboard shows, all of it real engine data."""
+
+    today = _today_payload()
+    payload: dict[str, Any] = {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "candidate_name": None,
+        "automation_dry_run": today["automation_dry_run"],
+        "search_profile_name": today["search_profile_name"],
+        "metrics": {"matches": 0, "applications": 0, "interviews": 0, "offers": 0},
+        "featured": None,
+        "recent": [],
+        "progress": {"shortlisted": 0, "applied": 0, "interviews": 0, "offers": 0},
+        "today": today,
+    }
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            if candidate is None:
+                return payload
+            payload["candidate_name"] = candidate.display_name
+            active = repos.search_profiles.active_one(candidate.id)
+            shortlist = [
+                item
+                for item in _shortlist_rows(repos, candidate.id)
+                if item.status != "REJECTED"
+                and (active is None or (item.search_profile_id or "") == active.id)
+            ]
+            cards = [_opportunity_card(repos, item) for item in shortlist]
+            payload["metrics"]["matches"] = len(cards)
+            payload["progress"]["shortlisted"] = len(cards)
+            payload["featured"] = cards[0] if cards else None
+            payload["recent"] = cards[1:4] if len(cards) > 1 else cards
+            app_counts = repos.applications.count_by_status(candidate.id)
+            payload["metrics"]["applications"] = sum(app_counts.values())
+            stages = LedgerService(ctx).pipeline(candidate.id).stages
+            payload["progress"]["applied"] = stages.get("applied", 0)
+            payload["progress"]["interviews"] = stages.get("interview", 0)
+            payload["progress"]["offers"] = stages.get("offer", 0)
+            payload["metrics"]["interviews"] = stages.get("interview", 0)
+            payload["metrics"]["offers"] = stages.get("offer", 0)
+        return payload
+    finally:
+        ctx.close()
+
+
+@app.get("/api/home")
+def home() -> dict[str, Any]:
+    return _home_payload()
+
+
+def _research_payload() -> dict[str, Any]:
+    """Company research packets for the candidate's opportunities, with sources."""
+
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            if candidate is None:
+                return {"research": []}
+            rows = (
+                repos.session.query(models.ResearchPacketRow, models.Opportunity)
+                .join(
+                    models.Opportunity,
+                    models.Opportunity.id == models.ResearchPacketRow.opportunity_id,
+                )
+                .filter(models.Opportunity.candidate_id == candidate.id)
+                .order_by(models.ResearchPacketRow.updated_at.desc())
+                .all()
+            )
+            out = []
+            for packet, opportunity in rows:
+                body = dict(packet.payload or {})
+
+                def texts(key: str) -> list[str]:
+                    value = body.get(key) or []
+                    return [str(item) for item in value] if isinstance(value, list) else []
+
+                out.append(
+                    {
+                        "opportunity_id": opportunity.id,
+                        "title": opportunity.title,
+                        "company": opportunity.company,
+                        "engine": packet.engine,
+                        "updated_at": packet.updated_at.isoformat() if packet.updated_at else None,
+                        "company_description": body.get("company_description"),
+                        "company_website": body.get("company_website"),
+                        "industry": body.get("industry"),
+                        "verified_facts": texts("verified_facts"),
+                        "inferences": texts("inferences"),
+                        "recent_developments": texts("recent_developments"),
+                        "sources": texts("sources"),
+                    }
+                )
+            return {"research": out}
+    finally:
+        ctx.close()
+
+
+@app.get("/api/research")
+def research() -> dict[str, Any]:
+    return _research_payload()
+
+
+def _career_plan_payload() -> dict[str, Any]:
+    """The active search as a career objective, plus gaps, progress and next actions."""
+
+    today = _today_payload()
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            if candidate is None:
+                return {
+                    "search": None,
+                    "search_summary": None,
+                    "skill_gaps": [],
+                    "progress": {},
+                    "actions": [{"label": "Create your profile", "href": "/candidate"}],
+                }
+            active = repos.search_profiles.active_one(candidate.id)
+            shortlist = [
+                item
+                for item in repos.opportunities.shortlist(candidate.id)
+                if item.status != "REJECTED"
+                and (active is None or (item.search_profile_id or "") == active.id)
+            ]
+            gap_counts: dict[str, int] = {}
+            for item in shortlist:
+                fit = item.fit_assessment
+                for gap in (fit.gaps if fit and fit.gaps else []):
+                    key = " ".join(str(gap).split())
+                    gap_counts[key] = gap_counts.get(key, 0) + 1
+            gaps = [
+                {"gap": gap, "count": count}
+                for gap, count in sorted(
+                    gap_counts.items(), key=lambda pair: (-pair[1], pair[0])
+                )[:8]
+            ]
+            prepared = sum(
+                1
+                for row in _latest_packages(repos, candidate.id)
+                if row.status
+                in {
+                    PackageStatus.COMPLETE.value,
+                    PackageStatus.AWAITING_APPROVAL.value,
+                    PackageStatus.APPROVED.value,
+                }
+            )
+            search_payload = None
+            search_summary = None
+            if active is not None:
+                search_payload = active.model_dump(mode="json")
+                comp = active.compensation
+                places = [
+                    *active.locations.cities,
+                    *active.locations.metro_areas,
+                    *active.locations.states,
+                ]
+                work = [
+                    name
+                    for name, on in (
+                        ("remote", active.locations.allow_remote),
+                        ("hybrid", active.locations.allow_hybrid),
+                        ("on site", active.locations.allow_onsite),
+                    )
+                    if on
+                ]
+                parts = []
+                if comp.minimum or comp.target:
+                    parts.append(
+                        "Pay: "
+                        + " / ".join(
+                            f"{comp.currency or 'USD'} {int(value):,}"
+                            for value in (comp.minimum, comp.target)
+                            if value
+                        )
+                    )
+                if places:
+                    parts.append("Where: " + ", ".join(places))
+                if work:
+                    parts.append("Arrangement: " + ", ".join(work))
+                search_summary = " · ".join(parts)
+            answers = AnswerMemoryService(ctx).list_answers()
+            unverified = sum(1 for answer in answers if not answer.get("verified"))
+            actions: list[dict[str, str]] = []
+            if repos.resumes.master(candidate.id) is None:
+                actions.append(
+                    {"label": "Upload your master résumé so packages can be prepared",
+                     "href": "/candidate"}
+                )
+            if active is None:
+                actions.append(
+                    {"label": "Define the search for the role you want", "href": "/searches"}
+                )
+            if unverified:
+                actions.append(
+                    {
+                        "label": f"Verify {unverified} recorded answer(s) so forms can use them",
+                        "href": "/answers",
+                    }
+                )
+            ready = today["counts"].get("ready_for_approval", 0)
+            if ready:
+                actions.append(
+                    {
+                        "label": f"Review and approve {ready} prepared application(s)",
+                        "href": "/applications?filter=ready",
+                    }
+                )
+            if not shortlist and active is not None:
+                actions.append({"label": "Run a search to build your shortlist", "href": "/"})
+            return {
+                "search": search_payload,
+                "search_summary": search_summary,
+                "skill_gaps": gaps,
+                "progress": {
+                    "shortlisted": len(shortlist),
+                    "prepared": prepared,
+                },
+                "actions": actions,
+            }
+    finally:
+        ctx.close()
+
+
+@app.get("/api/career-plan")
+def career_plan() -> dict[str, Any]:
+    return _career_plan_payload()
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/api/ask")
+def ask_velora(body: AskRequest) -> dict[str, Any]:
+    """Ask Velora. Answers are computed from the engine's real data — never invented.
+
+    This is deterministic intent routing, not a simulated model: when no language model
+    is configured the answer says so and still reports the real numbers.
+    """
+
+    question = body.question.lower()
+    ctx = EngineContext.create()
+    try:
+        with ctx.read_repos() as repos:
+            candidate = repos.candidates.primary()
+            if candidate is None:
+                return {
+                    "answer": "There is no candidate profile yet. Create your profile and "
+                    "upload your résumé first, then I can help.",
+                    "links": [{"label": "Open your profile", "href": "/candidate"}],
+                }
+            home = _home_payload()
+            counts = home["today"]["counts"]
+            llm_note = (
+                ""
+                if ctx.settings.llm_provider not in ("", "none")
+                else "\n\n(answered from your data — no language model is configured)"
+            )
+            if any(word in question for word in ("prioritize", "today", "attention", "next")):
+                parts = []
+                if counts.get("ready_for_approval"):
+                    parts.append(f"{counts['ready_for_approval']} application(s) are ready for your review")
+                if counts.get("needs_information"):
+                    parts.append(
+                        f"{counts['needs_information']} application(s) need more information"
+                    )
+                if counts.get("handoffs_waiting"):
+                    parts.append(
+                        f"{counts['handoffs_waiting']} submission(s) are waiting for your report"
+                    )
+                if counts.get("employer_responses"):
+                    parts.append(f"{counts['employer_responses']} employer response(s) are unread")
+                if counts.get("new_high_fit"):
+                    parts.append(f"{counts['new_high_fit']} new high-fit role(s) came in")
+                answer = (
+                    "In order: " + "; ".join(parts) + "."
+                    if parts
+                    else "Nothing needs your attention right now. A run will surface new work."
+                )
+                return {"answer": answer + llm_note, "links": [{"label": "Open Home", "href": "/"}]}
+            if any(word in question for word in ("match", "find role", "roles", "opportunit")):
+                cards = [home["featured"], *home["recent"]]
+                seen: set[str] = set()
+                top = []
+                for card in cards:
+                    if card and card["id"] not in seen:
+                        seen.add(card["id"])
+                        top.append(card)
+                if not top:
+                    answer = "Your shortlist is empty. Run a search and I will rank what comes back."
+                    links = [{"label": "Run a search", "href": "/"}]
+                else:
+                    lines = ["Your strongest matches right now:"]
+                    for card in top[:5]:
+                        fit = (
+                            f" — {round(card['fit_score'] * 100)}% fit"
+                            if card.get("fit_score") is not None
+                            else ""
+                        )
+                        lines.append(f"• {card['title']} at {card['company']}{fit}")
+                    answer = "\n".join(lines)
+                    links = [{"label": "Open Opportunities", "href": "/opportunities"}]
+                return {"answer": answer + llm_note, "links": links}
+            if "why" in question and any(
+                word in question for word in ("fit", "position", "job", "role")
+            ):
+                featured = home["featured"]
+                if featured and featured.get("why_this_job"):
+                    answer = (
+                        f"{featured['title']} at {featured['company']}: "
+                        + featured["why_this_job"]
+                    )
+                    links = [
+                        {
+                            "label": "Read the full analysis",
+                            "href": f"/opportunities/{featured['id']}",
+                        }
+                    ]
+                elif featured:
+                    answer = (
+                        f"{featured['title']} at {featured['company']} leads your shortlist, "
+                        "but no fit explanation is recorded yet."
+                    )
+                    links = [{"label": "Open the opportunity", "href": f"/opportunities/{featured['id']}"}]
+                else:
+                    answer = "There is no scored opportunity yet. Run a search first."
+                    links = [{"label": "Run a search", "href": "/"}]
+                return {"answer": answer + llm_note, "links": links}
+            if any(word in question for word in ("tailor", "resume", "résumé", "cover letter")):
+                featured = home["featured"]
+                if featured:
+                    answer = (
+                        f"Open {featured['title']} at {featured['company']} and press "
+                        "Prepare application. The package is built only from facts your profile "
+                        "supports, and nothing is submitted without your approval."
+                    )
+                    links = [
+                        {"label": "Tailor for the top match", "href": f"/opportunities/{featured['id']}"}
+                    ]
+                else:
+                    answer = "Run a search first; then I can tailor your résumé for a real role."
+                    links = [{"label": "Run a search", "href": "/"}]
+                return {"answer": answer + llm_note, "links": links}
+            if any(word in question for word in ("research", "company", "companies")):
+                research_rows = _research_payload()["research"]
+                if research_rows:
+                    names = ", ".join(dict.fromkeys(r["company"] for r in research_rows[:6]))
+                    answer = f"I have researched: {names}. Facts and inferences are kept apart, with sources."
+                else:
+                    answer = "No company research yet. Research runs on your shortlist at the end of each run."
+                return {
+                    "answer": answer + llm_note,
+                    "links": [{"label": "Open Research", "href": "/research"}],
+                }
+            if "interview" in question:
+                interviews = home["metrics"]["interviews"]
+                if interviews:
+                    answer = (
+                        f"You have {interviews} application(s) at interview stage. Interview "
+                        "preparation notes live on each application's review page."
+                    )
+                else:
+                    answer = (
+                        "No interviews yet. When one comes in, preparation notes are on the "
+                        "application's review page."
+                    )
+                return {
+                    "answer": answer + llm_note,
+                    "links": [{"label": "Open the pipeline", "href": "/pipeline"}],
+                }
+            metrics = home["metrics"]
+            answer = (
+                f"Right now: {metrics['matches']} matches, {metrics['applications']} applications, "
+                f"{metrics['interviews']} interviews, {metrics['offers']} offers. "
+                "I can find roles, explain a fit, point you to research, or tell you what to do next."
+            )
+            return {"answer": answer + llm_note, "links": [{"label": "Open Home", "href": "/"}]}
+    finally:
+        ctx.close()
+
+
+_BRAND_DIR = REPO_ROOT / "brand"
+
+
+@app.get("/favicon.svg")
+def favicon() -> Response:
+    """The Velora mark as the favicon (served from the brand kit when present)."""
+
+    candidate = _BRAND_DIR / "logo" / "velora-mark.svg"
+    if candidate.is_file():
+        return Response(candidate.read_text(encoding="utf-8"), media_type="image/svg+xml")
+    return Response(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
+        '<path d="M5.5 5 L14.5 4 L29.5 44.5 L23 48 Z" fill="#718C9A"/>'
+        '<path d="M42.5 5 L33.5 4 L18.5 44.5 L25 48 Z" fill="#A7C3D5" fill-opacity="0.8"/>'
+        "</svg>",
+        media_type="image/svg+xml",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Settings (read only)
 # ---------------------------------------------------------------------------
 
@@ -1540,24 +1983,35 @@ def source_disable(source_id: str) -> dict[str, Any]:
 
 
 OPPORTUNITIES_CSS = (
-    "main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;"
-    "text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}"
-    ".summary{display:flex;gap:12px;flex-wrap:wrap;margin:28px 0}.stat{background:#fff;"
-    "border:1px solid #dce6df;border-radius:10px;padding:14px 18px}.stat strong{display:block;"
-    "font-size:25px}.filters{display:flex;gap:10px;flex-wrap:wrap;background:#fff;"
-    "border:1px solid #dce6df;border-radius:12px;padding:16px;margin-bottom:18px}"
-    "input{border:1px solid #cbd9d1;border-radius:7px;padding:9px;width:150px}"
-    "button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:9px 14px;"
-    "font-weight:700;cursor:pointer}button.pass{background:#fff;color:#18332f;"
-    "border:1px solid #cbd9d1}.queue{background:#fff;border:1px solid #dce6df;"
-    "border-radius:12px;padding:22px}.row{border-top:1px solid #dce6df;padding:16px 0;"
+    ".summary{display:flex;gap:14px;flex-wrap:wrap;margin:22px 0}"
+    ".stat{background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);"
+    "border:1px solid var(--glass-line);border-radius:var(--radius-sm);padding:14px 20px;"
+    "box-shadow:var(--shadow-soft)}.stat strong{display:block;font-size:25px;"
+    "font-family:Sora,Inter,sans-serif}"
+    ".filters{display:flex;gap:10px;flex-wrap:wrap;background:var(--glass);"
+    "backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);"
+    "border:1px solid var(--glass-line);border-radius:var(--radius);padding:16px;"
+    "margin-bottom:18px;box-shadow:var(--shadow-soft)}"
+    ".filters input{border:1px solid var(--silver);border-radius:9px;padding:9px 11px;width:150px;"
+    "font:inherit;background:rgba(255,255,255,.75);color:var(--ink)}"
+    ".filters button{background:linear-gradient(140deg,#3E5769,var(--ink));color:#fff;border:0;"
+    "border-radius:9px;padding:9px 14px;font-weight:600;cursor:pointer;font:inherit}"
+    ".filters button.pass{background:var(--glass-soft);color:var(--ink);border:1px solid var(--silver)}"
+    ".queue{background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);"
+    "border:1px solid var(--glass-line);border-radius:var(--radius);padding:22px 24px;"
+    "box-shadow:var(--shadow)}"
+    ".queue h2{font-family:Sora,Inter,sans-serif;font-size:17px;margin:0}"
+    ".row{border-top:1px solid var(--line);padding:16px 0;"
     "display:flex;justify-content:space-between;gap:16px}.row:first-child{margin-top:8px}"
-    ".score{color:#62877a;font-weight:750;text-align:right;min-width:170px}"
-    ".score button{margin-top:6px}.card-line{color:#6c7f7a;font-size:14px}"
+    ".score{color:var(--storm);font-weight:700;text-align:right;min-width:170px}"
+    ".score button{margin-top:6px;background:linear-gradient(140deg,#3E5769,var(--ink));color:#fff;"
+    "border:0;border-radius:9px;padding:8px 13px;font-weight:600;cursor:pointer;font:inherit}"
+    ".score button.pass{background:var(--glass-soft);color:var(--ink);border:1px solid var(--silver)}"
+    ".card-line{color:var(--muted);font-size:14px}"
     "@media(max-width:700px){.row{flex-direction:column}.score{text-align:left}}"
 )
 
-OPPORTUNITIES_BODY = """<main><a href="/">Back to overview</a><h1>Opportunities</h1><p>Ranked roles from the current discovery and intelligence run.</p><section class="summary"><div class="stat"><strong>__OPPORTUNITIES__</strong> opportunities</div><div class="stat"><strong>__SHORTLISTED__</strong> shortlisted</div><div class="stat"><strong>__JOBS__</strong> jobs discovered</div></section><form class="filters" id="filters"><input name="location" placeholder="Location"><input name="min_salary" type="number" placeholder="Min salary"><input name="max_salary" type="number" placeholder="Max salary"><input name="industry" placeholder="Industry"><button type="submit">Filter jobs</button><button type="button" id="clear">Clear</button></form><section class="queue" id="queue"><h2>Shortlist</h2><div class="row"><div><strong>Loading shortlisted opportunities...</strong></div></div></section><p id="error"></p><p id="status"></p><script>__ASK__function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}let all=[];function showError(message){document.querySelector('#status').textContent='';document.querySelector('#error').textContent=message||'The request failed.';}function showStatus(message){document.querySelector('#error').textContent='';document.querySelector('#status').textContent=message||'';}async function prepare(id){const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/prepare`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){const detail=typeof d.detail==='string'?d.detail:(text||'Preparation failed');showError(detail);return}showStatus(`Package ${d.status}. Unresolved questions: ${(d.unresolved_questions||[]).length}`)}async function pass(id){if(!await ask('Pass on this role? It leaves your list and will not come back.',{confirmLabel:'Pass'}))return;const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/pass`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){showError(typeof d.detail==='string'?d.detail:(text||'Pass failed'));return}showStatus('Passed. This role will not come back.');all=all.filter(o=>o.id!==id);render(all)}function render(rows){const q=document.querySelector('#queue');q.innerHTML='<h2>Shortlist</h2>'+ (rows.length?rows.map(o=>`<div class="row"><div><strong>${esc(o.rank_position??'')}. <a href="/opportunities/${encodeURIComponent(o.id)}">${esc(o.title)}</a></strong><br><span>${esc(o.company)} · ${esc(o.location||'Location not listed')} · ${esc(o.status)}</span><br><span class="card-line">Pay: ${esc(o.compensation_text||'not listed')} · Confidence: ${o.confidence==null?'not assessed':esc(Math.round(o.confidence*100)+'%')}</span><br><span>${esc(o.why_this_job||o.shortlist_reason||'Shortlisted by the ranking engine.')}</span><br><span class="card-line">Biggest gap: ${esc(o.primary_gap||'none noted')}</span></div><span class="score">${o.fit_score==null?'Fit pending':`Fit ${Math.round(o.fit_score*100)}%`}<br><button type="button" data-id="${esc(o.id)}">Prepare application</button><br><button type="button" class="pass" data-pass="${esc(o.id)}">Pass</button></span></div>`).join(''):'<div class="row"><div><strong>No jobs match those filters.</strong></div></div>');q.querySelectorAll('button[data-id]').forEach(btn=>btn.addEventListener('click',()=>prepare(btn.dataset.id)));q.querySelectorAll('button[data-pass]').forEach(btn=>btn.addEventListener('click',()=>pass(btn.dataset.pass)));}fetch('/api/opportunities').then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()}).then(d=>{all=d.opportunities;render(all)}).catch(error=>{document.querySelector('#queue').innerHTML='<h2>Shortlist</h2><div class="row"><div><strong>The opportunity queue could not be loaded.</strong></div></div>';showError(error.message)});document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),loc=(f.get('location')||'').toString().toLowerCase(),ind=(f.get('industry')||'').toString().toLowerCase(),min=Number(f.get('min_salary'))||0,max=Number(f.get('max_salary'))||Infinity;render(all.filter(o=>(!loc||`${o.location}`.toLowerCase().includes(loc))&&(!ind||`${o.company} ${o.title} ${o.industry??''}`.toLowerCase().includes(ind))&&(!min||o.salary_max>=min)&&(!isFinite(max)||o.salary_min<=max)))});document.querySelector('#clear').onclick=()=>{document.querySelector('#filters').reset();render(all)};</script></main>"""
+OPPORTUNITIES_BODY = """<main class="wrap"><a href="/">Back to overview</a><h1>Opportunities</h1><p>Ranked roles from the current discovery and intelligence run.</p><section class="summary"><div class="stat"><strong>__OPPORTUNITIES__</strong> opportunities</div><div class="stat"><strong>__SHORTLISTED__</strong> shortlisted</div><div class="stat"><strong>__JOBS__</strong> jobs discovered</div></section><form class="filters" id="filters"><input name="location" placeholder="Location"><input name="min_salary" type="number" placeholder="Min salary"><input name="max_salary" type="number" placeholder="Max salary"><input name="industry" placeholder="Industry"><button type="submit">Filter jobs</button><button type="button" id="clear">Clear</button></form><section class="queue" id="queue"><h2>Shortlist</h2><div class="row"><div><strong>Loading shortlisted opportunities...</strong></div></div></section><p id="error"></p><p id="status"></p><script>__ASK__function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}let all=[];function showError(message){document.querySelector('#status').textContent='';document.querySelector('#error').textContent=message||'The request failed.';}function showStatus(message){document.querySelector('#error').textContent='';document.querySelector('#status').textContent=message||'';}async function prepare(id){const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/prepare`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){const detail=typeof d.detail==='string'?d.detail:(text||'Preparation failed');showError(detail);return}showStatus(`Package ${d.status}. Unresolved questions: ${(d.unresolved_questions||[]).length}`)}async function pass(id){if(!await ask('Pass on this role? It leaves your list and will not come back.',{confirmLabel:'Pass'}))return;const r=await fetch(`/api/opportunities/${encodeURIComponent(id)}/pass`,{method:'POST'});const text=await r.text();let d={};try{d=JSON.parse(text)}catch(e){d={detail:text}}if(!r.ok){showError(typeof d.detail==='string'?d.detail:(text||'Pass failed'));return}showStatus('Passed. This role will not come back.');all=all.filter(o=>o.id!==id);render(all)}function render(rows){const q=document.querySelector('#queue');q.innerHTML='<h2>Shortlist</h2>'+ (rows.length?rows.map(o=>`<div class="row"><div><strong>${esc(o.rank_position??'')}. <a href="/opportunities/${encodeURIComponent(o.id)}">${esc(o.title)}</a></strong><br><span>${esc(o.company)} · ${esc(o.location||'Location not listed')} · ${esc(o.status)}</span><br><span class="card-line">Pay: ${esc(o.compensation_text||'not listed')} · Confidence: ${o.confidence==null?'not assessed':esc(Math.round(o.confidence*100)+'%')}</span><br><span>${esc(o.why_this_job||o.shortlist_reason||'Shortlisted by the ranking engine.')}</span><br><span class="card-line">Biggest gap: ${esc(o.primary_gap||'none noted')}</span></div><span class="score">${o.fit_score==null?'Fit pending':`Fit ${Math.round(o.fit_score*100)}%`}<br><button type="button" data-id="${esc(o.id)}">Prepare application</button><br><button type="button" class="pass" data-pass="${esc(o.id)}">Pass</button></span></div>`).join(''):'<div class="row"><div><strong>No jobs match those filters.</strong></div></div>');q.querySelectorAll('button[data-id]').forEach(btn=>btn.addEventListener('click',()=>prepare(btn.dataset.id)));q.querySelectorAll('button[data-pass]').forEach(btn=>btn.addEventListener('click',()=>pass(btn.dataset.pass)));}fetch('/api/opportunities').then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()}).then(d=>{all=d.opportunities;render(all)}).catch(error=>{document.querySelector('#queue').innerHTML='<h2>Shortlist</h2><div class="row"><div><strong>The opportunity queue could not be loaded.</strong></div></div>';showError(error.message)});document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),loc=(f.get('location')||'').toString().toLowerCase(),ind=(f.get('industry')||'').toString().toLowerCase(),min=Number(f.get('min_salary'))||0,max=Number(f.get('max_salary'))||Infinity;render(all.filter(o=>(!loc||`${o.location}`.toLowerCase().includes(loc))&&(!ind||`${o.company} ${o.title} ${o.industry??''}`.toLowerCase().includes(ind))&&(!min||o.salary_max>=min)&&(!isFinite(max)||o.salary_min<=max)))});document.querySelector('#clear').onclick=()=>{document.querySelector('#filters').reset();render(all)};</script></main>"""
 
 
 @app.get("/opportunities", response_class=HTMLResponse)
@@ -1632,18 +2086,28 @@ def settings_page() -> str:
     return page_shell("Settings", SETTINGS_BODY, active="/settings")
 
 
+@app.get("/research", response_class=HTMLResponse)
+def research_page() -> str:
+    return page_shell("Research", RESEARCH_BODY, active="/research", css=RESEARCH_CSS)
+
+
+@app.get("/career-plan", response_class=HTMLResponse)
+def career_plan_page() -> str:
+    return page_shell("Career Plan", PLAN_BODY, active="/career-plan", css=PLAN_CSS)
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard() -> str:
-    """Today: what requires the owner's attention."""
+    """Home: a clearer path forward — metrics, the featured opportunity, progress, upcoming."""
 
-    return page_shell("Today", TODAY_BODY, active="/", css=TODAY_CSS)
+    return page_shell("Home", home_body(), active="/", css=HOME_CSS)
 
 
 @app.get("/applications", response_class=HTMLResponse)
 def applications_page() -> str:
     return page_shell(
         "Applications",
-        """<main><a href="/">Back to overview</a><h1>Applications</h1>
+        """<main class="wrap"><a href="/">Back to overview</a><h1>Applications</h1>
 <p>Select complete packages and approve them together. Each approval is stored against that package's content hash, so a later edit invalidates it. The list shows the latest revision of each application.</p>
 <p id="filter-note" class="why"></p>
 <form id="batch"><div id="list">Loading packages...</div><button type="submit" id="approve">Approve selected</button> <button type="button" id="refresh-all">Refresh all unsubmitted</button></form>
@@ -1708,7 +2172,7 @@ async function applyOne(btn){
   const id=btn.dataset.id;
   const line=document.querySelector('#result');
   const manual=btn.dataset.manual==='1';
-  const ok=await ask(manual?'Open this posting in your browser? Sabra cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.',{confirmLabel:manual?'Open in browser':'Submit'});
+  const ok=await ask(manual?'Open this posting in your browser? Velora cannot fill this employer form, so it types nothing. It saves your resume and cover letter as PDFs and shows where, then waits for you to submit the form and report the result.':'Submit this approved application? A CAPTCHA opens in a headed browser for you to solve. This does not solve a CAPTCHA.',{confirmLabel:manual?'Open in browser':'Submit'});
   if(!ok)return;
   inflight.add(id);
   setApplyDisabled(id,true);
@@ -1730,7 +2194,7 @@ function forceSection(id,s){
 }
 function wireForce(box,id){
   box.querySelectorAll('button.force-report').forEach(b=>b.addEventListener('click',async()=>{
-    const typed=await ask('Forcing a report records an outcome without Sabra seeing it. Type the application id to confirm: '+id,{input:true,confirmLabel:'Force report'});
+    const typed=await ask('Forcing a report records an outcome without Velora seeing it. Type the application id to confirm: '+id,{input:true,confirmLabel:'Force report'});
     if(typed===null)return;
     const forced=await readBody(await fetch('/api/applications/'+encodeURIComponent(id)+'/handoff/force',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome:b.dataset.outcome,confirm_id:typed})}));
     document.querySelector('#result').textContent=forced.ok?('Recorded as forced. The application is now '+forced.d.application_status+'.'):(forced.d.detail||forced.text||'Forced report refused');
@@ -1744,7 +2208,7 @@ function showHandoff(box,id,s){
   if(!waiting){box.remove();return;}
   const files=Object.entries(s.documents||{}).map(([k,v])=>`<li>${esc(k.replace(/_/g,' '))}: <code>${esc(v)}</code></li>`).join('');
   const attach=s.manual&&files?`<span class="why">Attach these files when the form asks:</span><ul class="files">${files}</ul>`:'';
-  const where=s.manual?(s.active?`The posting is open in a browser window (${esc(s.state||'open')}). Nothing was typed. Fill it in, attach the files, submit it yourself, then tell Sabra what happened.`:'No browser window is open for this posting. Tell Sabra whether you submitted it.'):(s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Sabra what happened.`:'No browser window is open for this application. Tell Sabra whether it was submitted.');
+  const where=s.manual?(s.active?`The posting is open in a browser window (${esc(s.state||'open')}). Nothing was typed. Fill it in, attach the files, submit it yourself, then tell Velora what happened.`:'No browser window is open for this posting. Tell Velora whether you submitted it.'):(s.active?`The browser window is open (${esc(s.state||'open')}). Solve the check and press Submit there, then tell Velora what happened.`:'No browser window is open for this application. Tell Velora whether it was submitted.');
   box.innerHTML=`<span class="why">${where}</span>${attach}<button type="button" class="outcome" data-outcome="submitted">I submitted it</button><button type="button" class="outcome" data-outcome="abandoned">I didn't submit</button>`+forceSection(id,s);
   wireForce(box,id);
   box.querySelectorAll('button.outcome').forEach(b=>b.addEventListener('click',async()=>{
@@ -1800,7 +2264,7 @@ document.querySelector('#refresh-all').addEventListener('click',async()=>{
 load();
 </script></main>""".replace("__ASK__", ASK_JS),
         active="/applications",
-        css="""body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p{color:#6c7f7a}.row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:10px 0}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:11px 16px;font-weight:700}button.copy,button.apply,button.refresh-one{padding:6px 10px;margin-left:8px}button:disabled{background:#9aada6;cursor:not-allowed}button.outcome,button.force-report{padding:6px 10px;margin:6px 8px 0 0}.force{margin-top:10px;padding-top:8px;border-top:2px solid #b3261e}button.force-report{background:#b3261e}.handoff{margin-top:8px;padding:8px;border:1px dashed #9aada6;border-radius:8px}code{font-size:12px}.why{color:#6c7f7a;display:block;margin-top:6px}dialog{border:1px solid #dce6df;border-radius:12px;padding:22px;max-width:440px;background:#fff;color:#18332f}dialog::backdrop{background:rgba(24,51,47,.45)}dialog p{margin:0 0 16px;color:#18332f}dialog button{margin-right:8px}""",
+        css=""".row{display:flex;gap:12px;align-items:flex-start;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-line);border-radius:var(--radius-sm);padding:16px;margin:10px 0;box-shadow:var(--shadow-soft)}button.copy,button.apply,button.refresh-one{padding:6px 10px;margin-left:8px}button.outcome,button.force-report{padding:6px 10px;margin:6px 8px 0 0}.force{margin-top:10px;padding-top:8px;border-top:2px solid var(--warn)}button.force-report{background:var(--warn)}.handoff{margin-top:8px;padding:10px;border:1px dashed var(--slate);border-radius:10px}code{font-size:12px}.why{color:var(--muted);display:block;margin-top:6px}#batch>button{margin-top:8px}""",
     )
 
 
@@ -1830,7 +2294,7 @@ def answers_page() -> str:
     options += '<option value="__custom__">Custom key</option>'
     return page_shell(
         "Answers",
-        """<main><a href="/">Back to overview</a><h1>Answer memory</h1>
+        """<main class="wrap"><a href="/">Back to overview</a><h1>Answer memory</h1>
 <p>Record an answer, then verify it. Only a verified answer is typed onto a form. Salary, background check, and the other sensitive questions stay blank until you verify them.</p>
 <form id="record"><label>Question key<select name="key" id="key">__OPTIONS__</select></label><label id="custom-label">Custom key<input name="custom_key" id="custom-key" placeholder="for example prior_employer"></label><label>Answer<input name="value" required></label><label>Question wording, optional<input name="question_text"></label><button type="submit">Record answer</button></form>
 <p id="line"></p><ul id="saved"></ul>
@@ -1870,5 +2334,5 @@ document.querySelector('#record').addEventListener('submit',async e=>{
 load();
 </script></main>""".replace("__OPTIONS__", options),
         active="/answers",
-        css="""body{margin:0;background:#f4f7f3;color:#18332f;font:15px/1.5 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:48px 24px}a{color:#62877a;font-weight:700;text-decoration:none}h1{font-size:38px;letter-spacing:-.04em;margin:28px 0 8px}p,label{color:#6c7f7a}form,li{background:#fff;border:1px solid #dce6df;border-radius:10px;padding:14px;margin:12px 0}input,select{display:block;width:100%;margin:6px 0 12px;padding:8px;border:1px solid #cbd9d1;border-radius:7px}button{background:#18332f;color:#fff;border:0;border-radius:7px;padding:9px 14px;font-weight:700}""",
+        css="""form,li{background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-line);border-radius:var(--radius-sm);padding:16px;margin:12px 0;box-shadow:var(--shadow-soft)}ul{padding-left:0;list-style:none}li{display:block}input,select{display:block;width:100%;margin:6px 0 12px}""",
     )
