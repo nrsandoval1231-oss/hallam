@@ -1,7 +1,9 @@
-# Hallam
+# Hallam — VELORA
 
 Hallam is the repository for **Sabra Job Engine V1** — an outcome-driven job-search
 operator with human control at the external application submission boundary.
+Its web interface is **VELORA**, a Cloudglass Architectural design system
+(documented in [`BRAND.md`](BRAND.md), assets in [`brand/`](brand/)).
 
 The canonical build contract is [`SABRA_JOB_ENGINE_V1_BUILD.md`](SABRA_JOB_ENGINE_V1_BUILD.md).
 Read it before coding. [`AGENTS.md`](AGENTS.md) carries the agent rules.
@@ -24,20 +26,25 @@ Verified against real data, not scaffolding:
 | M7 Ledger | Done | Append-only events, ledger projection, outcomes, learning records |
 | M8 Pilot | **Blocked on owner input** | See below |
 
-`apps/api` is a FastAPI app with an HTML dashboard that covers the whole loop from the
-browser. Every page shares one navigation bar: `/` (Today: what needs your attention and
-**Run now**; each count links to the page that acts on it), `/opportunities` (cards with
+`apps/api` is a FastAPI app serving the VELORA interface, which covers the whole loop
+from the browser. Every page shares one navigation bar: `/` (**Home**: "A clearer path
+forward", real metrics, the featured opportunity, recent opportunities, your pipeline
+progress, upcoming items, and **Run now**), `/opportunities` (cards with
 pay, confidence and the biggest gap; Prepare and Pass), `/opportunities/{id}` (the
 posting, why it scored as it did, the hard-filter decision, verified facts apart from
 inferences, the application and the event history), `/applications` (batch approval; each
 row links to its review page), `/packages/{id}` (the application review: the opening, fit,
 résumé, cover letter, answers with their truth levels, unresolved questions, warnings and
 how each artifact was written, then one **Approve application** bound to the content hash),
-`/pipeline` (every application past approval by stage, with a **Record outcome** control
-and its history), `/candidate` (your details, résumé upload, the profile with its truth
-levels), `/searches` (define and switch search profiles), `/answers` (record and verify)
-and `/settings` (the configuration, read only, plus **Job boards**: enable or disable a
-board, or paste a careers URL to check it and add it). JSON routes sit beside them: health, status, today, candidate,
+`/research` (the company research packets behind the shortlist) and `/career-plan` (your
+active search as objectives, the recurring fit gaps, and the actions derived from them).
+The account menu holds `/pipeline` (every application past approval by stage, with a
+**Record outcome** control and its history), `/candidate` (your details, résumé upload,
+the profile with its truth levels), `/searches` (define and switch search profiles),
+`/answers` (record and verify) and `/settings` (the configuration, read only, plus
+**Job boards**: enable or disable a board, or paste a careers URL to check it and add
+it). The **Ask Velora** pill answers questions like "what requires my attention" from
+real engine data. JSON routes sit beside them: health, status, home, today, candidate,
 searches, runs, settings, sources, the shortlist, opportunity detail, package review and reject,
 package preparation, the pipeline, the application ledger, outcomes, and the learning
 dataset (`/api/learning-records`, JSON lines). On the command line, `sabra outcome`,
@@ -96,7 +103,7 @@ be open to; default `US`) and `max_per_company` (the most roles from one company
 default 2). `sabra rank --rescore` applies a changed search to roles already stored; roles you
 passed on, and roles with a prepared or approved package, are left alone.
 
-The whole loop in one command, or from the browser's **Today** page (**Run now**):
+The whole loop in one command, or from the browser's **Home** page (**Run now**):
 
 ```bash
 uv run sabra run                  # discover, rank, research the shortlist
@@ -185,6 +192,7 @@ tests/           test suite and committed fixtures
 
 ## Documentation
 
+- [`BRAND.md`](BRAND.md) — the VELORA Cloudglass brand system (canonical)
 - [`docs/operations/source-registry-findings.md`](docs/operations/source-registry-findings.md)
 - [`docs/operations/m6-greenhouse-form-findings.md`](docs/operations/m6-greenhouse-form-findings.md)
 - [`docs/operations/windows-pilot.md`](docs/operations/windows-pilot.md)
