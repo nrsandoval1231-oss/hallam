@@ -331,7 +331,8 @@ _METROS: tuple[MetroArea, ...] = (
             "Benbrook", "Crowley", "Forest Hill", "Kennedale", "Everman", "Pantego",
             "Dalworthington Gardens", "Melissa", "Anna", "Roanoke", "Haslet", "Justin",
             "Double Oak", "Bartonville", "Argyle", "Corinth", "Lake Dallas",
-            "Hickory Creek", "Highland Village", "Copper Canyon", "Lantana",
+            "Hickory Creek", "Highland Village", "Copper Canyon", "Lantana", "Northlake",
+            "Westlake", "Westworth Village", "Blue Mound", "Richland Hills", "Sansom Park",
         ),
     ),
     MetroArea(
