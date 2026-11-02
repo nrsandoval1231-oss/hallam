@@ -53,6 +53,7 @@ vm.runInContext(input.script, ctx);
         ["node", "-e", harness],
         input=json.dumps(dict(script=script, payload=payload, expression=expression)),
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=True,
     )

@@ -64,6 +64,7 @@ from sabra_engine.runs import RunService, run_to_dict
 from sabra_engine.sources import SourcesService
 from sqlalchemy.exc import OperationalError
 
+from .auth import TokenAuthMiddleware
 from .pages import (
     ASK_JS,
     CANDIDATE_BODY,
@@ -125,6 +126,8 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Artemis", version="0.1.0", lifespan=_lifespan)
+# Token auth when SABRA_API_TOKEN is set; a no-op otherwise (local single-user mode).
+app.add_middleware(TokenAuthMiddleware)
 
 
 @app.exception_handler(SabraError)

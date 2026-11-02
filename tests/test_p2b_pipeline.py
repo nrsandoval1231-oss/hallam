@@ -302,19 +302,20 @@ def test_the_pipeline_endpoint_on_an_empty_database(monkeypatch) -> None:
 def test_recording_an_outcome_over_http(prepared, monkeypatch) -> None:
     client = api(prepared, monkeypatch)
     mark_applied(prepared)
+    occurred_at = datetime.now(UTC)
     response = client.post(
         f"/api/applications/{prepared.application_id}/outcomes",
         json={
             "kind": "interview",
             "note": "Panel on Friday",
             "contact": "Pat Lee",
-            "occurred_at": "2026-10-01T09:00:00+00:00",
+            "occurred_at": occurred_at.isoformat(),
         },
     )
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["kind"] == "INTERVIEW" and body["applied_state"] == "INTERVIEW"
-    assert body["occurred_at"] == "2026-10-01T09:00:00+00:00"
+    assert body["occurred_at"] == occurred_at.isoformat()
     assert opportunity_status(prepared) == "INTERVIEW"
     ledger = client.get(f"/api/applications/{prepared.application_id}/ledger").json()
     assert ledger["status"] == "APPLIED"
@@ -353,6 +354,7 @@ def run(prepared, monkeypatch, *args):
 
 def test_sabra_outcome_records_and_moves_the_lifecycle(prepared, monkeypatch) -> None:
     mark_applied(prepared)
+    occurred_at = datetime.now(UTC)
     result = run(
         prepared,
         monkeypatch,
@@ -362,13 +364,13 @@ def test_sabra_outcome_records_and_moves_the_lifecycle(prepared, monkeypatch) ->
         "--note",
         "recruiter call",
         "--at",
-        "2026-10-02T10:00:00+00:00",
+        occurred_at.isoformat(),
         "--json",
     )
     assert result.exit_code == 0, result.output
     body = json.loads(result.stdout)
     assert body["kind"] == "PHONE_SCREEN" and body["applied_state"] == "SCREEN"
-    assert body["occurred_at"] == "2026-10-02T10:00:00+00:00"
+    assert body["occurred_at"] == occurred_at.isoformat()
     assert opportunity_status(prepared) == "SCREEN"
 
 

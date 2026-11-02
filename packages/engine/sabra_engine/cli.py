@@ -1045,6 +1045,116 @@ def sources_enable(
     _set_source_enabled(source_id, True, as_json)
 
 
+# ---------------------------------------------------------------------------
+# Database: migrations, backup, restore
+# ---------------------------------------------------------------------------
+
+
+db_app = typer.Typer(
+    help="Schema migrations, backup and restore.",
+    no_args_is_help=True,
+)
+app.add_typer(db_app, name="db")
+
+
+def _database_status_payload(ctx: EngineContext) -> dict[str, Any]:
+    from sabra_domain.migrations import migration_status
+    from sqlalchemy.engine import make_url
+
+    status = migration_status(ctx.db.engine)
+    try:
+        url = make_url(ctx.settings.database_url).render_as_string(hide_password=True)
+    except Exception:
+        url = ctx.settings.database_url
+    status["database_url"] = url
+    return status
+
+
+@db_app.command("status")
+def db_status(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Show the applied, pending and unknown schema migrations."""
+
+    ctx = _context()
+    try:
+        _emit(_database_status_payload(ctx), as_json, "Database status")
+    finally:
+        ctx.close()
+
+
+@db_app.command("migrate")
+def db_migrate(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Back up the database (SQLite), then apply pending schema migrations."""
+
+    from sabra_domain.migrations import (
+        MigrationError,
+        backup_database,
+        migrate,
+        sqlite_file_path,
+    )
+
+    ctx = _context()
+    try:
+        backup = None
+        if sqlite_file_path(ctx.settings.database_url) is not None:
+            backup = backup_database(ctx.settings.database_url)
+        try:
+            report = migrate(ctx.db.engine)
+        except MigrationError as exc:
+            typer.echo(f"MigrationError: {exc}")
+            raise typer.Exit(1) from exc
+        payload = {
+            "previous_version": report.previous_version,
+            "current_version": report.current_version,
+            "applied": list(report.applied),
+            "backup": str(backup) if backup else None,
+        }
+        _emit(payload, as_json, "Migration complete" if report.changed else "Already up to date")
+    finally:
+        ctx.close()
+
+
+@db_app.command("backup")
+def db_backup(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Copy the SQLite database to a timestamped, verified backup file."""
+
+    from sabra_domain.migrations import MigrationError, backup_database
+
+    ctx = _context()
+    try:
+        try:
+            target = backup_database(ctx.settings.database_url)
+        except MigrationError as exc:
+            typer.echo(f"MigrationError: {exc}")
+            raise typer.Exit(1) from exc
+        _emit({"backup": str(target)}, as_json, f"Backup written to {target}")
+    finally:
+        ctx.close()
+
+
+@db_app.command("restore")
+def db_restore(
+    backup: Path = typer.Option(..., "--from", help="Backup file to restore"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Replace the database with a backup copy. Stop the dashboard first."""
+
+    from sabra_domain.migrations import MigrationError, restore_database
+
+    # Resolve the URL, then release every connection: restoring overwrites the
+    # live file, which is impossible while this process (or the dashboard) holds it.
+    ctx = _context()
+    try:
+        database_url = ctx.settings.database_url
+    finally:
+        ctx.close()
+    try:
+        target = restore_database(backup, database_url)
+    except MigrationError as exc:
+        typer.echo(f"MigrationError: {exc}")
+        raise typer.Exit(1) from exc
+    _emit({"restored": str(target)}, as_json, f"Database restored from {backup}")
+
+
 def main() -> None:
     try:
         app()
