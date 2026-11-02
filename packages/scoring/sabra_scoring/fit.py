@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sabra_domain.enums import RemoteStatus
+from sabra_domain.geography import metro_matches_location
 from sabra_domain.identity import normalize_location, normalize_text
 from sabra_domain.schemas import (
     FitAssessmentSchema,
@@ -318,7 +319,7 @@ class HeuristicFitEngine:
                 for token in normalize_location(state).split()
             }
             metro_hit = any(
-                set(normalize_location(metro).split()) <= tokens
+                metro_matches_location(metro, job.location)
                 for metro in search.locations.metro_areas
                 if metro
             )

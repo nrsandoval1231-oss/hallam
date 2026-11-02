@@ -1,4 +1,5 @@
-"""Which countries or regions a posting's location text names.
+"""Which countries or regions a posting's location text names, and which
+cities a named US metro area covers.
 
 Used for REMOTE postings only. A remote role is not tied to a city, but it is usually
 tied to a country ("Remote - Canada", "Remote / Australia / Singapore", "Remote - EMEA"),
@@ -7,13 +8,24 @@ deliberately conservative: it recognises a handful of countries and regions by n
 ISO code, and reads a US state name or abbreviation as the United States. It does not
 guess from city names, and text that names nothing it knows is reported as naming nothing,
 which the filter treats as "open" (absence of evidence is not evidence of rejection).
+
+The metro registry answers a different question: an ON-SITE posting in "Plano, TX" is
+inside "Dallas-Fort Worth", and a search profile should not have to enumerate every
+suburb to say so. Matching is phrase-based and state-guarded — a posting in "Dallas,
+GA" never satisfies the Dallas-Fort Worth metro.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
-from .identity import US_STATE_ABBREVIATIONS
+from .identity import (
+    US_STATE_ABBREVIATIONS,
+    normalize_location,
+    normalize_text,
+    token_matches_phrase,
+)
 
 # Canonical codes. Regions are their own codes so "Remote - EMEA" is not mistaken for any
 # one country.
@@ -276,3 +288,259 @@ def remote_region_conflict(location: str | None, accepted: set[str]) -> tuple[bo
 
 def describe(codes: list[str]) -> str:
     return ", ".join(DISPLAY_NAMES.get(code, code) for code in codes)
+
+
+# ---------------------------------------------------------------------------
+# US metro areas: a stated metro expands to its principal cities
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MetroArea:
+    """One metro: the names it is known by, the states that guard it, its cities."""
+
+    display: str
+    states: frozenset[str]
+    aliases: tuple[str, ...]
+    cities: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_city_phrases", tuple(normalize_location(c) for c in self.cities))
+        object.__setattr__(
+            self, "_alias_phrases", tuple(normalize_location(a) for a in self.aliases)
+        )
+
+
+# Cities are the principal suburbs an ATS posting would name; the state guard
+# (not list length) is what keeps same-named cities in other states out.
+_METROS: tuple[MetroArea, ...] = (
+    MetroArea(
+        "Dallas-Fort Worth",
+        frozenset({"tx"}),
+        ("Dallas-Fort Worth", "Dallas/Fort Worth", "DFW", "Dallas Fort Worth",
+         "Metroplex", "Dallas", "Fort Worth"),
+        (
+            "Dallas", "Fort Worth", "Plano", "Irving", "Arlington", "Frisco", "McKinney",
+            "Garland", "Denton", "Richardson", "Carrollton", "Lewisville", "Allen",
+            "Mesquite", "Grapevine", "Coppell", "Addison", "Southlake", "Keller",
+            "Grand Prairie", "Euless", "Bedford", "Hurst", "Mansfield", "DeSoto",
+            "Duncanville", "Lancaster", "The Colony", "Wylie", "Sachse", "Rowlett",
+            "Rockwall", "Burleson", "Cleburne", "Flower Mound", "Highland Park",
+            "University Park", "Farmers Branch", "Prosper", "Little Elm", "Celina",
+            "Trophy Club", "North Richland Hills", "Haltom City", "Watauga", "Saginaw",
+            "Benbrook", "Crowley", "Forest Hill", "Kennedale", "Everman", "Pantego",
+            "Dalworthington Gardens", "Melissa", "Anna", "Roanoke", "Haslet", "Justin",
+            "Double Oak", "Bartonville", "Argyle", "Corinth", "Lake Dallas",
+            "Hickory Creek", "Highland Village", "Copper Canyon", "Lantana",
+        ),
+    ),
+    MetroArea(
+        "Houston",
+        frozenset({"tx"}),
+        ("Houston", "Greater Houston", "Houston Metro"),
+        (
+            "Houston", "Sugar Land", "Katy", "Cypress", "Spring", "Humble", "Tomball",
+            "Pasadena", "Baytown", "League City", "Pearland", "Friendswood",
+            "Missouri City", "Stafford", "Richmond", "Rosenberg", "Kingwood",
+            "Bellaire", "Deer Park", "La Porte", "Seabrook", "Kemah", "Atascocita",
+            "The Woodlands", "West University Place", "Galena Park", "Fulshear",
+            "Brookshire", "Huffman", "Crosby", "Dayton", "Mont Belvieu", "Waller",
+        ),
+    ),
+    MetroArea(
+        "Austin",
+        frozenset({"tx"}),
+        ("Austin", "Austin Metro", "Greater Austin"),
+        (
+            "Austin", "Round Rock", "Cedar Park", "Georgetown", "San Marcos",
+            "Pflugerville", "Leander", "Kyle", "Buda", "Lakeway", "Hutto", "Taylor",
+            "Manor", "Elgin", "Dripping Springs", "West Lake Hills", "Bee Cave",
+            "Anderson Mill", "Jollyville", "Lago Vista", "Liberty Hill", "Florence",
+            "Jarrell", "Salado", "Bastrop", "Lockhart",
+        ),
+    ),
+    MetroArea(
+        "San Antonio",
+        frozenset({"tx"}),
+        ("San Antonio", "San Antonio Metro", "Greater San Antonio"),
+        (
+            "San Antonio", "Alamo Heights", "Helotes", "Converse", "Universal City",
+            "Schertz", "Cibolo", "Boerne", "Leon Valley", "Windcrest", "Live Oak",
+            "Castle Hills", "Terrell Hills", "Fair Oaks Ranch", "Bulverde", "Stone Oak",
+            "Selma", "Garden Ridge", "Shavano Park", "Hollywood Park", "Hill Country Village",
+        ),
+    ),
+    MetroArea(
+        "Atlanta",
+        frozenset({"ga"}),
+        ("Atlanta", "Atlanta Metro", "Greater Atlanta", "ATL"),
+        (
+            "Atlanta", "Marietta", "Sandy Springs", "Alpharetta", "Roswell",
+            "Johns Creek", "Duluth", "Decatur", "Smyrna", "Kennesaw", "Woodstock",
+            "Canton", "Peachtree City", "Douglasville", "Newnan", "Stockbridge",
+            "McDonough", "Tucker", "Norcross", "Suwanee", "Lawrenceville", "Snellville",
+            "Lilburn", "Mableton", "East Point", "College Park", "Brookhaven",
+            "Chamblee", "Dunwoody", "Vinings", "Austell", "Powder Springs", "Buckhead",
+            "Union City", "Forest Park", "Morrow", "Riverdale", "Jonesboro", "Fairburn",
+            "Milton", "Tyrone", "Fayetteville", "Hiram",
+        ),
+    ),
+    MetroArea(
+        "Denver",
+        frozenset({"co"}),
+        ("Denver", "Denver Metro", "Denver-Aurora", "Denver Aurora"),
+        (
+            "Denver", "Aurora", "Lakewood", "Arvada", "Westminster", "Thornton",
+            "Centennial", "Broomfield", "Commerce City", "Wheat Ridge", "Golden",
+            "Englewood", "Littleton", "Highlands Ranch", "Parker", "Castle Rock",
+            "Brighton", "Northglenn", "Federal Heights", "Sheridan", "Edgewater",
+            "Glendale", "Superior", "Louisville", "Lafayette", "Erie", "Morrison",
+            "Evergreen", "Ken Caryl", "Columbine", "Watkins", "Bennett", "Strasburg",
+        ),
+    ),
+    MetroArea(
+        "Phoenix",
+        frozenset({"az"}),
+        ("Phoenix", "Phoenix Metro", "Phoenix Area", "Valley of the Sun"),
+        (
+            "Phoenix", "Mesa", "Chandler", "Scottsdale", "Glendale", "Tempe", "Peoria",
+            "Surprise", "Goodyear", "Avondale", "Gilbert", "Queen Creek",
+            "San Tan Valley", "Buckeye", "Cave Creek", "Carefree", "Fountain Hills",
+            "Paradise Valley", "Sun City", "El Mirage", "Tolleson", "Litchfield Park",
+            "Youngtown", "Guadalupe", "Apache Junction", "Anthem", "New River",
+        ),
+    ),
+    MetroArea(
+        "Chicago",
+        frozenset({"il"}),
+        ("Chicago", "Chicago Metro", "Chicagoland", "Chicagoland Area"),
+        (
+            "Chicago", "Aurora", "Naperville", "Joliet", "Elgin", "Waukegan", "Cicero",
+            "Schaumburg", "Evanston", "Oak Park", "Skokie", "Des Plaines",
+            "Arlington Heights", "Palatine", "Hoffman Estates", "Bolingbrook",
+            "Orland Park", "Tinley Park", "Oak Lawn", "Berwyn", "Mount Prospect",
+            "Wheaton", "Downers Grove", "Glenview", "Elmhurst", "Lombard",
+            "Carol Stream", "Streamwood", "Bartlett", "Plainfield", "Romeoville",
+            "Lockport", "Mokena", "Frankfort", "Homer Glen", "New Lenox", "Crystal Lake",
+            "Algonquin", "Lake in the Hills", "McHenry", "Gurnee", "Mundelein",
+            "Libertyville", "Northbrook", "Highland Park", "Deerfield", "Buffalo Grove",
+            "Wheeling", "Vernon Hills", "Geneva", "St. Charles", "Batavia",
+        ),
+    ),
+    MetroArea(
+        "New York",
+        frozenset({"ny", "nj", "ct"}),
+        ("New York", "NYC", "New York City", "New York Metro", "Tri-State Area"),
+        (
+            "New York", "Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island",
+            "Long Island City", "Astoria", "Flushing", "Jamaica", "Forest Hills",
+            "Bay Ridge", "Park Slope", "Williamsburg", "Greenpoint", "Harlem",
+            "Jersey City", "Hoboken", "Newark", "White Plains", "Yonkers",
+            "New Rochelle", "Mount Vernon", "Stamford", "Norwalk", "Greenwich",
+            "Westport", "Darien", "New Canaan", "Hempstead", "Mineola", "Garden City",
+            "Long Beach", "Far Rockaway", "Bayside",
+        ),
+    ),
+    MetroArea(
+        "Boston",
+        frozenset({"ma", "nh"}),
+        ("Boston", "Boston Metro", "Greater Boston"),
+        (
+            "Boston", "Cambridge", "Somerville", "Brookline", "Quincy", "Newton",
+            "Waltham", "Watertown", "Lexington", "Concord", "Bedford", "Burlington",
+            "Woburn", "Malden", "Medford", "Everett", "Revere", "Chelsea", "Winthrop",
+            "Arlington", "Belmont", "Needham", "Natick", "Framingham", "Wellesley",
+            "Dedham", "Norwood", "Canton", "Braintree", "Milton", "Weymouth", "Peabody",
+            "Danvers", "Beverly", "Salem", "Lynn", "Swampscott", "Marblehead",
+            "Melrose", "Stoneham", "Wakefield", "Reading", "Wilmington", "Billerica",
+            "Chelmsford", "Lowell", "Lawrence", "Haverhill", "Methuen", "Andover",
+            "North Andover", "Acton", "Sudbury", "Wayland", "Weston", "Maynard",
+            "Marlborough", "Southborough", "Westborough", "Hopkinton", "Ashland",
+            "Holliston", "Medfield", "Walpole", "Sharon", "Foxborough", "Mansfield",
+            "Nashua", "Manchester", "Londonderry", "Derry", "Salem", "Hudson",
+        ),
+    ),
+    MetroArea(
+        "Seattle",
+        frozenset({"wa"}),
+        ("Seattle", "Seattle Metro", "Puget Sound", "Greater Seattle"),
+        (
+            "Seattle", "Bellevue", "Redmond", "Kirkland", "Renton", "Everett",
+            "Bothell", "Edmonds", "Shoreline", "Mercer Island", "Newcastle", "Issaquah",
+            "Sammamish", "Woodinville", "Kenmore", "Lake Forest Park",
+            "Mountlake Terrace", "Brier", "Lynnwood", "Mukilteo", "Mill Creek",
+            "Snohomish", "Monroe", "Duvall", "Carnation", "Fall City", "Snoqualmie",
+            "North Bend", "Kent", "Auburn", "Federal Way", "Des Moines", "SeaTac",
+            "Tukwila", "Burien", "Normandy Park", "Vashon", "Maple Valley",
+            "Covington", "Black Diamond", "Enumclaw",
+        ),
+    ),
+    MetroArea(
+        "Washington DC",
+        frozenset({"dc", "md", "va"}),
+        ("Washington DC", "Washington", "DC", "DC Metro", "Washington Metro",
+         "National Capital Region", "DMV"),
+        (
+            "Washington", "Arlington", "Alexandria", "Fairfax", "Falls Church",
+            "Reston", "Herndon", "Ashburn", "Leesburg", "Sterling", "McLean",
+            "Bethesda", "Silver Spring", "Rockville", "Gaithersburg", "Germantown",
+            "College Park", "Bowie", "Hyattsville", "Takoma Park", "Chevy Chase",
+            "Potomac", "Wheaton", "Olney", "Clarksburg", "Dulles", "Chantilly",
+            "Centreville", "Manassas", "Springfield", "Annandale", "Burke", "Lorton",
+            "Mount Vernon", "Georgetown", "Capitol Hill", "Navy Yard", "Tysons",
+            "Vienna", "Oakton", "Great Falls",
+        ),
+    ),
+)
+
+
+def _alias_key(value: str) -> str:
+    text = re.sub(r"[-/,]", " ", (value or "").lower())
+    return normalize_text(re.sub(r"\s+", " ", text).strip())
+
+
+_METRO_BY_ALIAS: dict[str, MetroArea] = {}
+for _metro in _METROS:
+    for _alias in _metro.aliases + (_metro.display,):
+        _METRO_BY_ALIAS.setdefault(_alias_key(_alias), _metro)
+
+_ALL_STATE_TOKENS = frozenset(value.lower() for value in US_STATE_ABBREVIATIONS.values())
+
+
+def find_metro(value: str | None) -> MetroArea | None:
+    """The registry entry a profile's metro name refers to, or None if unrecognized."""
+
+    return _METRO_BY_ALIAS.get(_alias_key(value or ""))
+
+
+def known_metro_names() -> list[str]:
+    """Display names of the recognized metros (for docs and diagnostics)."""
+
+    return [metro.display for metro in _METROS]
+
+
+def metro_matches_location(metro_value: str | None, location: str | None) -> bool:
+    """Whether a posting location is inside the named metro.
+
+    A recognized metro matches when the location names one of its principal
+    cities or one of its own names — in both cases guarded by the metro's home
+    states, so "Dallas, GA" never counts as the Dallas-Fort Worth metro. A
+    location with no recognizable state is given the benefit of the doubt
+    ("Plano" alone matches). An unrecognized metro value falls back to the
+    legacy literal phrase check, which is strictly weaker than what a
+    recognized metro gives.
+    """
+
+    normalized = normalize_location(location)
+    if not normalized:
+        return False
+    metro = find_metro(metro_value)
+    if metro is None:
+        return token_matches_phrase(normalized, normalize_location(metro_value))
+    tokens = set(normalized.split())
+    named_states = tokens & _ALL_STATE_TOKENS
+    if named_states and not (named_states & metro.states):
+        return False
+    if any(token_matches_phrase(normalized, alias) for alias in metro._alias_phrases):
+        return True
+    return any(token_matches_phrase(normalized, city) for city in metro._city_phrases)

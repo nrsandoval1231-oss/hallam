@@ -124,7 +124,13 @@ locations:
   # States you would work in (two-letter codes or full names).
   states:
     - TX
-  # Metro areas, as phrases.
+  # Metro areas. A recognized US metro ("Dallas-Fort Worth", "Houston", "Austin",
+  # "San Antonio", "Atlanta", "Denver", "Phoenix", "Chicago", "New York", "Boston",
+  # "Seattle", "Washington DC") expands to its principal cities, so a posting in
+  # Plano or Irving qualifies without listing every suburb. Matching is guarded by
+  # the metro's home states ("Dallas, GA" never matches) and a location with no
+  # state ("Plano" alone) is given the benefit of the doubt. An unrecognized name
+  # falls back to literal phrase matching.
   metro_areas:
     - Dallas-Fort Worth
   # Countries a REMOTE posting may be open to (ISO codes or names; regions such as EMEA work
