@@ -19,6 +19,7 @@ from datetime import date
 from typing import Any
 
 from sabra_domain.enums import EmploymentType, RejectionReason, RemoteStatus
+from sabra_domain.geography import metro_matches_location
 from sabra_domain.identity import (
     normalize_location,
     normalize_text,
@@ -321,10 +322,11 @@ def _location_allowed(job: JobFeatures, intent: IntentFeatures, search: SearchPr
         return False
     if intent.city_tokens & tokens or intent.state_tokens & tokens:
         return True
-    # Metro areas are multi-word, so compare as phrases.
+    # Metro areas are multi-word, so compare as phrases — and a recognized
+    # metro expands to its principal cities ("Dallas-Fort Worth" admits Plano),
+    # state-guarded so "Dallas, GA" never qualifies.
     for metro in search.locations.metro_areas:
-        metro_tokens = set(normalize_location(metro).split())
-        if metro_tokens and metro_tokens <= tokens:
+        if metro_matches_location(metro, job.location):
             return True
     return False
 

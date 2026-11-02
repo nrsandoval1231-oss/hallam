@@ -221,6 +221,59 @@ def test_non_remote_postings_keep_the_city_and_state_logic() -> None:
     ).reasons
 
 
+@pytest.mark.parametrize(
+    "location",
+    [
+        "Remote - Colombia",
+        "Remote - Argentina / Brazil",
+        "Remote - South Korea",
+        "Remote - Nigeria",
+        "Remote - South Africa",
+        "Remote - Dominican Republic",
+        "Remote - Saudi Arabia",
+        "Remote - New Zealand",
+        "Remote - Ukraine",
+        "Remote - Costa Rica",
+        "Remote - Africa",
+        "Remote - Middle East",
+        "REMOTE - CHILE",
+        "Remote (Vietnam)",
+    ],
+)
+def test_remote_in_a_recognized_country_outside_the_us_is_rejected(location: str) -> None:
+    """The registry is broad enough that real board listings cannot slip through.
+
+    Regression: "Remote - Colombia" once named nothing the detector knew and was
+    treated as "open", landing a Colombia-only role on a US-only shortlist.
+    """
+    decision = remote_decision(location)
+    assert RejectionReason.PROHIBITED_GEOGRAPHY.value in decision.reasons, location
+    assert "remote outside" in decision.detail[RejectionReason.PROHIBITED_GEOGRAPHY.value]
+
+
+def test_new_regions_cover_their_countries_on_the_profile_side() -> None:
+    search = make_search(locations=LocationIntent(countries=["US", "Africa"]))
+    assert RejectionReason.PROHIBITED_GEOGRAPHY.value not in remote_decision(
+        "Remote - Kenya", search
+    ).reasons
+    assert RejectionReason.PROHIBITED_GEOGRAPHY.value in remote_decision(
+        "Remote - Peru", search
+    ).reasons
+    search_europe = make_search(locations=LocationIntent(countries=["US", "Europe"]))
+    assert RejectionReason.PROHIBITED_GEOGRAPHY.value not in remote_decision(
+        "Remote - Norway", search_europe
+    ).reasons
+
+
+def test_detector_does_not_treat_english_words_as_countries() -> None:
+    """Short country codes that are common words must never become name patterns."""
+    assert detect_regions("Do Not Track") == set()
+    assert detect_regions("Remote, to be determined") == set()
+    assert detect_regions("Remote - ask me about eligibility") == set()
+    # US state names still win over same-named places.
+    assert detect_regions("Remote - Georgia") == {"US"}
+
+
 def test_country_detector_reads_names_codes_and_states() -> None:
     assert detect_regions("Remote - Canada") == {"CA"}
     assert detect_regions("Remote / Australia / Singapore") == {"AU", "SG"}

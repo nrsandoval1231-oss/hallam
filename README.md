@@ -87,6 +87,25 @@ make test        # default suite; live employer checks stay opted out
 make run-api     # local dashboard at http://127.0.0.1:8787
 ```
 
+The dashboard binds to localhost and needs no login there. The moment it is
+exposed beyond this machine, set `SABRA_API_TOKEN` — every route except
+`/health` and brand assets then requires the token (`Authorization: Bearer …`,
+or open `/?token=…` once and accept the cookie). See
+[`DEPLOYMENT_PLAN.md`](DEPLOYMENT_PLAN.md).
+
+The database lifecycle is versioned and recoverable:
+
+```bash
+uv run sabra db status    # applied / pending / unknown migrations
+uv run sabra db migrate   # verified backup first, then pending migrations
+uv run sabra db backup    # a verified snapshot in <data_dir>/backups/
+uv run sabra db restore --from <backup file>   # stop the dashboard first
+```
+
+See [`RECOVERY_RUNBOOK.md`](RECOVERY_RUNBOOK.md) for the failure-mode
+procedures. Current engineering state: [`CHECKPOINT.md`](CHECKPOINT.md),
+[`AUDIT_REPORT.md`](AUDIT_REPORT.md), [`VALIDATION_REPORT.md`](VALIDATION_REPORT.md).
+
 Your own search, instead of the built-in seed profile (copy and edit
 [`config/search_profile.example.yaml`](config/search_profile.example.yaml); every field is
 explained in it):

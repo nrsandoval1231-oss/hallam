@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 from sabra_domain.enums import SourceKind
 from sabra_domain.errors import ProviderError, ValidationFailure
+from sabra_domain.geography import metro_matches_location
 from sabra_domain.schemas import CanonicalJob, SearchProfile
 from sabra_domain.settings import Settings
 
@@ -230,12 +231,16 @@ def _title_matches(title: str, profile: SearchProfile | None) -> bool:
 
 
 def _mentions_local_or_remote(job: CanonicalJob, profile: SearchProfile | None) -> bool:
-    haystack = f"{normalize_text(job.location or '')} {normalize_text(job.title)}".lower()
-    if job.remote_status == "REMOTE" or re.search(r"(?<!\w)remote(?!\w)", haystack):
+    if job.remote_status == "REMOTE" or re.search(r"(?<!\w)remote(?!\w)", f"{job.location or ''} {job.title}".lower()):
         return True
     if profile is None:
         return False
+    if any(
+        metro_matches_location(metro, job.location) for metro in profile.locations.metro_areas
+    ):
+        return True
     cities = [normalize_text(c).lower() for c in profile.locations.cities if c.strip()]
+    haystack = f"{normalize_text(job.location or '')} {normalize_text(job.title)}".lower()
     # Whole words only: "Plano" must not match "Planogram", nor "Austin" "Austine".
     return any(re.search(rf"(?<!\w){re.escape(city)}(?!\w)", haystack) for city in cities)
 
