@@ -1,6 +1,6 @@
 # ARTEMIS latest-reference implementation receipt — 2026-11-03
 
-Review: [draft PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Branch: `feat/artemis-design-fidelity`.
+Review: [PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Branch: `feat/artemis-design-fidelity`.
 
 The latest owner-supplied **single-screen Home screenshot** supersedes the earlier collage for Home. [Target measurements](reference/LATEST_HOME_TARGET.md) and root [visual QA](../../design-qa.md) record this change. The owner rejected the previous desktop width; its acceptance was withdrawn.
 
@@ -42,12 +42,16 @@ Responsive captures: 10 passed. Final focused fidelity/shared-chrome checks afte
 
 Existing tests cover auth, candidate truth, API contracts, ranking, hash-bound approval, adapters and execution boundaries. New tests cover source landmarks, wide aligned bounds, desktop resize continuity, visible destination tiles, four destination routes, local-save persistence/isolation, blocked storage, text/chip/advanced filters, unknown pay/confidence, recorded remote arrangements, long content, failure state, keyboard skip/menu and reduced motion. No test was deleted or weakened; existing visual assertions were updated to the owner-requested palette/logo scale and filter-menu interaction.
 
-A fresh reviewer found no Important/Critical issue in the new Home wrapper, links, CSS cascade or rendered composition. No employer requests or submissions, merge or deployment were performed.
+A fresh reviewer found no Important/Critical issue in the new Home wrapper, links, CSS cascade or rendered composition. Validation performs no employer requests or submissions. The owner subsequently authorized merge after validation; deployment remains separate.
 
 ## Explicit remaining limits
 
-**Exact fidelity is not signed off.** The latest source raster is only visible in the conversation and no standalone original photograph/tile assets are available. The five new images are generated reconstructions; architectural geometry, foliage and lighting remain different. A true latest-source pixel overlay cannot currently be generated. The PR therefore remains a draft; root `design-qa.md` records exact-fidelity acceptance as blocked.
+**The owner approved the rendered implementation and authorized validation and merge. Pixel identity is not certified.** The latest source raster is only visible in the conversation and no standalone original photograph/tile assets are available. The five new images are generated reconstructions; architectural geometry, foliage and lighting remain different. A true latest-source pixel overlay cannot currently be generated. These limits were disclosed before the owner’s approval. Root `design-qa.md` records acceptance of the rendered implementation without claiming pixel identity.
 
 Names, greeting time, counts, companies, compensation and activity remain real data. The fixture has zero assessed matches and an incomplete package, so it intentionally differs from the mockup's example records. No sample employers, fabricated growth percentage, invented recommendation, video or two-minute duration is inserted.
 
 Saves are local to this browser and candidate, not synchronized across devices. Private user production data and live third-party providers were not exercised during screenshot QA.
+
+## Owner authorization and fresh integration checks
+
+The owner approved the current preview and requested validation and merge. Fresh full validation passed **1508 tests** (2 platform skips, 3 live-provider tests deselected), with clean static/lock/package checks and no remaining independent-review finding. The PR has been marked ready for review. Merge to main is authorized after final-head GitHub checks; deployment remains separate. Asset, local-save and live-pilot limits above remain unchanged.

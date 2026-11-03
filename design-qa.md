@@ -1,8 +1,8 @@
 # ARTEMIS visual QA — latest owner-supplied Home target
 
-final result: blocked
+final result: passed
 
-**Layout and functional checks pass. Exact visual acceptance remains blocked by unavailable original image assets and the absence of a locally accessible raster of the latest reference.** The latest screenshot is visible in the conversation. Its composition is implemented and measured below; no exact pixel/photograph match is claimed. The PR remains a draft, not a completed fidelity sign-off.
+**Owner-approved rendered design; validation required before merge.** The owner approved the current preview (“Looks amazing!”) and explicitly requested validation and merge. This acceptance covers the implemented composition and disclosed reconstructed imagery. The original photo/source raster remain unavailable; no exact pixel/photograph equivalence is claimed. Deployment is not authorized.
 
 ## Current source of truth
 
@@ -36,7 +36,7 @@ Current Chromium captures: `docs/brand/evidence/fidelity-2026-11/after/`, device
 - Adjacent overlays are50% blends of those baseline/current images, not overlays of the new source.
 - `scripts/compare_artemis.py` preserves aspect ratios and pads differing heights. `--reference /path/to/latest-home.png` generates a true latest-source comparison/overlay if that actual file becomes available. No generated image is passed off as the original source.
 
-The newest source cannot be placed in a local side-by-side or pixel overlay because its file is not exposed to this workspace. The conversation screenshot and actual rendered image were visually inspected, and source landmark measurements were tested. This distinction is why exact-fidelity acceptance remains blocked.
+The newest source cannot be placed in a local side-by-side or pixel overlay because its file is not exposed to this workspace. The conversation screenshot and actual rendered image were visually inspected, and source landmark measurements were tested. This limitation remains documented; the owner subsequently approved the rendered implementation and authorized merging after validation.
 
 ## Functional, accessibility and performance checks
 
@@ -46,13 +46,13 @@ Local WOFF2 fonts total263,388 bytes; original TTFs/licenses remain. No new runt
 
 Full regression/static/package receipts are recorded below when the final runs finish. Prior intermediary full runs:1500 passed, then1504 passed after desktop-width regressions, then1505 passed after latest-target/destination regression. These are historical receipts, not substituted for the final run.
 
-## Remaining blockers
+## Documented limits accepted for this merge
 
 - Standalone original hero/tile assets are unavailable; reconstruction changes photographic geometry, lighting and foliage.
 - Latest source raster is conversation-only; an honest source-versus-current pixel comparison cannot be generated from the file system.
 - Example-content differences are intentional and required to preserve actual user data; no private user production pilot is claimed.
 
-Implementation is available for review in [draft PR#18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Nothing is merged or deployed.
+Implementation is in [PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). The owner authorized merging after fresh validation; deployment remains separate.
 
 ## Final verification receipts
 
@@ -61,4 +61,12 @@ Implementation is available for review in [draft PR#18](https://github.com/nrsan
 - Final fidelity/shared-chrome tests after height-aware scaling: **24 passed**; all four destination routes and standard desktop height-fit cases pass.
 - `uv run ruff check packages apps tests scripts/compare_artemis.py`, `uv lock --check`, `node --check scripts/validate.mjs`, `node scripts/validate.mjs`, `uv build`, and `git diff --check`: passed.
 - Current rendered source landmarks and all requested screenshot sizes were inspected. The 1280×853 landmark test verifies exact target positions within four pixels. Current `desktop-layout-bounds.json` records measured geometry.
-- Passing functional/layout gates do not remove the original-asset and source-raster blockers above.
+- Passing functional/layout gates do not establish pixel identity; the owner has accepted the disclosed asset/source limits above.
+
+## Owner acceptance and merge authorization
+
+The owner approved the current preview and requested “validate and merge.” The previous draft-only restriction is superseded by that explicit authorization. Reconstructed imagery, source-overlay limits, browser-local saves and unexercised live-provider/private-data pilot remain documented. Merge is authorized after fresh full-suite/static/package checks, CI and final code review; deployment and employer submissions are not authorized.
+
+## Fresh pre-merge verification
+
+Owner-authorized validation: `uv run pytest tests/` — **1508 passed, 2 skipped, 3 live-deselected**, 188.91 seconds, no failures. Frozen sync/lock check, Ruff, Node validation, source/wheel build and diff checks passed. Fresh independent review found no remaining Critical/Important/Minor issue; a suspected regex issue was withdrawn after checking actual evaluated JavaScript codepoints. Runtime source is unchanged from reviewed `c1847b4`; this acceptance update changes documentation only. PR #18 is ready for merge once checks on its final head complete.

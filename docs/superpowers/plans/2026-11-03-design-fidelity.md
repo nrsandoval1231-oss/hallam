@@ -54,4 +54,8 @@ Proceed autonomously under the user's explicit execution directive; no design ex
 
 ## Latest single-screen Home target
 
-The new owner-provided 1280×853 screenshot supersedes the collage for Home. Implementation includes matching cover/metric/panel/destination composition, reconstructed photo assets, compact header and time-aware greeting. Target measurements are in `docs/brand/reference/LATEST_HOME_TARGET.md`. All functional/layout tests pass; exact pixel/photographic sign-off remains blocked by original-asset and latest-raster availability. Do not claim exact matching or merge/deploy.
+The new owner-provided 1280×853 screenshot supersedes the collage for Home. Implementation includes matching cover/metric/panel/destination composition, reconstructed photo assets, compact header and time-aware greeting. Target measurements are in `docs/brand/reference/LATEST_HOME_TARGET.md`. The owner approved the rendered implementation and authorized validation and merge. Exact pixel/photographic equivalence remains unverified; do not claim pixel identity. Merge is authorized after fresh checks; deployment remains unauthorized.
+
+## Final integration authorization
+
+Owner approval: “Looks amazing!” followed by “Ok let’s validate and merge.” Preserve known asset and live-pilot limits; validate the current PR head and merge into main without deploying.
