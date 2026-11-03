@@ -1,86 +1,64 @@
-# ARTEMIS reference implementation QA — 2026-11-03
+# ARTEMIS visual QA — latest owner-supplied Home target
 
-final result: passed
+final result: blocked
 
-This is a pass for the implemented compositions and interactions with the asset limitations below explicitly retained. It is not a claim of pixel-identical reproduction of an unavailable original photograph or a completed real-user pilot.
+**Layout and functional checks pass. Exact visual acceptance remains blocked by unavailable original image assets and the absence of a locally accessible raster of the latest reference.** The latest screenshot is visible in the conversation. Its composition is implemented and measured below; no exact pixel/photograph match is claimed. The PR remains a draft, not a completed fidelity sign-off.
 
-## Visual truth, normalization and evidence
+## Current source of truth
 
-Reference B: `docs/brand/reference/approved-interface.jpg` (1280×853). Reference A: user-supplied brand board in the conversation; no separate file is present for automated cropping. Branding follows A, application layout follows B. Implementation captures are in `docs/brand/evidence/fidelity-2026-11/after/`; baseline and first-pass captures are in `before/` and `pass-1/`.
+The owner's latest **single-screen 1280×853 Home screenshot** supersedes the earlier composite for Home. [Target measurements](docs/brand/reference/LATEST_HOME_TARGET.md) document that screenshot. `docs/brand/reference/approved-interface.jpg` is the older composite, not the latest source. Its comparisons are retained only in `docs/brand/evidence/fidelity-2026-11/historical-reference-b/` and do not certify the new Home.
 
-Chromium, deviceScaleFactor 1, real FastAPI HTML/API and local fonts, synthetic candidate/application fixtures. Required exact viewport captures: 1920×1080, 1440×900, 1280×800, 768×1024, 390×844, 375×812. Additional 1280×853, 820×900 and 430×932 captures. `*-viewport.png` dimensions equal CSS viewport dimensions. `NAME-WIDTH.png` images capture the full page and may exceed viewport height.
+Current Chromium captures: `docs/brand/evidence/fidelity-2026-11/after/`, deviceScaleFactor 1. Exact viewport files include `WIDTHxHEIGHT-viewport`; full-page files include width only. Synthetic candidate/application fixtures consume the real FastAPI HTML/API and local assets; they are not production data or copied mockup metrics.
 
-Comparison inputs place both source and implementation in the same image and were opened and inspected:
+## Correction history
 
-- `home-hero-comparison.png`: source and actual crop (136,0)–(1144,374), each 1008×374.
-- `home-workspace-comparison.png`: source and actual crop (11,383)–(1095,598), each 1084×215. The source's device overlay obscures the workspace at the right; the comparison excludes that region.
-- `home-mobile-comparison.png`: source application crop (1107,408)–(1266,772), 159×364, normalized to 375×858, next to the actual 375×858 page crop. No phone bezel, status bar or notch is recreated as application UI. Approximate source crop boundaries and softened raster type limit precision.
-- `detail-comparison.png`, `review-comparison.png`, `career-plan-comparison.png`: each source workflow thumbnail alongside a normalized 1008×585 implementation content crop. Original CSS viewports are unknown, so these establish composition/evidence reachability, not exact glyph sizing at an invented viewport.
-- `before-after-home-1280-comparison.png`, `before-after-home-375-comparison.png`: baseline and final rendered view. Their left label explicitly identifies baseline, not Reference B.
-- Adjacent `*-overlay.png` files blend registered source/actual crops at 50%; `*-source-crop.png` files isolate the reference regions. `scripts/compare_artemis.py` reproduces them.
+1. The owner rejected desktop sizing and clarified “The page is too narrow / margins too wide.” The previous sizing acceptance was withdrawn. Removed the 78.75vw green collage staging, aligned the header/hero/metrics/workspace, and widened the application to the viewport with an 1800px maximum.
+2. The owner then supplied a new full-screen target. Rebuilt Home around that exact composition instead of continuing the older collage interpretation: compact header with notification bell, tracked greeting, sunset hero, photograph continuing behind translucent metrics, three warm briefing panels and four photographic destination tiles.
+3. Matched 1280×853 landmarks: header y0/h50, hero y50/h305, metrics y355/h71, panels y446/h262, destinations y725/h120. The new regression initially failed because tile content produced128.6px height. Reduced vertical padding, rerendered, and passed the120px target without clipping.
+4. Refined the headline tracking, wordmark/navigation spacing, lining numerals and panel content offsets. Desktop scale responds to both width and height so destination tiles remain visible at1280×800,1440×900 and1920×1080. Mobile/tablet remain separate layouts.
+5. A fresh reviewer inspected the new wrapper, destination navigation, CSS cascade and rendered1280×853 screenshot. No Important/Critical correctness, overlap or responsive finding was reported. Exact source-image matching was not assessed by that reviewer.
 
-## Findings, corrections and final comparison
+## Required surfaces
 
-1. **P1 shortlist composition:** baseline exposed large summary cards and multiple operator inputs. Rebuilt it with quiet heading, live search, filter chips, expandable advanced filters, ranked company/role/pay rows and saves. Existing prepare/pass controls and evidence remain reachable. Verified desktop/mobile screenshots and positive/negative search/filter tests.
-2. **P2 desktop panels:** first pass placed panels about 13px too low and used overly narrow workspace proportions. Reduced metric/panel spacing and expanded the desktop workspace relative to the hero canvas. Registered final workspace comparison shows aligned panel starts and an editorial three-column structure; content density differs because the fixture has fewer records.
-3. **P2 mobile typography and rhythm:** baseline used Georgia. First pass restored Cormorant but its narrower proportions made headline/image/CTA placements too high. Increased the Cormorant headline to 50px at phone sizes, restored wordmark tracking, used 94px metric rows and a 66px CTA. Final normalized phone comparison shows two-line wrapping, inset photograph, stacked metrics and bottom CTA aligned with the source composition. Cormorant's glyph shapes remain faithful to the approved pairing rather than substituting Georgia to imitate a flattened image.
-4. **P2 missing shortlist identity styling:** first-pass initials lost their shared Home styles on the list. Added reusable evergreen company tiles and removed an orphan rank separator for unranked roles. Final list captures show the repair.
-5. **P2 tablet metric collision:** rendered 768px screenshot exposed an icon track narrower than its container. Widened the tablet icon track; recaptured and inspected final tablet view. No overlap or horizontal overflow remains in the tested widths.
-6. **P2 failure-state continuity:** failed Home fetches previously left loading lists indefinitely. Added explicit unavailable messages and stable metric geometry. The failure browser test verifies all four metrics and absence of loading content.
-7. **Functional regressions during reconstruction:** retained the existing overview link; kept dynamic save icons as fixed CSS asset URLs to preserve HTML safety contracts; used scoped DOM queries compatible with offline harnesses; updated the existing industry-filter browser journey to open More filters while retaining all matching assertions. Focused and complete regression receipts below.
+- **Typography:** local Cormorant Garamond headlines, section titles and latest-reference navigation treatment; Manrope data/body/greeting. Wordmark spacing, headline wrapping, tracked uppercase greeting and lining numerals refined against the conversation image. Actual name and browser time determine the greeting.
+- **Layout:** full-width warm application canvas; metrics sit within the photographic cover; three columns use approximately 431/438/349px tracks; four 120px destination tiles sit below. A landmark regression verifies measured source positions at1280×853. Responsive tests verify wide aligned bounds and removal of the old1500px jump.
+- **Colors/surfaces:** approved evergreen/sage/stone/sand/graphite tokens, warm ivory paper, translucent metric surfaces, fine borders, warm restrained depth. No permanent left application sidebar or green presentation rails.
+- **Assets:** `artemis-home-architecture.webp` and four `artemis-destination-*.webp` files are generated reconstructions guided by the supplied screenshot. Their combined optimized payload is approximately350KB. They are not the original photograph or original tile assets. Open-A SVG and licensed Feather icons retained; added standard layers icon.
+- **Content:** real API counts, employers, compensation, confidence, activity and preferences remain authoritative. No127/7/3/2 metrics, percentage growth, sample employer logos or fabricated analysis were inserted. The fixture has fewer rows and unassessed matches. The existing summary is read aloud; no video or two-minute duration is invented.
 
-No further actionable P0/P1/P2 layout or interaction issue was found in the compared states. The unavailable original photo and differing data states are material, disclosed limits rather than claims of exact matching.
+## Evidence and normalization
 
-## Required fidelity surfaces
+- Latest preview: `after/home-1280x853-viewport.png`.
+- Required desktop/tablet/phone captures:1920×1080,1440×900,1280×800,768×1024,390×844,375×812. Additional1280×853,820×900 and430×932 captures.
+- `desktop-layout-bounds.json` records actual browser geometry at1280×853,1280×800,1440×900 and1920×1080.
+- `desktop-width-fix-comparison.png`: previous rejected narrow1440px render alongside the current render, same viewport and synthetic fixture type.
+- `before-after-home-1280-comparison.png` and `before-after-home-375-comparison.png`: original repository baseline alongside current implementation.
+- Adjacent overlays are50% blends of those baseline/current images, not overlays of the new source.
+- `scripts/compare_artemis.py` preserves aspect ratios and pads differing heights. `--reference /path/to/latest-home.png` generates a true latest-source comparison/overlay if that actual file becomes available. No generated image is passed off as the original source.
 
-- **Typography:** bundled Cormorant Garamond headlines, Manrope interface/data; consistent local WOFF2 loads verified in a live Uvicorn/Chromium visit. Original TTFs retained. No external font request. Hero wraps in two lines at tested sizes; long role names wrap without hiding saves or actions. Tiny source raster text is treated as visual hierarchy, not copied as illegible screenshot text.
-- **Spacing/layout:** minimal horizontal masthead; narrow photographic hero canvas and wider three-column desktop workspace; quiet compact metric strip; two-column detail/plan; studio section navigation and real document preview. Tablet uses two workspace columns with activity below. Phone uses its own image/stacked metrics/CTA layout. No left application sidebar.
-- **Colors:** approved #142D29, #A6B8A7, #E8E5DC, #D6C6A8, #26312E; warm #F7F6F1/#FBFAF6 surfaces, hairline rules and restrained depth. Evergreen CTAs, readable focus outlines and subdued active navigation.
-- **Images/assets:** original architectural WebP retained and recropped. It is an existing generated substitute, not the exact source photograph. Original open architectural A remains SVG. Icons use the existing licensed Feather set, with its bookmark path added under the same license. No sample employer logos or reference employer names were added to live data.
-- **Copy/content:** actual engine counts, compensation, confidence, recommendations and preferences remain authoritative. The fixture has zero assessed matches and one incomplete application; the reference has populated sample metrics. No fabricated market activity, percentage uplift, confidence, document customization or video duration is inserted. Summary is supported speech synthesis, not an invented video.
+The newest source cannot be placed in a local side-by-side or pixel overlay because its file is not exposed to this workspace. The conversation screenshot and actual rendered image were visually inspected, and source landmark measurements were tested. This distinction is why exact-fidelity acceptance remains blocked.
 
-## Functional, accessibility and performance verification
+## Functional, accessibility and performance checks
 
-- Browser/API journey coverage: navigation, mobile/account menus, Home/Opportunities/detail/studio/Applications/Pipeline/Research/Career Plan, local fonts/assets, detail and plan tabs, studio steps, unresolved answers and disabled approval, no horizontal overflow and no JS errors.
-- New regressions: text/chip/salary/industry filtering, unknown pay/confidence, browser-local save persistence across routes/reloads, candidate isolation, blocked storage, long mobile titles, Home API failure, keyboard skip/menu and reduced motion.
-- Separate real HTTP visit: Uvicorn on port 8787 with isolated empty data, Chromium 390×844, fonts loaded as exactly two WOFF2 assets, no JavaScript errors and no overflow. Screenshot `empty-live-390.png`.
-- No employer requests or submissions in visual QA. Existing auth, approval, candidate-truth and API/adapter regression tests remain in the suite.
-- WOFF2 assets total 263,388 bytes; architectural image is the existing ~192KB WebP. Stable geometry and reduced-motion rules retained. No new runtime JavaScript framework or package dependency.
-- Full-suite and static/package receipts are added below after completion. There is no configured TypeScript typecheck or npm production build for this Python HTML runtime.
+Navigation and destination links are functional. New tests cover all four destination routes, desktop bounds, source landmarks, standard-height fit, continuous resizing, filters, unknown pay/confidence, recorded remote status, scoped local saves, blocked storage, long content, empty/error states, skip link, keyboard menu and reduced motion. Existing authentication, truth, hash-bound approval and application safeguards remain unchanged.
 
-## Remaining discrepancies and limits
+Local WOFF2 fonts total263,388 bytes; original TTFs/licenses remain. No new runtime dependency. Source/wheel build and local asset loading are checked. No employer requests, external applications, merge or deployment occur during visual QA.
 
-- Exact source photograph unavailable: geometry, tree shapes, crop details and lighting remain different. Replace the one original WebP if the independent original becomes available; no search or API logic needs rebuilding.
-- Reference A has no separately accessible file for automated overlays; brand palette/fonts/mark were checked against the conversation image and repository assets.
-- Workflow-thumbnail viewport uncertainty; actual full document/evidence content is preserved instead of copying the reference's abbreviated text or inventing key-customization claims.
-- Saves persist only in this browser, scoped to candidate. No cross-device synchronization is claimed.
-- Third-party live-provider checks and private user data were not exercised. Synthetic evidence is clearly identified.
+Full regression/static/package receipts are recorded below when the final runs finish. Prior intermediary full runs:1500 passed, then1504 passed after desktop-width regressions, then1505 passed after latest-target/destination regression. These are historical receipts, not substituted for the final run.
 
-## Acceptance checklist
+## Remaining blockers
 
-- [x] Audit repository and preserve backend/approval/auth boundaries.
-- [x] Correct global shell, Home, shortlist and shared secondary surfaces.
-- [x] Inspect aligned source/actual images; correct and recapture desktop/mobile/tablet findings.
-- [x] Capture all requested viewports, plus 430px.
-- [x] Verify actual browser interactions, keyboard, error/empty states and font delivery.
-- [x] Produce baseline/final, reference comparisons, overlays and documented asset limits.
-- [x] Record final complete regression and packaging receipts.
-- [x] Open feature-branch PR: [#18](https://github.com/nrsandoval1231-oss/hallam/pull/18), draft for owner review.
-- [ ] Owner review; merge/deploy only with explicit approval.
+- Standalone original hero/tile assets are unavailable; reconstruction changes photographic geometry, lighting and foliage.
+- Latest source raster is conversation-only; an honest source-versus-current pixel comparison cannot be generated from the file system.
+- Example-content differences are intentional and required to preserve actual user data; no private user production pilot is claimed.
+
+Implementation is available for review in [draft PR#18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Nothing is merged or deployed.
 
 ## Final verification receipts
 
-- `uv run pytest tests/`: **1500 passed, 2 skipped, 3 live-deselected**, 153.75 seconds, no failures. The sole warning is the dependency's Starlette/AnyIO deprecated alias.
-- Final responsive-capture `tests/test_artemis_acceptance.py tests/test_artemis_fidelity.py` run before the additional remote regressions: **14 passed**, including all required screenshot sizes and new interaction regressions.
-- `uv run ruff check packages apps tests scripts/compare_artemis.py`: clean.
-- `uv lock --check`: clean; no runtime dependency changes.
-- `node --check scripts/validate.mjs` and `node scripts/validate.mjs`: passed.
-- `uv build`: source distribution and wheel built successfully. Wheel inspection confirms new view modules, WOFF2 assets and bookmark SVG are included.
-- `git diff --check`: clean.
-- Chromium HTTP visit: isolated running Uvicorn, 390×844, exactly two WOFF2 font requests, no JS errors or overflow.
-
-## Independent review
-
-A fresh reviewer inspected the working tree against `44e4841`, without session history. One Important finding: Remote used location text while the domain stores work arrangement separately. Corrected `/api/opportunities` to expose recorded `remote_status`; the chip now prioritizes explicit REMOTE/ONSITE and uses text fallback only for missing/UNKNOWN status. Added regressions for a remote city role, onsite “Remote Office” and unknown city, plus a real API assertion of ONSITE. The reviewer verified the correction and reported no remaining finding. Dynamic HTML escaping, save initialization and safeguard preservation were reviewed. The new focused browser/API/HTML-safety run passed 20 tests.
-
-Release run after independent-review correction: `uv run pytest tests/` — **1500 passed, 2 skipped, 3 live-deselected**, no failures. Skips concern Windows API signatures and unavailable PowerShell on this Linux worker.
+- `uv run pytest tests/`: **1508 passed, 2 skipped, 3 live-deselected**, 184.64 seconds, no failures.
+- Final responsive screenshots: **10 passed**.
+- Final fidelity/shared-chrome tests after height-aware scaling: **24 passed**; all four destination routes and standard desktop height-fit cases pass.
+- `uv run ruff check packages apps tests scripts/compare_artemis.py`, `uv lock --check`, `node --check scripts/validate.mjs`, `node scripts/validate.mjs`, `uv build`, and `git diff --check`: passed.
+- Current rendered source landmarks and all requested screenshot sizes were inspected. The 1280×853 landmark test verifies exact target positions within four pixels. Current `desktop-layout-bounds.json` records measured geometry.
+- Passing functional/layout gates do not remove the original-asset and source-raster blockers above.

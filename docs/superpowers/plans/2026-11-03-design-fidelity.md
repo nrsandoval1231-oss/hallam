@@ -40,3 +40,18 @@ Checks: locked uv environment, ruff, full pytest including Playwright and Node D
 Unassessed confidence stays unassessed; unknown salary does not match numeric salary filters; long titles never hide controls; failed fetches exit loading; candidate saves never bleed across candidate IDs; incomplete packages remain unapprovable.
 
 Proceed autonomously under the user's explicit execution directive; no design exploration or plan approval gate.
+
+## Desktop-width correction after owner review
+
+- [x] Reproduce the rejected width/margin mismatch and clarify the reported issue.
+- [x] Remove collage staging; use one wide application canvas with neutral margins.
+- [x] Correct desktop scale together and retain phone/tablet rules.
+- [x] Add failing/passing geometry and breakpoint regressions.
+- [x] Recapture all target sizes, inspect corrected desktop and regenerate comparisons with aspect-preserving measured crops.
+- [x] Independent correction review: no Important/Critical finding.
+- [x] Finish full regression: 1508 passed, 2 skipped, 3 live-deselected.
+- [x] Push updated draft PR/preview with current screenshots and explicit exact-fidelity blockers.
+
+## Latest single-screen Home target
+
+The new owner-provided 1280×853 screenshot supersedes the collage for Home. Implementation includes matching cover/metric/panel/destination composition, reconstructed photo assets, compact header and time-aware greeting. Target measurements are in `docs/brand/reference/LATEST_HOME_TARGET.md`. All functional/layout tests pass; exact pixel/photographic sign-off remains blocked by original-asset and latest-raster availability. Do not claim exact matching or merge/deploy.

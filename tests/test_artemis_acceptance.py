@@ -59,7 +59,7 @@ def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypa
             assert page.locator("nav.primary").is_visible() or page.locator(".navtoggle summary").is_visible()
             assert page.evaluate("document.fonts.check('16px \"Artemis Sans\"')")
             assert page.evaluate("document.fonts.check('32px \"Artemis Display\"')")
-            assert page.locator("body").evaluate("el=>getComputedStyle(el).backgroundColor") == ("rgb(247, 246, 241)" if width < 760 else "rgb(20, 45, 41)")
+            assert page.locator("body").evaluate("el=>getComputedStyle(el).backgroundColor") == "rgb(247, 246, 241)"
             if path == "/":
                 assert page.locator("#brief-list").inner_text().strip()
                 assert page.get_by_role("heading", name="Today’s brief").count() or page.get_by_role("heading", name="Today's brief").count()

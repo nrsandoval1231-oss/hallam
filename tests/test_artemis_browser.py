@@ -102,7 +102,12 @@ def assert_shared_chrome(page: Page, errors: list[str], viewport_width: int) -> 
     assert page.locator(".brand .mark path").evaluate_all("els => els.map(el => el.getAttribute('d'))") == re.findall(
         r'<path d="([^"]+)"', LOGO_MARK_SVG
     )
-    assert page.locator(".brand .mark").evaluate("el => getComputedStyle(el).width") == ("46px" if viewport_width < 760 else "30px")
+    mark_width = page.locator(".brand .mark").bounding_box()["width"]
+    if viewport_width < 760:
+        assert mark_width == 46
+    else:
+        header_height = page.locator(".topnav").bounding_box()["height"]
+        assert abs(mark_width / header_height - 40 / 50) < .01
     assert page.evaluate("document.documentElement.scrollWidth") <= viewport_width
 
 

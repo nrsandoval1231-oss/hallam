@@ -404,7 +404,7 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         '<div class="nav-right">'
         f'<button type="button" class="ask-pill" id="velora-ask-open" aria-label="Ask Artemis">{SEARCH_SVG}'
         '<span class="ask-label">Ask Artemis</span></button>'
-        f'<a class="bell" href="/#upcoming" aria-label="Notifications">{BELL_SVG}'
+        f'<a class="bell" href="/#activity-heading" aria-label="Notifications">{BELL_SVG}'
         '<span class="badge" id="velora-bell-badge" hidden></span></a>'
         '<details class="usermenu" id="velora-usermenu"><summary class="avatar" '
         'id="velora-avatar" aria-label="Account">·</summary>'

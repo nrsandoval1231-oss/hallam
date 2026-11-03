@@ -193,6 +193,7 @@ HOME_CSS = r"""
 """
 
 HOME_BODY = r'''<main class="home">
+<div class="home-cover">
 <section class="home-hero" aria-labelledby="home-title">
   <div class="home-hero-copy">
     <p class="home-greeting" id="home-greeting">Good morning.</p>
@@ -212,6 +213,7 @@ HOME_BODY = r'''<main class="home">
   <article class="reference-metric"><span class="reference-metric-icon" aria-hidden="true"><img src="/brand/icons/file-text.svg" alt=""></span><span class="reference-metric-copy"><strong class="reference-metric-value" data-reference-metric="ready">—</strong><span class="reference-metric-label">Applications ready</span></span><span class="reference-metric-tag" data-reference-tag="ready" hidden></span></article>
   <article class="reference-metric"><span class="reference-metric-icon" aria-hidden="true"><img src="/brand/icons/calendar.svg" alt=""></span><span class="reference-metric-copy"><strong class="reference-metric-value" data-reference-metric="updates">—</strong><span class="reference-metric-label" title="Recorded employer responses not yet marked as seen">Meaningful updates</span></span><span class="reference-metric-tag" data-reference-tag="updates" hidden></span></article>
 </section>
+</div>
 <a class="brief-cta mobile-brief-cta" href="#morning-brief">View today’s brief →</a>
 <section class="home-panels" aria-label="Your career briefing">
   <section class="home-panel" id="morning-brief" aria-labelledby="brief-heading">
@@ -227,6 +229,12 @@ HOME_BODY = r'''<main class="home">
     <ul class="activity-list" id="activity-list"><li class="activity-empty">Loading recent activity…</li></ul>
   </section>
 </section>
+<nav class="home-destinations" aria-label="Explore Artemis">
+  <a class="destination-tile destination-opportunities" href="/opportunities"><img class="destination-icon" src="/brand/icons/briefcase.svg" width="28" height="28" alt=""><h2>Opportunities</h2><p>Curated roles aligned to your goals</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+  <a class="destination-tile destination-research" href="/research"><img class="destination-icon" src="/brand/icons/layers.svg" width="28" height="28" alt=""><h2>Research</h2><p>Deep intelligence on companies<br>and markets</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+  <a class="destination-tile destination-plan" href="/career-plan"><img class="destination-icon" src="/brand/icons/target.svg" width="28" height="28" alt=""><h2>Career Plan</h2><p>Your strategic path forward</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+  <a class="destination-tile destination-applications" href="/applications"><img class="destination-icon" src="/brand/icons/file-text.svg" width="28" height="28" alt=""><h2>Applications</h2><p>Build, refine, and manage your<br>submissions</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+</nav>
 <details class="home-operations" id="run-log" hidden><summary>Search controls and latest run</summary>
   <div class="home-operations-body"><div class="home-run-controls"><button type="button" class="run-button" id="run-now">Run search</button><label><input type="checkbox" id="run-prepare"> Prepare packages for top roles (nothing is submitted)</label></div><p class="line" id="run-line"></p><div id="run-progress"></div></div>
 </details>
@@ -265,7 +273,7 @@ function renderOpportunities(d){
   let rows=Array.isArray(d.top_opportunities)?d.top_opportunities:(d.featured?[d.featured,...(d.recent||[]).filter(o=>o.id!==d.featured.id)]:d.recent||[]);
   const box=document.querySelector('#opportunity-list');
   if(!rows.length){box.innerHTML='<li class="opportunity-empty">No shortlisted opportunities yet. Run a search to review roles against your goals.</li>';return;}
-  box.innerHTML=rows.slice(0,4).map(o=>{const fit=typeof o.fit_score==='number'?Math.round(o.fit_score*100)+'% match':'';const confidence=typeof o.confidence==='number'&&o.confidence>=.75?'High confidence':'';const sub=[o.location,o.arrangement].filter(Boolean).join(' · ');return '<li class="home-opportunity-item"><a class="opportunity-row" href="'+esc(safePath('/opportunities/'+encodeURIComponent(o.id||''),'/opportunities'))+'"><span class="opportunity-initials">'+esc(initials(o.company))+'</span><span class="opportunity-copy"><span class="opportunity-company">'+esc(o.company||'Company')+'</span><span class="opportunity-title">'+esc(o.title||'Opportunity')+'</span><span class="opportunity-sub">'+esc(sub||'Details not recorded')+'</span></span><span class="opportunity-fit"><span class="opportunity-pay">'+esc(o.compensation_text||'Pay not listed')+'</span>'+(fit?'<strong>'+esc(fit)+'</strong>':'')+(confidence?'<span>'+esc(confidence)+'</span>':'')+'</span></a>'+artemisSaveButton(o.id,o.company)+'</li>';}).join('');artemisSyncSaves();
+  box.innerHTML=rows.slice(0,3).map(o=>{const fit=typeof o.fit_score==='number'?Math.round(o.fit_score*100)+'% match':'';const confidence=typeof o.confidence==='number'&&o.confidence>=.75?'High confidence':'';const sub=[o.location,o.arrangement].filter(Boolean).join(' · ');return '<li class="home-opportunity-item"><a class="opportunity-row" href="'+esc(safePath('/opportunities/'+encodeURIComponent(o.id||''),'/opportunities'))+'"><span class="opportunity-initials">'+esc(initials(o.company))+'</span><span class="opportunity-copy"><span class="opportunity-company">'+esc(o.company||'Company')+'</span><span class="opportunity-title">'+esc(o.title||'Opportunity')+'</span><span class="opportunity-sub">'+esc(sub||'Details not recorded')+'</span></span><span class="opportunity-fit"><span class="opportunity-pay">'+esc(o.compensation_text||'Pay not listed')+'</span>'+(fit?'<strong>'+esc(fit)+'</strong>':'')+(confidence?'<span>'+esc(confidence)+'</span>':'')+'</span></a>'+artemisSaveButton(o.id,o.company)+'</li>';}).join('');artemisSyncSaves();
 }
 function relativeDate(value){const date=new Date(value);if(isNaN(date.getTime()))return '';const seconds=Math.max(0,(Date.now()-date.getTime())/1000);if(seconds<60)return 'Just now';if(seconds<3600)return Math.floor(seconds/60)+' min ago';if(seconds<86400)return Math.floor(seconds/3600)+' hours ago';if(seconds<604800)return Math.floor(seconds/86400)+' days ago';return readableDate(value);}
 function renderActivity(d){
@@ -276,7 +284,7 @@ function renderActivity(d){
 }
 function renderHome(d){
   const name=String(d.candidate_name||'').trim().split(/\s+/)[0];
-  const greeting='Good morning';
+  const hour=new Date().getHours();const greeting=hour<12?'Good morning':hour<17?'Good afternoon':'Good evening';
   document.querySelector('#home-greeting').textContent=greeting+(name?', '+name+'.':'.');
   const brief=d.morning_brief||{},m=d.reference_metrics;const summary=m&&m.analyzed>0?'Artemis has analyzed '+m.analyzed+' opportunities, with '+m.high_confidence+' high-confidence matches. '+m.ready+' applications ready for review and '+m.updates+' unread employer updates.':(brief.narrative||'Your career search, clearly in view.');
   document.querySelector('#home-summary').textContent=summary;

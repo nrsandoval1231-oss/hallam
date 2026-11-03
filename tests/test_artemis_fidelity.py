@@ -134,3 +134,64 @@ def test_opportunity_api_preserves_recorded_work_arrangement(prepared, monkeypat
     rows = TestClient(app).get('/api/opportunities').json()['opportunities']
     assert len(rows) == 1
     assert rows[0]['remote_status'] == 'ONSITE'
+
+
+@pytest.mark.parametrize('width', [1280, 1440, 1920])
+def test_desktop_uses_readable_scale_and_one_aligned_application_canvas(fidelity_page, width):
+    page, _ = fidelity_page
+    page.set_viewport_size({'width': width, 'height': 1080})
+    page.goto('http://artemis.test/', wait_until='networkidle')
+    geometry = page.evaluate('''() => {
+      const box=s=>document.querySelector(s).getBoundingClientRect();
+      const size=s=>parseFloat(getComputedStyle(document.querySelector(s)).fontSize);
+      return {hero:box('.home-hero').toJSON(),panels:box('.home-panels').toJSON(),
+        header:box('.topnav').toJSON(),nav:size('nav.primary a'),label:size('.reference-metric-label'),
+        title:size('.brief-item-title'),headline:size('.home-hero h1')};
+    }''')
+    assert geometry['hero']['width'] >= width*.9
+    assert abs(geometry['hero']['x']-geometry['panels']['x']) <= 1
+    assert abs(geometry['hero']['width']-geometry['panels']['width']) <= 1
+    assert geometry['header']['height'] >= 48
+    assert geometry['hero']['height'] >= 300
+    assert geometry['nav'] >= 16 and geometry['label'] >= 10
+    assert geometry['title'] >= 11 and geometry['headline'] >= 50
+    assert page.evaluate('document.documentElement.scrollWidth') == width
+
+
+def test_desktop_scale_does_not_jump_at_1500_pixels(fidelity_page):
+    page, _ = fidelity_page
+    sizes=[]
+    for width in (1499, 1500):
+        page.set_viewport_size({'width':width,'height':1000})
+        page.goto('http://artemis.test/',wait_until='networkidle')
+        sizes.append(page.locator('.home-hero').evaluate("el=>({height:el.getBoundingClientRect().height,font:parseFloat(getComputedStyle(el.querySelector('h1')).fontSize)})"))
+    assert abs(sizes[0]['height']-sizes[1]['height']) < 2
+    assert abs(sizes[0]['font']-sizes[1]['font']) < 1
+
+
+def test_latest_home_reference_landmarks_and_destination_links(fidelity_page):
+    page, _ = fidelity_page
+    page.set_viewport_size({'width':1280,'height':853})
+    page.goto('http://artemis.test/',wait_until='networkidle')
+    expected={'.topnav':(0,50),'.home-hero':(50,305),'.reference-metrics':(355,71),'.home-panels':(446,262),'.home-destinations':(725,120)}
+    for selector,(top,height) in expected.items():
+        box=page.locator(selector).bounding_box()
+        assert abs(box['y']-top)<=4,(selector,box)
+        assert abs(box['height']-height)<=4,(selector,box)
+    destinations=page.get_by_role('navigation',name='Explore Artemis')
+    assert destinations.get_by_role('link').count()==4
+    for path in ('/opportunities','/research','/career-plan','/applications'):
+        page.goto('http://artemis.test/',wait_until='networkidle')
+        page.locator('.home-destinations a[href="'+path+'"]').click()
+        assert page.url.endswith(path)
+        assert page.locator('main').is_visible()
+
+
+@pytest.mark.parametrize('width,height',[(1280,800),(1440,900),(1920,1080)])
+def test_latest_desktop_destination_tiles_fit_standard_viewports(fidelity_page,width,height):
+    page,_=fidelity_page
+    page.set_viewport_size({'width':width,'height':height})
+    page.goto('http://artemis.test/',wait_until='networkidle')
+    box=page.locator('.home-destinations').bounding_box()
+    assert box['y']+box['height'] <= height,(width,height,box)
+    assert page.locator('.home-hero').bounding_box()['width'] >= width*.9

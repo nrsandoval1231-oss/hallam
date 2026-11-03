@@ -1,57 +1,53 @@
-# ARTEMIS implementation and acceptance receipt — 2026-11-03
+# ARTEMIS latest-reference implementation receipt — 2026-11-03
 
-Review: [draft PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Feature branch: `feat/artemis-design-fidelity`, based on `44e4841` (`main`). No backend engine, authentication or application-submission behavior was rebuilt.
+Review: [draft PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Branch: `feat/artemis-design-fidelity`.
 
-## Audit and implementation
+The latest owner-supplied **single-screen Home screenshot** supersedes the earlier collage for Home. [Target measurements](reference/LATEST_HOME_TARGET.md) and root [visual QA](../../design-qa.md) record this change. The owner rejected the previous desktop width; its acceptance was withdrawn.
 
-The audit/plan is [recorded here](../superpowers/plans/2026-11-03-design-fidelity.md). The working frontend is FastAPI-generated HTML and vanilla JavaScript, not the `apps/web` package stub. All existing destinations and engine APIs remain in use.
+## Current implementation
 
-- Centralized reference surfaces, rules, spacing and canvas measurements; retained the exact evergreen/sage/stone/sand/graphite palette.
-- Preserved the original tapered architectural A. Refined horizontal masthead, understated active underline, account menu and accessible mobile menu.
-- Restored Cormorant Garamond on mobile headlines and Manrope on interface/data. Added local WOFF2 fonts and preloads; TTF masters and SIL licenses remain. WOFF2 files total 263,388 bytes versus roughly 1.3 MB of TTF masters. No new runtime dependency.
-- Corrected architectural crop/overlay, hero type wrapping, compact metrics, desktop workspace proportions, mobile image/metric/CTA rhythm, tablet grids and long-content handling.
-- Rebuilt Opportunities as a compact company/role/pay/match list with live text search, confidence/remote chips and expandable existing location/salary/industry filters. Kept API ranking, prepare and pass actions. Unknown compensation cannot satisfy a numeric compensation filter; unassessed confidence cannot satisfy “High confidence.” The Remote chip uses recorded work arrangement, with location-text fallback only for missing/unknown arrangement.
-- Added candidate-scoped saves across Home, list and detail using browser storage. These saves are **local to this browser**, not server-synchronized. Storage failures leave the unsaved state unchanged and provide a readable explanation. They do not shortlist, prepare, approve or submit anything.
-- Retained detail evidence/tabs, recommendation logic, document preview, application review/approval gates, Career Plan preferences/edit links and all supporting operational routes. Refined shared quiet surfaces and controls.
-- Relative activity times and explicit Home failure states prevent stale loading content. Essential responsive controls have larger touch targets and keyboard focus. Reduced motion disables smooth scrolling and transitions.
+The application remains FastAPI-rendered HTML with vanilla JavaScript and its existing API/engine integration. No backend system, authentication or application approval boundary was rebuilt.
 
-## Screenshot evidence
+- Full-width desktop application, shared aligned canvas capped at 1800px; no wide green collage rails.
+- Compact open-A masthead, five navigation links, search/Ask control, real notification bell and actual candidate avatar.
+- Tracked time-aware greeting, editorial headline, sunset architectural cover, primary brief action and supported read-aloud summary.
+- Four translucent metric cards within the photographic cover; three warm briefing panels; four functional photographic destination tiles.
+- Measured 1280×853 geometry: header y0/h50; hero y50/h305; metrics y355/h71; panels y446/h262; destination tiles y725/h120.
+- Responsive desktop scale accounts for width and height so tiles fit at 1280×800, 1440×900 and 1920×1080. Separate tablet/mobile layouts remain.
+- Compact Opportunities search/filter/chip rows, candidate-scoped browser-local saves across Home/list/detail, recorded remote-status filtering, honest unknown salary/confidence handling.
+- Existing detail/recommendation evidence, document preview, review steps, unresolved answers, disabled incomplete approval, Career Plan preferences and remaining operational routes remain accessible.
+- Local WOFF2 fonts total 263,388 bytes. Five new reconstructed photographic WebP assets total approximately 350KB. No new runtime dependencies.
 
-All committed captures contain synthetic fixtures, never private candidate data. The acceptance browser loads actual FastAPI HTML, API responses and local assets through TestClient. External hosts are refused. A separate Chromium check also visited a running Uvicorn server with an isolated empty database.
+## Reviewable evidence
 
-Evidence: [dated directory](evidence/fidelity-2026-11/).
+All captures contain synthetic service-built candidate/application fixtures, not private user data or fabricated production metrics.
 
-| Evidence | File |
-| --- | --- |
-| Desktop before/after | [comparison](evidence/fidelity-2026-11/before-after-home-1280-comparison.png) |
-| Mobile before/after | [comparison](evidence/fidelity-2026-11/before-after-home-375-comparison.png) |
-| Reference / hero | [comparison](evidence/fidelity-2026-11/home-hero-comparison.png) |
-| Reference / workspace | [comparison](evidence/fidelity-2026-11/home-workspace-comparison.png) |
-| Reference / mobile | [comparison](evidence/fidelity-2026-11/home-mobile-comparison.png) |
-| Reference / detail | [comparison](evidence/fidelity-2026-11/detail-comparison.png) |
-| Reference / studio | [comparison](evidence/fidelity-2026-11/review-comparison.png) |
-| Reference / Career Plan | [comparison](evidence/fidelity-2026-11/career-plan-comparison.png) |
-| Live empty-state mobile | [capture](evidence/fidelity-2026-11/empty-live-390.png) |
+- [Latest 1280×853 preview](evidence/fidelity-2026-11/after/home-1280x853-viewport.png)
+- [1440×900](evidence/fidelity-2026-11/after/home-1440x900-viewport.png)
+- [1920×1080](evidence/fidelity-2026-11/after/home-1920x1080-viewport.png)
+- [390×844 phone](evidence/fidelity-2026-11/after/home-390x844-viewport.png)
+- [Rejected narrow desktop versus current](evidence/fidelity-2026-11/desktop-width-fix-comparison.png)
+- [Original baseline versus current](evidence/fidelity-2026-11/before-after-home-1280-comparison.png)
+- [Measured browser geometry](evidence/fidelity-2026-11/desktop-layout-bounds.json)
 
-Each reference comparison also has an adjacent `*-overlay.png` and isolated `*-source-crop.png`. Regenerate with `uv run python scripts/compare_artemis.py`. Overlays are 50% registration aids, not pixel-score acceptance claims.
+The `after/` directory also contains every required desktop/tablet/phone viewport and all major workflows, plus 430px, 820px and full-page captures. `*-viewport.png` files are exact viewport captures; `NAME-WIDTH.png` files are full-page captures. Baseline/current overlays are 50% blends, not scalar fidelity scores.
 
-Full-page and viewport screenshots cover Home, Opportunities, detail, studio, Applications, Pipeline, Career Plan and Research at 1920×1080, 1440×900, 1280×800, 768×1024, 390×844 and 375×812; additional coverage at 1280×853, 820×900 and 430×932. Filenames containing `WIDTHxHEIGHT-viewport` are exact viewport captures; `NAME-WIDTH.png` captures the full page. The 1280×853 source comparison is preserved separately from 1280×800.
+Old composite source comparisons are explicitly archived under `historical-reference-b/`. They are not presented as comparisons with the newest source. The newest source is conversation-only; `scripts/compare_artemis.py --reference /path/to/latest-home.png` generates a true latest-source comparison if that actual raster becomes accessible. No generated screenshot is passed off as source evidence.
 
-## Validation
+## Verification
 
-**Full regression result: 1500 passed, 2 skipped, 3 live-deselected; no failures.** Final command receipts are recorded in root [design-qa.md](../../design-qa.md). Browser journeys verify primary navigation, local assets/fonts, menus, detail/plan/studio tabs, actual API evidence, disabled incomplete approvals, no horizontal overflow and no JavaScript errors. Additional regressions cover text/chip/advanced filters, save persistence and candidate isolation, unavailable storage, long mobile text, request failures, keyboard skip/menu behavior and reduced motion.
+**Final full suite: 1508 passed, 2 skipped, 3 live-deselected; no failures.** The skips concern Windows API signatures and unavailable PowerShell on this Linux worker. The sole warning is a third-party Starlette/AnyIO deprecation.
 
-Existing tests continue to cover auth, API contracts, ranking, candidate truth, hash-bound approvals, application actions and integration adapters. The existing industry-filter browser test now opens More filters before entering industry; its original positive/negative matching assertions remain. No test was weakened or deleted. No employer application was submitted; live provider tests remain outside the default suite.
+Responsive captures: 10 passed. Final focused fidelity/shared-chrome checks after height-aware sizing: 24 passed. Source landmark/destination route regression passes. Ruff, frozen lock check, Node syntax/layout validation, source/wheel build and diff whitespace checks pass. The Python runtime has no configured TypeScript typecheck or npm production build.
 
-There is no configured npm build or TypeScript typecheck for this server-rendered application. `uv build` is its production packaging check. The inert `apps/web` stub was not substituted for the runtime.
+Existing tests cover auth, candidate truth, API contracts, ranking, hash-bound approval, adapters and execution boundaries. New tests cover source landmarks, wide aligned bounds, desktop resize continuity, visible destination tiles, four destination routes, local-save persistence/isolation, blocked storage, text/chip/advanced filters, unknown pay/confidence, recorded remote arrangements, long content, failure state, keyboard skip/menu and reduced motion. No test was deleted or weakened; existing visual assertions were updated to the owner-requested palette/logo scale and filter-menu interaction.
 
-## Asset and fidelity limitations
+A fresh reviewer found no Important/Critical issue in the new Home wrapper, links, CSS cascade or rendered composition. No employer requests or submissions, merge or deployment were performed.
 
-1. **Original photograph unavailable.** Reused the repository's original generated architectural artwork (`brand/images/artemis-architecture.webp`), already documented in BRAND.md. This is not the exact reference photograph; tree shapes, geometry and lighting differ. It is not presented as a licensed stock original or pixel-identical reconstruction. Crop, warm neutral atmosphere and text balance are compared in the evidence.
-2. **Reference A** is visible in the conversation, but no independent raster/vector file was available in the repository. Its approved palette, font pairing and open-A direction are used; automated crop overlays use the supplied Reference B file.
-3. **Flattened workflow thumbnails** do not specify their underlying viewport. They are compared at normalized thumbnail scale, with uncertain source precision explicitly acknowledged.
-4. **Content state differs deliberately.** The service-built fixture has incomplete applications and unassessed matches. Zero counts, missing fit/recommendation explanations, honest confidence and full document content remain visible. Example employers, salaries, metrics and invented customization claims from the mockup were not copied into production.
-5. **Summary control** uses the supported read-aloud summary instead of inventing a video or two-minute duration. It appears only when speech synthesis is supported.
-6. **Saves** are scoped to the active candidate in this browser. Cross-device/account synchronization would require a separately designed server persistence feature.
+## Explicit remaining limits
 
-These are explicit deviations; this receipt does not claim exact pixel reproduction or a live-data production pilot. Nothing was merged or deployed.
+**Exact fidelity is not signed off.** The latest source raster is only visible in the conversation and no standalone original photograph/tile assets are available. The five new images are generated reconstructions; architectural geometry, foliage and lighting remain different. A true latest-source pixel overlay cannot currently be generated. The PR therefore remains a draft; root `design-qa.md` records exact-fidelity acceptance as blocked.
+
+Names, greeting time, counts, companies, compensation and activity remain real data. The fixture has zero assessed matches and an incomplete package, so it intentionally differs from the mockup's example records. No sample employers, fabricated growth percentage, invented recommendation, video or two-minute duration is inserted.
+
+Saves are local to this browser and candidate, not synchronized across devices. Private user production data and live third-party providers were not exercised during screenshot QA.

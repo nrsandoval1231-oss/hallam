@@ -2,11 +2,12 @@
 
 REFERENCE_CSS = r"""
 html {
-  background:#142D29
+  background:#F7F6F1
 }
 body {
-  background:#142D29;
-  max-width:1008px;
+  background:#F7F6F1;
+  width:100%;
+  max-width:none;
   margin:0 auto;
   min-height:100vh;
   box-shadow:0 0 72px #0d201d55;
@@ -466,19 +467,21 @@ body>.topnav,body>main {
   --space-5:32px;
   --space-6:44px;
   --control-radius:4px;
-  --canvas:clamp(1008px,78.75vw,1440px)
+  --canvas:1800px
 }
 body {
-  max-width:var(--canvas);
+  max-width:none;
   box-shadow:none;
   background-attachment:scroll
 }
 .topnav {
-  max-width:none
+  max-width:var(--canvas);
+  width:100%;
+  margin:0 auto
 }
 .home.home {
   width:100%;
-  max-width:none
+  max-width:var(--canvas)
 }
 .topnav nav.primary a {
   font-size:10px
@@ -488,6 +491,8 @@ body {
   letter-spacing:.4em
 }
 .wrap {
+  max-width:var(--canvas);
+  margin:0 auto;
   padding-top:32px
 }
 .wrap a.btn {
@@ -940,109 +945,6 @@ body {
   font-size:10px!important;
   color:var(--soft-ink)
 }
-@media(min-width:1100px) {
-  .home-panels {
-    width:min(100vw,1720px);
-    position:relative;
-    left:50%;
-    transform:translateX(-50%);
-    padding:0 11px;
-    background:var(--surface)
-  }
-  .home-panel {
-    min-height:215px
-  }
-  .home-panel-heading h2 {
-    font-size:19px
-  }
-  .home-opportunity-item {
-    padding-right:28px
-  }
-  .opportunity-title {
-    font-size:10px
-  }
-}
-@media(min-width:1500px) {
-  .topnav {
-    height:64px;
-    min-height:64px;
-    padding:0 48px
-  }
-  .topnav nav.primary {
-    margin-left:65px;
-    gap:35px
-  }
-  .topnav nav.primary a {
-    font-size:12px
-  }
-  .brand .word {
-    font-size:13px
-  }
-  .brand .mark {
-    width:36px;
-    height:36px
-  }
-  .home-hero {
-    min-height:330px;
-    padding:48px 60px 28px
-  }
-  .home-hero h1 {
-    font-size:53px
-  }
-  .home-greeting {
-    font-size:19px
-  }
-  .home-summary {
-    font-size:14px;
-    max-width:440px
-  }
-  .home-hero-actions {
-    margin-top:22px
-  }
-  .home .brief-cta {
-    min-height:42px;
-    font-size:12px
-  }
-  .hero-maxim {
-    top:63px;
-    right:60px;
-    font-size:9px
-  }
-  .reference-metric {
-    min-height:78px
-  }
-  .reference-metric-label {
-    font-size:12px
-  }
-  .reference-metric-value {
-    font-size:28px
-  }
-  .reference-metrics {
-    margin-bottom:24px
-  }
-  .home-panel {
-    padding:20px 24px;
-    min-height:270px
-  }
-  .home-panel-heading h2 {
-    font-size:24px
-  }
-  .brief-item-title,.opportunity-title,.activity-title {
-    font-size:12px
-  }
-  .brief-item-detail,.activity-detail,.activity-time {
-    font-size:11px
-  }
-  .opportunity-sub,.opportunity-company,.opportunity-pay {
-    font-size:10px
-  }
-  .brief-item,.opportunity-row {
-    padding:13px 0
-  }
-  .home-operations {
-    margin-top:25px
-  }
-}
 @media(min-width:761px) and (max-width:1099px) {
   body {
     width:100%;
@@ -1378,11 +1280,7 @@ body {
   font-weight:500;
   line-height:1.2
 }
-@media(min-width:1500px) {
-  .reference-metric-value {
-    font-size:24px
-  }
-}
+@media(min-width:1100px){.reference-metric-value{font-size:26px}}
 @media(max-width:760px) {
   .brand {
     gap:16px
@@ -1409,5 +1307,122 @@ body {
     min-height:66px!important;
     border-radius:8px!important
   }
+}
+/* Latest owner-supplied single-screen target: 1280 × 853. */
+.home-destinations {
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:17px 18px 0;
+}
+.destination-tile {
+  position:relative;display:flex;flex-direction:column;justify-content:center;min-width:0;
+  min-height:120px;padding:14px 32px;border:1px solid #fff8;border-radius:10px;
+  color:var(--graphite);overflow:hidden;background-color:var(--stone);background-size:cover;background-position:center;
+  box-shadow:0 4px 14px #5a45200a;text-decoration:none;
+}
+.destination-tile h2 {font:500 24px/1 'Artemis Display',serif;margin:7px 0 4px;color:inherit}
+.destination-tile p {font:400 11px/1.3 'Artemis Sans',sans-serif;margin:0;color:inherit}
+.destination-icon {width:27px;height:27px}
+.destination-arrow {position:absolute;bottom:15px;right:17px;width:16px;height:16px;transform:rotate(-0deg)}
+.destination-opportunities {background-image:url('/brand/images/artemis-destination-opportunities.webp');color:#F7F6F1}
+.destination-research {background-image:url('/brand/images/artemis-destination-research.webp')}
+.destination-plan {background-image:url('/brand/images/artemis-destination-plan.webp');color:#F7F6F1}
+.destination-applications {background-image:url('/brand/images/artemis-destination-applications.webp')}
+.destination-opportunities img,.destination-plan img {filter:brightness(0) invert(1)}
+.destination-tile:hover {color:inherit;box-shadow:0 5px 16px #142d291a}
+.destination-opportunities:hover,.destination-plan:hover {color:#F7F6F1}
+.reference-metric-value,.brief-number {font-variant-numeric:lining-nums tabular-nums}
+@media(max-width:1099px) {
+  .home-destinations {grid-template-columns:repeat(2,minmax(0,1fr));margin:17px 20px 0}
+}
+@media(max-width:760px) {
+  .home-hero-image {background-image:url('/brand/images/artemis-home-architecture.webp')}
+  .home-destinations {grid-template-columns:1fr;gap:12px}
+  .destination-tile {min-height:120px}
+}
+@media(min-width:1100px) {
+  :root {--home-unit:clamp(.9375px,min(.078125vw,.117233vh),1.40625px)}
+  .topnav {height:calc(50 * var(--home-unit));min-height:calc(50 * var(--home-unit));padding:0 calc(43 * var(--home-unit))}
+  .brand {gap:calc(10 * var(--home-unit))}
+  .brand .mark {width:calc(40 * var(--home-unit));height:calc(40 * var(--home-unit))}
+  .brand .word {font-size:calc(19 * var(--home-unit));letter-spacing:.4em;font-weight:500}
+  .topnav nav.primary {margin-left:calc(105 * var(--home-unit));gap:calc(33 * var(--home-unit))}
+  .topnav nav.primary a {font-family:'Artemis Display',serif;font-size:calc(18 * var(--home-unit));font-weight:600;color:var(--graphite)}
+  .topnav nav.primary a.active {font-weight:700}
+  .topnav nav.primary a.active::after {bottom:calc(10 * var(--home-unit));height:2px}
+  .nav-right {gap:calc(18 * var(--home-unit))}
+  .ask-pill,.bell {width:calc(28 * var(--home-unit));min-width:0;min-height:calc(28 * var(--home-unit));height:calc(28 * var(--home-unit));padding:0}
+  .ask-pill svg,.bell svg {width:calc(20 * var(--home-unit));height:calc(20 * var(--home-unit))}
+  .bell {display:flex;background:none;border:0;box-shadow:none;backdrop-filter:none}
+  .bell .badge {top:0;right:2px;min-width:6px;height:6px;padding:0;font-size:0;background:#9C4A38}
+  .avatar {width:calc(32 * var(--home-unit));min-width:calc(32 * var(--home-unit));height:calc(32 * var(--home-unit));min-height:calc(32 * var(--home-unit));font-size:calc(11 * var(--home-unit));background:var(--evergreen)}
+  .home.home {background:#F0E9E1}
+  .home-cover {display:flow-root;background-image:linear-gradient(90deg,rgba(247,238,226,.88),rgba(247,238,226,.68) 28%,rgba(247,238,226,.10) 49%,transparent 65%),url('/brand/images/artemis-home-architecture.webp');background-size:cover;background-position:center}
+  .home-hero {min-height:calc(305 * var(--home-unit));padding:calc(31 * var(--home-unit)) calc(78 * var(--home-unit)) calc(20 * var(--home-unit));background:transparent}
+  .home-hero::before {content:none}
+  .home-hero-copy {width:calc(440 * var(--home-unit))}
+  .home-greeting {font:650 calc(11 * var(--home-unit))/1.4 'Artemis Sans',sans-serif;letter-spacing:.32em;text-transform:uppercase;margin:0 0 calc(14 * var(--home-unit))}
+  .home-hero h1 {max-width:calc(460 * var(--home-unit));font-size:calc(54 * var(--home-unit));line-height:.91;letter-spacing:-.005em;font-weight:600;margin:0 0 calc(11 * var(--home-unit))}
+  .home-summary {max-width:calc(355 * var(--home-unit));min-height:calc(56 * var(--home-unit));font-size:calc(14 * var(--home-unit));line-height:1.32;margin:0}
+  .home-hero-actions {margin-top:calc(17 * var(--home-unit));gap:calc(23 * var(--home-unit))}
+  .home .brief-cta {min-height:calc(42 * var(--home-unit));padding:calc(10 * var(--home-unit)) calc(30 * var(--home-unit));font:600 calc(14 * var(--home-unit))/1.2 'Artemis Display',serif;border-radius:8px;background:linear-gradient(#173a31,#0d231f);box-shadow:0 4px 8px #142d2912}
+  .home .brief-cta img {width:calc(16 * var(--home-unit));height:calc(16 * var(--home-unit))}
+  .listen-icon {width:calc(42 * var(--home-unit));height:calc(42 * var(--home-unit));background:#faf6eecc;border-color:#d5d0c6}
+  .listen-copy {font-size:calc(11 * var(--home-unit))}
+  .listen-copy small {font-size:calc(10 * var(--home-unit))}
+  .hero-maxim {top:calc(88 * var(--home-unit));right:calc(52 * var(--home-unit));max-width:calc(92 * var(--home-unit));font-size:calc(10 * var(--home-unit));line-height:2.1;letter-spacing:.32em}
+  .hero-maxim::after {width:calc(35 * var(--home-unit));margin-top:calc(18 * var(--home-unit))}
+  .reference-metrics {grid-template-columns:1.06fr .96fr 1fr 1fr;gap:calc(12 * var(--home-unit));margin:0 calc(47 * var(--home-unit)) calc(20 * var(--home-unit));padding:0;background:none}
+  .reference-metric {min-height:calc(71 * var(--home-unit));padding:calc(11 * var(--home-unit)) calc(18 * var(--home-unit));grid-template-columns:calc(40 * var(--home-unit)) minmax(0,1fr) auto;gap:calc(13 * var(--home-unit));border:1px solid #fff8;border-radius:8px;background:#faf6efdf;box-shadow:0 4px 14px #6f4e2310;backdrop-filter:blur(5px)}
+  .reference-metric-icon {width:calc(40 * var(--home-unit));height:calc(40 * var(--home-unit));border-color:#fff5;background:#fff3}
+  .reference-metric-icon img {width:calc(27 * var(--home-unit));height:calc(27 * var(--home-unit))}
+  .reference-metric-value {font:600 calc(26 * var(--home-unit))/1 'Artemis Display',serif}
+  .reference-metric-label {font-size:calc(10 * var(--home-unit));line-height:1.3;white-space:normal;color:#48504a}
+  .reference-metric-tag {font-size:calc(9 * var(--home-unit));border-radius:5px;padding:4px 7px}
+  .home-panels {width:100%;left:auto;transform:none;position:static;grid-template-columns:1.23fr 1.25fr 1fr;gap:calc(14 * var(--home-unit));padding:0 calc(18 * var(--home-unit));background:transparent}
+  .home-panel {min-height:calc(262 * var(--home-unit));padding:calc(12 * var(--home-unit)) calc(20 * var(--home-unit)) calc(16 * var(--home-unit));border:1px solid #fff9;border-radius:10px;background:#fcf8f2e6;box-shadow:0 4px 16px #80623f0c}
+  .home-panel-heading {margin-bottom:calc(12 * var(--home-unit));gap:8px}
+  .home-panel-heading h2 {font-size:calc(24 * var(--home-unit));font-weight:600;line-height:1;white-space:nowrap}
+  .home-panel-heading a {font-size:calc(10 * var(--home-unit));font-weight:650}
+  .brief-date {font-size:calc(8 * var(--home-unit));letter-spacing:.2em;margin-left:4px;white-space:nowrap}
+  .brief-item {padding:calc(10 * var(--home-unit)) 0;grid-template-columns:calc(34 * var(--home-unit)) minmax(0,1fr) 14px;gap:calc(14 * var(--home-unit));border-top:1px solid #e9e0d6}
+  .brief-number {font:600 calc(20 * var(--home-unit))/1 'Artemis Display',serif;width:calc(34 * var(--home-unit));height:calc(34 * var(--home-unit));border:1px solid #f2e5d6;background:#f5ece0}
+  .brief-item-title,.opportunity-title,.activity-title {font-size:calc(11 * var(--home-unit));line-height:1.35;font-weight:650}
+  .brief-item-detail,.activity-detail,.activity-time {font-size:calc(9 * var(--home-unit));line-height:1.4}
+  .home-opportunity-item {padding-right:calc(24 * var(--home-unit));border-color:#e9e0d6}
+  .opportunity-row {grid-template-columns:calc(40 * var(--home-unit)) minmax(0,1fr) calc(145 * var(--home-unit));gap:calc(13 * var(--home-unit));padding:calc(11 * var(--home-unit)) 0}
+  .opportunity-initials {width:calc(40 * var(--home-unit));height:calc(40 * var(--home-unit));font-size:calc(16 * var(--home-unit));border-radius:7px}
+  .opportunity-company {font-size:calc(10 * var(--home-unit));font-weight:650}
+  .opportunity-title {font-weight:500}
+  .opportunity-sub {font-size:calc(9 * var(--home-unit))}
+  .opportunity-fit {display:flex;flex-wrap:wrap;justify-content:flex-start;gap:5px;max-width:none;font-size:calc(8 * var(--home-unit))}
+  .opportunity-pay {flex-basis:100%;font-size:calc(11 * var(--home-unit));text-align:left;max-width:none;margin-bottom:2px}
+  .opportunity-fit strong,.opportunity-fit>span:not(.opportunity-pay) {font-size:calc(8 * var(--home-unit));padding:3px 5px;background:#e1ead9;border-radius:4px}
+  .home-opportunity-item>.save-opportunity {top:calc(18 * var(--home-unit));right:-9px}
+  .activity-item {grid-template-columns:calc(34 * var(--home-unit)) minmax(0,1fr);gap:calc(10 * var(--home-unit));padding:calc(5 * var(--home-unit)) 0}
+  .activity-icon {width:calc(32 * var(--home-unit));height:calc(32 * var(--home-unit));border:1px solid #f0e4d4;background:#f5ece0;border-radius:50%}
+  .activity-icon img {width:calc(17 * var(--home-unit));height:calc(17 * var(--home-unit))}
+  .activity-detail,.activity-time {display:inline;margin-right:5px}
+  .home-destinations {gap:calc(12 * var(--home-unit));margin:calc(17 * var(--home-unit)) calc(18 * var(--home-unit)) 0}
+  .destination-tile {min-height:calc(120 * var(--home-unit));padding:calc(14 * var(--home-unit)) calc(32 * var(--home-unit))}
+  .destination-tile h2 {font-size:calc(24 * var(--home-unit))}
+  .destination-tile p {font-size:calc(11 * var(--home-unit))}
+  .home-operations {margin:calc(15 * var(--home-unit)) calc(18 * var(--home-unit)) 0}
+  .home-operations>summary,#status-line {font-size:10px}
+  .wrap {padding:40px 56px 64px;font-size:14px}
+  .wrap h1 {font-size:40px}
+  .wrap>p,.wrap label {font-size:13px}
+  .wrap h2 {font-size:25px}
+  .wrap h3 {font-size:14px}
+  .wrap .btn,.wrap button {min-height:40px;font-size:13px}
+  .wrap input,.wrap select,.wrap textarea {min-height:40px;font-size:14px}
+  .wrap .pill {font-size:11px}
+  .reference-tabs button,.opportunity-tabs [role=tab] {font-size:12px}
+  .career-overview .card h2,.career-pref strong,.target-roles li {font-size:14px}
+  .career-pref small {font-size:12px}
+  .wrap .studio-nav button {font-size:13px;min-height:38px}
+  .ranked-copy>strong {font-size:15px}
+  .ranked-company,.ranked-meta {font-size:12px}
+  .ranked-pay {font-size:13px}
+  .wrap .ranked-actions button {font-size:12px;min-height:34px}
+  .opportunity-evidence>summary,.confidence-label {font-size:11px}
 }
 """
