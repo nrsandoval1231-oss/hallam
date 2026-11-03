@@ -143,7 +143,7 @@ DETAIL_CSS = (
 
 OPPORTUNITY_DETAIL_BODY = r"""<main class="wrap">
 <p><a href="/opportunities">Back to opportunities</a></p>
-<div class="opp-hero"><div class="company-tile" id="company-tile" aria-hidden="true"></div><div><p class="eyebrow">Opportunity</p><h1 class="opp-title" id="title">Opportunity</h1><div class="opp-meta" id="meta"></div></div><div class="opp-confidence" id="confidence"></div></div>
+<div class="opp-hero"><div class="company-tile" id="company-tile" aria-hidden="true"></div><div><p class="eyebrow">Opportunity</p><h1 class="opp-title" id="title">Opportunity</h1><div class="opp-meta" id="meta"></div></div><div class="opp-confidence" id="confidence"></div><span class="detail-save" id="detail-save"></span></div>
 <p class="line" id="line"></p>
 <div class="opportunity-tabs" role="tablist" aria-label="Opportunity details" id="section-nav"><button type="button" role="tab" id="op-tab-overview" aria-controls="op-panel-overview" aria-selected="true" tabindex="0" data-tab="overview">Overview</button><button type="button" role="tab" id="op-tab-fit" aria-controls="op-panel-fit" aria-selected="false" tabindex="-1" data-tab="fit">Why it fits</button><button type="button" role="tab" id="op-tab-company" aria-controls="op-panel-company" aria-selected="false" tabindex="-1" data-tab="company">Company</button><button type="button" role="tab" id="op-tab-role" aria-controls="op-panel-role" aria-selected="false" tabindex="-1" data-tab="role">Role</button><button type="button" role="tab" id="op-tab-insights" aria-controls="op-panel-insights" aria-selected="false" tabindex="-1" data-tab="insights">Insights</button><button type="button" role="tab" id="op-tab-next" aria-controls="op-panel-next" aria-selected="false" tabindex="-1" data-tab="next">Next steps</button></div>
 <div id="sections"><section class="card"><p>Loading...</p></section></div>
@@ -159,6 +159,7 @@ function renderMeta(d){
   document.querySelector('#title').textContent=(o.title||j.title||'Opportunity');
   document.querySelector('#company-tile').textContent=company.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()||'•';
   document.querySelector('#meta').innerHTML=`<span>${esc(company)}</span><span>·</span><span>${esc(j.location||o.location||'Location not listed')}</span><span>·</span><span>${esc(j.compensation_text||'Pay not listed')}</span><span class="pill">${esc(o.status)}</span>`;
+  document.querySelector('#detail-save').innerHTML=artemisSaveButton(o.id,company);artemisSyncSaves();
   const confidence=d.fit&&d.fit.confidence!=null?`<strong>${esc(pct(d.fit.confidence))}</strong>Confidence`:'<strong>—</strong>Confidence not assessed';
   document.querySelector('#confidence').innerHTML=confidence;
 }

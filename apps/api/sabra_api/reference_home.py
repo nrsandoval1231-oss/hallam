@@ -39,7 +39,7 @@ HOME_CSS = r"""
   max-width: 450px;
   margin: 0 0 9px;
   color: var(--evergreen, #142D29);
-  font: 600 clamp(34px, 4vw, 40px)/.95 'Artemis Display', Georgia, serif;
+  font: 500 clamp(34px, 4vw, 40px)/.95 'Artemis Display', Georgia, serif;
   letter-spacing: -.035em;
 }
 .home-summary { max-width: 410px; margin: 0; color: #525D56; font-size: 12.5px; line-height: 1.45; }
@@ -188,15 +188,12 @@ HOME_CSS = r"""
 }
 @media (prefers-reduced-motion: reduce) {
   .home-hero-image,.home-hero::before { scroll-behavior: auto; }
-}@media(max-width:760px){
-.topnav{height:75px;min-height:75px;padding:0 29px}.brand{gap:16px}.brand .mark{width:46px;height:50px}.brand .word{font-size:16px;letter-spacing:.5em}.navtoggle summary{min-width:28px}.navtoggle summary img{width:28px;height:28px}
-.home.home{min-height:calc(100vh - 75px)}.home-hero{padding:25px 29px 0}.home-greeting{font-family:'Artemis Sans',sans-serif;font-size:14px;font-weight:500;line-height:1.4;margin:0 0 10px}.home-hero h1{font-family:Georgia,serif;font-size:44px;font-weight:400;line-height:1.04;letter-spacing:-.045em;margin:0 0 8px;max-width:100%}.home-hero-image{height:130px;margin:30px 0 0;border-radius:6px}
-.reference-metrics{margin:0 29px 14px;border:0;background:none}.reference-metric{min-height:94px;grid-template-columns:60px minmax(0,1fr) auto;gap:13px;padding:8px 12px;border:0;background:none}.reference-metric-icon{width:34px;height:38px}.reference-metric-icon img{width:34px;height:34px}.reference-metric-value{font-family:Georgia,serif;font-size:26px;line-height:1.12;font-weight:400}.reference-metric-label{font-size:14px;line-height:1.4;white-space:normal}.reference-metric-copy{gap:2px}.mobile-brief-cta{margin:0 29px 18px!important;min-height:66px!important;font-size:16px!important;font-weight:500!important;border-radius:12px!important}.home-panels{padding:0 29px}
 }
 
 """
 
 HOME_BODY = r'''<main class="home">
+<div class="home-cover">
 <section class="home-hero" aria-labelledby="home-title">
   <div class="home-hero-copy">
     <p class="home-greeting" id="home-greeting">Good morning.</p>
@@ -216,6 +213,7 @@ HOME_BODY = r'''<main class="home">
   <article class="reference-metric"><span class="reference-metric-icon" aria-hidden="true"><img src="/brand/icons/file-text.svg" alt=""></span><span class="reference-metric-copy"><strong class="reference-metric-value" data-reference-metric="ready">—</strong><span class="reference-metric-label">Applications ready</span></span><span class="reference-metric-tag" data-reference-tag="ready" hidden></span></article>
   <article class="reference-metric"><span class="reference-metric-icon" aria-hidden="true"><img src="/brand/icons/calendar.svg" alt=""></span><span class="reference-metric-copy"><strong class="reference-metric-value" data-reference-metric="updates">—</strong><span class="reference-metric-label" title="Recorded employer responses not yet marked as seen">Meaningful updates</span></span><span class="reference-metric-tag" data-reference-tag="updates" hidden></span></article>
 </section>
+</div>
 <a class="brief-cta mobile-brief-cta" href="#morning-brief">View today’s brief →</a>
 <section class="home-panels" aria-label="Your career briefing">
   <section class="home-panel" id="morning-brief" aria-labelledby="brief-heading">
@@ -231,6 +229,12 @@ HOME_BODY = r'''<main class="home">
     <ul class="activity-list" id="activity-list"><li class="activity-empty">Loading recent activity…</li></ul>
   </section>
 </section>
+<nav class="home-destinations" aria-label="Explore Artemis">
+  <a class="destination-tile destination-opportunities" href="/opportunities"><img class="destination-icon" src="/brand/icons/briefcase.svg" width="28" height="28" alt=""><h2>Opportunities</h2><p>Curated roles aligned to your goals</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+  <a class="destination-tile destination-research" href="/research"><img class="destination-icon" src="/brand/icons/layers.svg" width="28" height="28" alt=""><h2>Research</h2><p>Deep intelligence on companies<br>and markets</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+  <a class="destination-tile destination-plan" href="/career-plan"><img class="destination-icon" src="/brand/icons/target.svg" width="28" height="28" alt=""><h2>Career Plan</h2><p>Your strategic path forward</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+  <a class="destination-tile destination-applications" href="/applications"><img class="destination-icon" src="/brand/icons/file-text.svg" width="28" height="28" alt=""><h2>Applications</h2><p>Build, refine, and manage your<br>submissions</p><img class="destination-arrow" src="/brand/icons/arrow-right.svg" width="18" height="18" alt=""></a>
+</nav>
 <details class="home-operations" id="run-log" hidden><summary>Search controls and latest run</summary>
   <div class="home-operations-body"><div class="home-run-controls"><button type="button" class="run-button" id="run-now">Run search</button><label><input type="checkbox" id="run-prepare"> Prepare packages for top roles (nothing is submitted)</label></div><p class="line" id="run-line"></p><div id="run-progress"></div></div>
 </details>
@@ -269,17 +273,18 @@ function renderOpportunities(d){
   let rows=Array.isArray(d.top_opportunities)?d.top_opportunities:(d.featured?[d.featured,...(d.recent||[]).filter(o=>o.id!==d.featured.id)]:d.recent||[]);
   const box=document.querySelector('#opportunity-list');
   if(!rows.length){box.innerHTML='<li class="opportunity-empty">No shortlisted opportunities yet. Run a search to review roles against your goals.</li>';return;}
-  box.innerHTML=rows.slice(0,4).map(o=>{const fit=typeof o.fit_score==='number'?Math.round(o.fit_score*100)+'% match':'';const confidence=typeof o.confidence==='number'&&o.confidence>=.75?'High confidence':'';const sub=[o.company,o.location,o.compensation_text].filter(Boolean).join(' · ');return '<li><a class="opportunity-row" href="'+esc(safePath('/opportunities/'+encodeURIComponent(o.id||''),'/opportunities'))+'"><span class="opportunity-initials">'+esc(initials(o.company))+'</span><span class="opportunity-copy"><span class="opportunity-title">'+esc(o.title||'Opportunity')+'</span><span class="opportunity-sub">'+esc(sub||'Details not recorded')+'</span></span><span class="opportunity-fit">'+(fit?'<strong>'+esc(fit)+'</strong>':'')+(confidence?'<span>'+esc(confidence)+'</span>':'')+'</span></a></li>';}).join('');
+  box.innerHTML=rows.slice(0,3).map(o=>{const fit=typeof o.fit_score==='number'?Math.round(o.fit_score*100)+'% match':'';const confidence=typeof o.confidence==='number'&&o.confidence>=.75?'High confidence':'';const sub=[o.location,o.arrangement].filter(Boolean).join(' · ');return '<li class="home-opportunity-item"><a class="opportunity-row" href="'+esc(safePath('/opportunities/'+encodeURIComponent(o.id||''),'/opportunities'))+'"><span class="opportunity-initials">'+esc(initials(o.company))+'</span><span class="opportunity-copy"><span class="opportunity-company">'+esc(o.company||'Company')+'</span><span class="opportunity-title">'+esc(o.title||'Opportunity')+'</span><span class="opportunity-sub">'+esc(sub||'Details not recorded')+'</span></span><span class="opportunity-fit"><span class="opportunity-pay">'+esc(o.compensation_text||'Pay not listed')+'</span>'+(fit?'<strong>'+esc(fit)+'</strong>':'')+(confidence?'<span>'+esc(confidence)+'</span>':'')+'</span></a>'+artemisSaveButton(o.id,o.company)+'</li>';}).join('');artemisSyncSaves();
 }
+function relativeDate(value){const date=new Date(value);if(isNaN(date.getTime()))return '';const seconds=Math.max(0,(Date.now()-date.getTime())/1000);if(seconds<60)return 'Just now';if(seconds<3600)return Math.floor(seconds/60)+' min ago';if(seconds<86400)return Math.floor(seconds/3600)+' hours ago';if(seconds<604800)return Math.floor(seconds/86400)+' days ago';return readableDate(value);}
 function renderActivity(d){
   let rows=Array.isArray(d.recent_activity)?d.recent_activity:[];
   const box=document.querySelector('#activity-list');
   if(!rows.length){box.innerHTML='<li class="activity-empty">No recent activity has been recorded.</li>';return;}
-  box.innerHTML=rows.slice(0,5).map(a=>{const kind=HOME_ACTIVITY_ICONS[a.kind]||HOME_ACTIVITY_ICONS.insight;const content='<span class="activity-icon" aria-hidden="true">'+kind+'</span><span class="activity-copy"><span class="activity-title">'+esc(a.label||a.title||'Activity recorded')+'</span>'+(a.detail?'<span class="activity-detail">'+esc(a.detail)+'</span>':'')+(a.occurred_at?'<time class="activity-time">'+esc(readableDate(a.occurred_at))+'</time>':'')+'</span>';return '<li class="activity-item">'+(a.href?'<a class="activity-row" href="'+esc(safePath(a.href,'/pipeline'))+'" style="display:contents">'+content+'</a>':content)+'</li>';}).join('');
+  box.innerHTML=rows.slice(0,5).map(a=>{const kind=HOME_ACTIVITY_ICONS[a.kind]||HOME_ACTIVITY_ICONS.insight;const content='<span class="activity-icon" aria-hidden="true">'+kind+'</span><span class="activity-copy"><span class="activity-title">'+esc(a.label||a.title||'Activity recorded')+'</span>'+(a.detail?'<span class="activity-detail">'+esc(a.detail)+'</span>':'')+(a.occurred_at?'<time class="activity-time">'+esc(relativeDate(a.occurred_at))+'</time>':'')+'</span>';return '<li class="activity-item">'+(a.href?'<a class="activity-row" href="'+esc(safePath(a.href,'/pipeline'))+'" style="display:contents">'+content+'</a>':content)+'</li>';}).join('');
 }
 function renderHome(d){
   const name=String(d.candidate_name||'').trim().split(/\s+/)[0];
-  const greeting='Good morning';
+  const hour=new Date().getHours();const greeting=hour<12?'Good morning':hour<17?'Good afternoon':'Good evening';
   document.querySelector('#home-greeting').textContent=greeting+(name?', '+name+'.':'.');
   const brief=d.morning_brief||{},m=d.reference_metrics;const summary=m&&m.analyzed>0?'Artemis has analyzed '+m.analyzed+' opportunities, with '+m.high_confidence+' high-confidence matches. '+m.ready+' applications ready for review and '+m.updates+' unread employer updates.':(brief.narrative||'Your career search, clearly in view.');
   document.querySelector('#home-summary').textContent=summary;
@@ -306,7 +311,7 @@ function renderRun(run){
 }
 async function readHomeBody(r){const text=await r.text();let d={};try{d=JSON.parse(text);}catch(e){d={detail:text};}return {ok:r.ok,d,text};}
 function homeError(b,fallback){return (b.d&&typeof b.d.detail==='string'?b.d.detail:b.text)||fallback;}
-async function loadHome(){try{const b=await readHomeBody(await fetch('/api/home'));if(!b.ok)throw new Error(homeError(b,'The overview could not be loaded.'));renderHome(b.d);}catch(error){document.querySelector('#home-summary').textContent=error.message;}}
+async function loadHome(){try{const b=await readHomeBody(await fetch('/api/home'));if(!b.ok)throw new Error(homeError(b,'The overview could not be loaded.'));renderHome(b.d);}catch(error){document.querySelector('#home-summary').textContent=error.message;document.querySelector('#status-line').textContent='Your brief could not be loaded. Refresh to try again.';document.querySelector('#brief-list').innerHTML='<li class="brief-empty">Your brief is unavailable.</li>';document.querySelector('#opportunity-list').innerHTML='<li class="opportunity-empty">Opportunities could not be loaded.</li>';document.querySelector('#activity-list').innerHTML='<li class="activity-empty">Activity could not be loaded.</li>';document.querySelectorAll('[data-reference-metric]').forEach(el=>el.textContent='—');}}
 function poll(id){if(pollTimer)return;pollTimer=setInterval(async()=>{try{const b=await readHomeBody(await fetch('/api/runs/'+encodeURIComponent(id)));if(!b.ok)return;document.querySelector('#run-progress').innerHTML=renderRun(b.d);if(b.d.status==='COMPLETED'||b.d.status==='FAILED'){clearInterval(pollTimer);pollTimer=null;document.querySelector('#run-now').disabled=false;loadHome();}}catch(e){}},2000);}
 async function runNow(){const line=document.querySelector('#run-line');line.textContent='';const prepare=!!document.querySelector('#run-prepare').checked;const b=await readHomeBody(await fetch('/api/runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'full',prepare:prepare})}));if(!b.ok){line.textContent=homeError(b,'The run could not start.');return;}const log=document.querySelector('#run-log');log.hidden=false;log.open=true;document.querySelector('#run-now').disabled=true;document.querySelector('#run-progress').innerHTML=renderRun(b.d);poll(b.d.id);}
 document.querySelector('#run-now').addEventListener('click',runNow);

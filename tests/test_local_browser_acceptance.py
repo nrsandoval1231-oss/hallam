@@ -354,6 +354,8 @@ def test_browser_opportunity_filter_uses_industry(chromium):
         page = context.new_page()
         page.goto("http://127.0.0.1/opportunities")
         page.wait_for_selector('button[data-id="synthetic-other"]')
+        page.get_by_role("button", name="More filters").click()
+        assert page.get_by_role("button", name="More filters").get_attribute("aria-expanded") == "true"
         page.fill('input[name="industry"]', "medical")
         page.click('button[type="submit"]')
         assert page.locator('button[data-id="synthetic-medical"]').count() == 1

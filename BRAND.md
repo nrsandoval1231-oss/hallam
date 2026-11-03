@@ -10,13 +10,13 @@
 - Voice: confident, insightful, calm, selective, specific, never theatrical or generic AI hype.
 
 ## Aesthetic
-**Quiet Strategist / architectural editorial minimalism.** The owner’s latest selected interface reference, [approved-interface.jpg](docs/brand/reference/approved-interface.jpg), is the active visual source. It supersedes the earlier non-photographic production interpretation. MARQO (https://www.behance.net/gallery/234103127/MARQO) is an inspiration for restraint, not a source of designs to copy. All logos, UI components and assets must be original.
+**Quiet Strategist / architectural editorial minimalism.** The owner’s latest single-screen Home screenshot, documented in [LATEST_HOME_TARGET.md](docs/brand/reference/LATEST_HOME_TARGET.md), is the active Home visual source. [approved-interface.jpg](docs/brand/reference/approved-interface.jpg) remains secondary workflow provenance. It supersedes the earlier non-photographic production interpretation. MARQO (https://www.behance.net/gallery/234103127/MARQO) is an inspiration for restraint, not a source of designs to copy. All logos, UI components and assets must be original.
 
 - No left navigation rail; minimal horizontal navigation.
 - Spacious ivory workspaces with judicious evergreen panels; clear hierarchy, quiet shadows and precise alignment.
 - Typography-led editorial hero and strong functional data interfaces.
 - No gratuitous futuristic effects, generic goddess imagery, stock bow-and-arrow logos, fake intelligence, or overloaded widgets.
-- The owner explicitly approved the architectural landscape hero in the selected interface reference. Production uses the original generated `brand/images/artemis-architecture.png`, served as an optimized WebP; it is atmospheric artwork, never evidence of product activity. No stock image or sample company logo is copied from the reference.
+- The owner explicitly approved the architectural landscape hero in the selected interface reference. The latest Home uses generated reconstructions `brand/images/artemis-home-architecture.webp` and four `artemis-destination-*.webp` backgrounds; the earlier `artemis-architecture.png` remains archived source artwork. The standalone source photograph is unavailable. These images are atmospheric artwork, never evidence of product activity. No stock image or sample company logo is copied from the reference.
 
 ## Color tokens
 | Token | Hex | Purpose |
