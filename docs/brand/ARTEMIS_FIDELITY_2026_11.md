@@ -1,6 +1,6 @@
 # ARTEMIS implementation and acceptance receipt — 2026-11-03
 
-Feature branch: `feat/artemis-design-fidelity`, based on `44e4841` (`main`). No backend engine, authentication or application-submission behavior was rebuilt.
+Review: [draft PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Feature branch: `feat/artemis-design-fidelity`, based on `44e4841` (`main`). No backend engine, authentication or application-submission behavior was rebuilt.
 
 ## Audit and implementation
 

@@ -33,7 +33,7 @@ Checks: locked uv environment, ruff, full pytest including Playwright and Node D
 - [x] Capture all requested viewports plus 430px; test real API journeys, keyboard, filters/saves, empty/error and responsive states.
 - [x] Crop Reference B, generate aligned side-by-sides/overlays, inspect, correct and recapture.
 - [x] Run complete regression/static/package checks and document limitations.
-- [ ] Commit and open a PR. Do not merge or deploy.
+- [x] Commit and open [draft PR #18](https://github.com/nrsandoval1231-oss/hallam/pull/18). Nothing merged or deployed.
 
 ## Review focus
 

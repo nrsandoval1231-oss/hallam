@@ -65,7 +65,7 @@ No further actionable P0/P1/P2 layout or interaction issue was found in the comp
 - [x] Verify actual browser interactions, keyboard, error/empty states and font delivery.
 - [x] Produce baseline/final, reference comparisons, overlays and documented asset limits.
 - [x] Record final complete regression and packaging receipts.
-- [ ] Open feature-branch PR.
+- [x] Open feature-branch PR: [#18](https://github.com/nrsandoval1231-oss/hallam/pull/18), draft for owner review.
 - [ ] Owner review; merge/deploy only with explicit approval.
 
 ## Final verification receipts
