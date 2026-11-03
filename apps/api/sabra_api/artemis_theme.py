@@ -6,8 +6,8 @@ without changing its structure or behavior.
 """
 
 EDITORIAL_CSS = r"""
-@font-face{font-family:'Artemis Display';src:url('/brand/fonts/CormorantGaramond-Variable.ttf') format('truetype');font-style:normal;font-weight:300 700;font-display:swap}
-@font-face{font-family:'Artemis Sans';src:url('/brand/fonts/Manrope-Variable.ttf') format('truetype');font-style:normal;font-weight:200 800;font-display:swap}
+@font-face{font-family:'Artemis Display';src:url('/brand/fonts/CormorantGaramond-Variable.woff2') format('woff2'),url('/brand/fonts/CormorantGaramond-Variable.ttf') format('truetype');font-style:normal;font-weight:300 700;font-display:swap}
+@font-face{font-family:'Artemis Sans';src:url('/brand/fonts/Manrope-Variable.woff2') format('woff2'),url('/brand/fonts/Manrope-Variable.ttf') format('truetype');font-style:normal;font-weight:200 800;font-display:swap}
 .skip-link{position:absolute;left:16px;top:-100px;padding:12px;background:#142D29;color:#F7F6F1;z-index:100}.skip-link:focus{top:10px;color:#F7F6F1}
 .brief-copy{max-width:36rem;margin:28px 0 20px}.brief-copy p{margin:7px 0}.brief-changes{display:flex;gap:18px;flex-wrap:wrap;list-style:none;padding:0;font-size:12px}.brief-changes strong{font-size:17px}.brief-changes span{display:block;color:var(--muted)}
 .brief-action{border-left:2px solid #29483E;padding:0 0 0 18px;margin:24px 0}.brief-action .eyebrow{display:block;margin-bottom:9px}.brief-action p{max-width:35rem;font-size:13px}.brand-note{margin-top:48px;padding-top:22px;border-top:1px solid #D8D6CC;font-size:12px;letter-spacing:.03em;color:#52615A}

@@ -15,7 +15,7 @@ from playwright.sync_api import sync_playwright
 from sabra_api.main import app
 
 
-@pytest.mark.parametrize("width,height", [(1280, 853), (1440, 1000), (820, 900), (375, 812)])
+@pytest.mark.parametrize("width,height", [(1920, 1080), (1440, 900), (1280, 800), (1280, 853), (820, 900), (768, 1024), (430, 932), (390, 844), (375, 812)])
 def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypatch, width, height):
     monkeypatch.setattr("sabra_engine.context.get_settings", lambda: prepared.ctx.settings)
     client = TestClient(app)
@@ -104,6 +104,7 @@ def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypa
                 directory.mkdir(parents=True, exist_ok=True)
                 label = ["home", "opportunities", "detail", "review", "applications", "pipeline", "career-plan", "research"][index]
                 page.screenshot(path=str(directory / f"{label}-{width}.png"), full_page=True)
+                page.screenshot(path=str(directory / f"{label}-{width}x{height}-viewport.png"))
         page.goto("http://artemis.test/", wait_until="networkidle")
         if width < 760:
             page.locator(".navtoggle summary").click()
@@ -122,7 +123,8 @@ def test_complete_local_journeys_use_real_api_and_local_fonts(prepared, monkeypa
 
 def test_local_brand_assets_are_served_and_traversal_cannot_escape():
     client = TestClient(app)
-    for path in ("/brand/fonts/CormorantGaramond-Variable.ttf", "/brand/fonts/Manrope-Variable.ttf",
+    for path in ("/brand/fonts/CormorantGaramond-Variable.woff2", "/brand/fonts/Manrope-Variable.woff2",
+                 "/brand/fonts/CormorantGaramond-Variable.ttf", "/brand/fonts/Manrope-Variable.ttf",
                  "/brand/logo/favicon.svg", "/brand/logo/exports/favicon-16-light.png"):
         response = client.get(path)
         assert response.status_code == 200, path

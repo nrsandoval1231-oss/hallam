@@ -9,7 +9,7 @@ to `ESC_JS` and `ASK_JS`, guarded so including it twice is harmless.
 
 Every dynamic string a page script renders goes through `esc()`.
 
-The visual system is ARTEMIS architectural editorial visual language (see BRAND.md): porcelain workspaces, precise dividers and editorial typography. No photography anywhere.
+The visual system is ARTEMIS architectural editorial visual language (see BRAND.md): porcelain workspaces, precise dividers and editorial typography. Architectural photography anchors the Home experience.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from .reference_home import HOME_CSS as REFERENCE_HOME_CSS
 from .reference_home import home_body as reference_home_body
 from .reference_plan import PLAN_BODY as REFERENCE_PLAN_BODY
 from .reference_theme import REFERENCE_CSS
+from .saved_opportunities import SAVED_JS
 
 # (label, path). The path is also the key `page_shell(active=...)` matches.
 # The five frozen primary destinations; the remaining work surfaces (Profile, Searches,
@@ -213,7 +214,7 @@ ESC_JS = (
 # shell itself must stay script-free for the offline tests), so it is guarded against
 # double inclusion and uses only function declarations plus the stubs the test harness
 # provides (no window, no location, no classList).
-CHROME_JS = r"""
+CHROME_JS = SAVED_JS + r"""
 function _vesc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function _veloraChrome(){
   if(globalThis.__veloraChrome)return;globalThis.__veloraChrome=true;
@@ -226,7 +227,7 @@ function _veloraChrome(){
       if(b&&n>0){b.textContent=String(n);b.hidden=false;}
     }).catch(()=>{});
     fetch('/api/status').then(r=>r.ok?r.json():null).then(d=>{
-      if(!d)return;const name=(d.candidate_name||'').trim();
+      if(!d)return;artemisInitSaves(d.candidate_id);const name=(d.candidate_name||'').trim();
       const av=$('#velora-avatar');
       if(av&&name){const parts=name.split(/\s+/);av.textContent=((parts[0]||' ')[0]+(parts.length>1?parts[parts.length-1][0]:'')).toUpperCase();}
     }).catch(()=>{});
@@ -392,6 +393,8 @@ def page_shell(title: str, body: str, *, active: str, css: str = "") -> str:
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="description" content="Artemis — your intelligent career operating '
         'system. Find the right opportunities. Present your best self. Move with confidence.">'
+        '<link rel="preload" href="/brand/fonts/CormorantGaramond-Variable.woff2" as="font" type="font/woff2" crossorigin>'
+        '<link rel="preload" href="/brand/fonts/Manrope-Variable.woff2" as="font" type="font/woff2" crossorigin>'
         '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
         f"<title>Artemis | {escape(title)}</title>"
         f"<style>{SHELL_CSS}{css}{EDITORIAL_CSS}{REFERENCE_CSS}</style></head>\n"
